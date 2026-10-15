@@ -227,13 +227,20 @@ input, select, textarea, button {
   background-color: var(--ps-bg-hover);
 }
 
-.btn-accent {
-  background: linear-gradient(135deg, #27272a, #e4e4e7);
-  color: #ffffff;
-  font-weight: 700;
+.btn-accent, #btnNodeClose {
+  background-color: #27272a !important;
+  background-image: none !important;
+  border: 1px solid #3f3f46 !important;
+  color: #f4f4f5 !important;
+  font-weight: 600 !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
 }
-.btn-accent:hover {
-  background: linear-gradient(135deg, #333338, #27272a);
+.btn-accent:hover, #btnNodeClose:hover {
+  background-color: #3f3f46 !important;
+  background-image: none !important;
+  border-color: #52525b !important;
+  color: #ffffff !important;
 }
 
 .btn-preview {
@@ -3005,4 +3012,110 @@ input:focus, select:focus, textarea:focus {
   stroke-width: 2.5 !important;
   stroke-dasharray: 4,4 !important;
   filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5)) !important;
+}
+
+/* ==========================================================================
+   Blender-Style Node Search Menu & Parameter Sockets (v9)
+   ========================================================================== */
+.node-search-menu {
+  position: absolute;
+  width: 520px;
+  max-height: 440px;
+  background-color: #18181b;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: inherit;
+}
+.node-search-menu.hidden {
+  display: none !important;
+}
+.nsm-header {
+  padding: 10px 12px;
+  background-color: #202024;
+  border-bottom: 1px solid #27272a;
+}
+#nsmSearchInput {
+  width: 100%;
+  background-color: #121214;
+  border: 1px solid #3f3f46;
+  color: #ffffff;
+  padding: 8px 12px;
+  border-radius: 2px;
+  font-size: 12px;
+  outline: none;
+}
+#nsmSearchInput:focus {
+  border-color: #71717a;
+}
+.nsm-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.nsm-cat-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #a1a1aa;
+  padding: 6px 10px;
+  background-color: #1f1f23;
+  border-radius: 2px;
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+.nsm-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+.nsm-item:hover, .nsm-item.highlighted {
+  background-color: #27272a;
+}
+.nsm-badge {
+  font-size: 9px;
+  font-weight: 900;
+  padding: 2px 5px;
+  border-radius: 2px;
+  background-color: #38383e;
+  color: #e4e4e7;
+}
+
+/* Connectable Inline Parameter Socket Styling */
+.node-inline-control .graph-port-input {
+  position: static !important;
+  display: inline-block;
+  margin-right: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #181920;
+  vertical-align: middle;
+}
+.graph-port.port-connected {
+  background-color: #e4e4e7 !important;
+  border-color: #71717a !important;
+}
+
+/* Space Overflow Protection */
+button, .btn, .btn-sm, .ps-btn, .action-btn, .ps-layer-btn, .ps-mode-switch-btn {
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  text-overflow: ellipsis !important;
+  box-sizing: border-box !important;
+}
+.ps-menubar-left, .node-editor-toolbar, .ps-dock-header, .ne-actions, .ne-title-group {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  flex-wrap: nowrap !important;
 }

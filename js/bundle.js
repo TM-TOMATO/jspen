@@ -10,63 +10,9 @@
   // 1. SoundEffects Engine (Web Audio API Synthesizer)
   // ==========================================================================
   class SoundManager {
-    constructor() {
-      this.ctx = null;
-    }
-    init() {
-      if (!this.ctx && (window.AudioContext || window.webkitAudioContext)) {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        this.ctx = new AudioCtx();
-      }
-      if (this.ctx && this.ctx.state === 'suspended') {
-        this.ctx.resume();
-      }
-    }
-    play(type = 'pop') {
-      try {
-        this.init();
-        if (!this.ctx) return;
-        const t = this.ctx.currentTime;
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        osc.connect(gain);
-        gain.connect(this.ctx.destination);
-
-        if (type === 'coin') {
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(987.77, t);
-          osc.frequency.setValueAtTime(1318.51, t + 0.08);
-          gain.gain.setValueAtTime(0.2, t);
-          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-          osc.start(t);
-          osc.stop(t + 0.35);
-        } else if (type === 'jump') {
-          osc.type = 'square';
-          osc.frequency.setValueAtTime(150, t);
-          osc.frequency.exponentialRampToValueAtTime(450, t + 0.15);
-          gain.gain.setValueAtTime(0.15, t);
-          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-          osc.start(t);
-          osc.stop(t + 0.2);
-        } else if (type === 'cut') {
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(800, t);
-          osc.frequency.exponentialRampToValueAtTime(120, t + 0.08);
-          gain.gain.setValueAtTime(0.2, t);
-          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-          osc.start(t);
-          osc.stop(t + 0.08);
-        } else {
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(400, t);
-          osc.frequency.exponentialRampToValueAtTime(80, t + 0.1);
-          gain.gain.setValueAtTime(0.25, t);
-          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-          osc.start(t);
-          osc.stop(t + 0.1);
-        }
-      } catch (e) {}
-    }
+    constructor() {}
+    init() {}
+    play() {}
   }
 
   // ==========================================================================
@@ -122,9 +68,65 @@
 
     // 2. Link & Logic
     follow_target: {
-      category: 'logic', name: '타겟 추적 (스프링)', icon: 'FLW',
-      description: '다른 레이어나 마우스를 탄성 물리 스프링으로 부드럽게 추적합니다.',
-      defaultParams: { condition: 'always', targetLayerId: null, stiffness: 0.1, damping: 0.8, offsetX: 0, offsetY: 0 }
+      category: 'logic', name: '타겟 추적 모듈', icon: 'FLW',
+      description: '타겟 스프라이트를 다양한 방식(스프링, 감속 추적, 등속 추적, 궤도 공전, 탄성, 즉시 고정)으로 추적합니다.',
+      defaultParams: {
+        condition: 'always',
+        targetSpriteId: '',
+        trackMode: 'lerp', // lerp, spring, constant, orbit, elastic, direct
+        smoothSpeed: 0.15,
+        constantSpeed: 300,
+        stiffness: 0.12,
+        damping: 0.75,
+        orbitRadius: 100,
+        orbitSpeed: 90,
+        followAxis: 'both', // both, x_only, y_only
+        offsetX: 0,
+        offsetY: 0,
+        rotateToTarget: false
+      }
+    },
+    math_calculate: {
+      category: 'logic', name: '수학 계산 (Math)', icon: 'CALC',
+      description: '사칙연산, 삼각함수, 비교, 클램프 연산을 수행하여 다른 노드나 속성에 값을 공급합니다.',
+      defaultParams: {
+        condition: 'always',
+        operation: 'add', // add, subtract, multiply, divide, sin, cos, min, max, clamp, lerp
+        inputA: 0,
+        inputB: 1,
+        clampMin: 0,
+        clampMax: 100,
+        outputProperty: 'x'
+      }
+    },
+    screen_trigger: {
+      category: 'sensor', name: '화면 트리거 (뷰포트)', icon: 'TRIG',
+      description: '화면 스크롤이 이 위치에 도달하거나 마우스가 진입했을 때 지정된 액션을 발동합니다.',
+      defaultParams: {
+        condition: 'always',
+        triggerEvent: 'viewport_enter', // viewport_enter, viewport_exit, mouse_enter, mouse_move, scroll_reach
+        action: 'trigger_module', // trigger_module, show_sprite, hide_sprite, animate_in, open_url
+        targetSpriteId: '',
+        targetModuleId: '',
+        once: false
+      }
+    },
+    photoshop_filter: {
+      category: 'motion', name: '포토샵 필터 FX', icon: 'FLTR',
+      description: '블러, 밝기, 대비, 채도, 흑백, 세피아, 색조 회전, 글로우 등 고급 필터를 실시간 적용합니다.',
+      defaultParams: {
+        condition: 'always',
+        blur: 0,
+        brightness: 100,
+        contrast: 100,
+        saturate: 100,
+        grayscale: 0,
+        sepia: 0,
+        hueRotate: 0,
+        invert: 0,
+        opacity: 100,
+        dropShadow: false
+      }
     },
     look_at: {
       category: 'logic', name: '타겟 조준 (Look-At)', icon: 'AIM',
@@ -317,6 +319,20 @@
       this.linkUrl = options.linkUrl || '';
       this.hoverEffect = options.hoverEffect || 'none';
       this.collapsed = options.collapsed || false;
+      this.triggerEvent = options.triggerEvent || 'viewport_enter';
+      this.triggerAction = options.triggerAction || 'trigger_module';
+      this.filters = options.filters || {
+        blur: 0,
+        brightness: 100,
+        contrast: 100,
+        saturate: 100,
+        grayscale: 0,
+        sepia: 0,
+        hueRotate: 0,
+        invert: 0,
+        opacity: 100,
+        dropShadow: false
+      };
 
       this.runtime = {
         x: this.x, y: this.y, rotation: this.rotation,
@@ -406,7 +422,10 @@
         tag: this.tag,
         linkUrl: this.linkUrl,
         hoverEffect: this.hoverEffect,
-        collapsed: this.collapsed
+        collapsed: this.collapsed,
+        triggerEvent: this.triggerEvent,
+        triggerAction: this.triggerAction,
+        filters: JSON.parse(JSON.stringify(this.filters || {}))
       };
     }
   }
@@ -837,8 +856,65 @@
       const dy = wy - this.startPos.y;
 
       if (this.mode === 'body') {
-        target.x = this.origLayer.x + dx;
-        target.y = this.origLayer.y + dy;
+        let nx = this.origLayer.x + dx;
+        let ny = this.origLayer.y + dy;
+
+        // Smart Snapping to Artboard & Other Sprites
+        const snapDist = 7;
+        const guides = [];
+        const artW = this.doc.width, artH = this.doc.height;
+        const hw = target.width / 2, hh = target.height / 2;
+
+        const xCands = [
+          { pos: hw, line: 0 },
+          { pos: artW / 2, line: artW / 2 },
+          { pos: artW - hw, line: artW }
+        ];
+        const yCands = [
+          { pos: hh, line: 0 },
+          { pos: artH / 2, line: artH / 2 },
+          { pos: artH - hh, line: artH }
+        ];
+
+        for (const ly of this.doc.layers) {
+          if (!ly.visible) continue;
+          for (const sp of ly.sprites) {
+            if (!sp.visible || sp.id === target.id) continue;
+            const sphw = sp.width / 2, sphh = sp.height / 2;
+            xCands.push({ pos: sp.x, line: sp.x });
+            xCands.push({ pos: sp.x - sphw - hw, line: sp.x - sphw });
+            xCands.push({ pos: sp.x + sphw + hw, line: sp.x + sphw });
+            xCands.push({ pos: sp.x - sphw + hw, line: sp.x - sphw });
+            xCands.push({ pos: sp.x + sphw - hw, line: sp.x + sphw });
+
+            yCands.push({ pos: sp.y, line: sp.y });
+            yCands.push({ pos: sp.y - sphh - hh, line: sp.y - sphh });
+            yCands.push({ pos: sp.y + sphh + hh, line: sp.y + sphh });
+            yCands.push({ pos: sp.y - sphh + hh, line: sp.y - sphh });
+            yCands.push({ pos: sp.y + sphh - hh, line: sp.y + sphh });
+          }
+        }
+
+        if (!shiftKey) {
+          for (const c of xCands) {
+            if (Math.abs(nx - c.pos) < snapDist) {
+              nx = c.pos;
+              guides.push({ type: 'v', x: c.line });
+              break;
+            }
+          }
+          for (const c of yCands) {
+            if (Math.abs(ny - c.pos) < snapDist) {
+              ny = c.pos;
+              guides.push({ type: 'h', y: c.line });
+              break;
+            }
+          }
+        }
+
+        this.snapGuides = guides;
+        target.x = Math.round(nx);
+        target.y = Math.round(ny);
       } else if (this.mode === 'rot') {
         const startAngle = Math.atan2(this.startPos.y - target.y, this.startPos.x - target.x);
         const curAngle = Math.atan2(wy - target.y, wx - target.x);
@@ -846,32 +922,93 @@
         if (shiftKey) deg = Math.round(deg / 15) * 15;
         target.rotation = Math.round(deg);
       } else {
-        // Resize handle dragging
-        const rad = (-this.origLayer.rotation * Math.PI) / 180;
-        const ldx = dx * Math.cos(rad) - dy * Math.sin(rad);
-        const ldy = dx * Math.sin(rad) + dy * Math.cos(rad);
+        // FIXED OPPOSITE ANCHOR RESIZING (Opposite edge/corner remains 100% fixed)
+        const origW = this.origLayer.width;
+        const origH = this.origLayer.height;
+        const rad = (this.origLayer.rotation * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
 
-        let nw = this.origLayer.width;
-        let nh = this.origLayer.height;
+        // Local displacement
+        const ldx = dx * cos + dy * sin;
+        const ldy = -dx * sin + dy * cos;
 
-        if (this.mode.includes('e')) nw += ldx;
-        if (this.mode.includes('w')) nw -= ldx;
-        if (this.mode.includes('s')) nh += ldy;
-        if (this.mode.includes('n')) nh -= ldy;
+        let uOpp = 0, vOpp = 0;
+        let uOppNew = 0, vOppNew = 0;
+        let nw = origW;
+        let nh = origH;
 
-        if (shiftKey || target.lockAspectRatio) {
-          const ratio = this.origLayer.width / (this.origLayer.height || 1);
-          if (Math.abs(ldx) > Math.abs(ldy)) nh = nw / ratio;
-          else nw = nh * ratio;
+        if (this.mode === 'e') {
+          nw = Math.max(10, origW + ldx);
+          uOpp = -origW / 2; vOpp = 0;
+          uOppNew = -nw / 2; vOppNew = 0;
+        } else if (this.mode === 'w') {
+          nw = Math.max(10, origW - ldx);
+          uOpp = origW / 2; vOpp = 0;
+          uOppNew = nw / 2; vOppNew = 0;
+        } else if (this.mode === 's') {
+          nh = Math.max(10, origH + ldy);
+          uOpp = 0; vOpp = -origH / 2;
+          uOppNew = 0; vOppNew = -nh / 2;
+        } else if (this.mode === 'n') {
+          nh = Math.max(10, origH - ldy);
+          uOpp = 0; vOpp = origH / 2;
+          uOppNew = 0; vOppNew = nh / 2;
+        } else if (this.mode === 'se') {
+          nw = Math.max(10, origW + ldx);
+          nh = Math.max(10, origH + ldy);
+          if (shiftKey || target.lockAspectRatio) {
+            const r = origW / (origH || 1);
+            if (Math.abs(ldx) > Math.abs(ldy)) nh = Math.max(10, nw / r);
+            else nw = Math.max(10, nh * r);
+          }
+          uOpp = -origW / 2; vOpp = -origH / 2;
+          uOppNew = -nw / 2; vOppNew = -nh / 2;
+        } else if (this.mode === 'sw') {
+          nw = Math.max(10, origW - ldx);
+          nh = Math.max(10, origH + ldy);
+          if (shiftKey || target.lockAspectRatio) {
+            const r = origW / (origH || 1);
+            if (Math.abs(ldx) > Math.abs(ldy)) nh = Math.max(10, nw / r);
+            else nw = Math.max(10, nh * r);
+          }
+          uOpp = origW / 2; vOpp = -origH / 2;
+          uOppNew = nw / 2; vOppNew = -nh / 2;
+        } else if (this.mode === 'ne') {
+          nw = Math.max(10, origW + ldx);
+          nh = Math.max(10, origH - ldy);
+          if (shiftKey || target.lockAspectRatio) {
+            const r = origW / (origH || 1);
+            if (Math.abs(ldx) > Math.abs(ldy)) nh = Math.max(10, nw / r);
+            else nw = Math.max(10, nh * r);
+          }
+          uOpp = -origW / 2; vOpp = origH / 2;
+          uOppNew = -nw / 2; vOppNew = nh / 2;
+        } else if (this.mode === 'nw') {
+          nw = Math.max(10, origW - ldx);
+          nh = Math.max(10, origH - ldy);
+          if (shiftKey || target.lockAspectRatio) {
+            const r = origW / (origH || 1);
+            if (Math.abs(ldx) > Math.abs(ldy)) nh = Math.max(10, nw / r);
+            else nw = Math.max(10, nh * r);
+          }
+          uOpp = origW / 2; vOpp = origH / 2;
+          uOppNew = nw / 2; vOppNew = nh / 2;
         }
 
-        target.width = Math.max(10, Math.round(nw));
-        target.height = Math.max(10, Math.round(nh));
+        // Fixed opposite world anchor point
+        const oppWorldX = this.origLayer.x + (uOpp * cos - vOpp * sin);
+        const oppWorldY = this.origLayer.y + (uOpp * sin + vOpp * cos);
 
-        // Rescale path points proportionally
-        if (target.pathPoints && this.origPathPoints && this.origLayer.width > 0 && this.origLayer.height > 0) {
-          const sx = target.width / this.origLayer.width;
-          const sy = target.height / this.origLayer.height;
+        // Shift center to keep opposite point perfectly anchored
+        target.x = Math.round(oppWorldX - (uOppNew * cos - vOppNew * sin));
+        target.y = Math.round(oppWorldY - (uOppNew * sin + vOppNew * cos));
+        target.width = Math.round(nw);
+        target.height = Math.round(nh);
+
+        if (target.pathPoints && this.origPathPoints && origW > 0 && origH > 0) {
+          const sx = target.width / origW;
+          const sy = target.height / origH;
           target.pathPoints = this.origPathPoints.map(p => ({
             ...p,
             x: Math.round(p.x * sx),
@@ -1058,6 +1195,28 @@
 
       ctx.restore();
 
+      // Draw Pink Smart Snap Guidelines
+      if (transformBox && transformBox.snapGuides && transformBox.snapGuides.length > 0) {
+        ctx.save();
+        ctx.translate(this.panX, this.panY);
+        ctx.scale(this.zoom, this.zoom);
+        ctx.strokeStyle = '#f43f5e';
+        ctx.lineWidth = 1.2 / this.zoom;
+        ctx.setLineDash([4 / this.zoom, 4 / this.zoom]);
+        for (const g of transformBox.snapGuides) {
+          ctx.beginPath();
+          if (g.type === 'v') {
+            ctx.moveTo(g.x, -5000);
+            ctx.lineTo(g.x, 15000);
+          } else if (g.type === 'h') {
+            ctx.moveTo(-5000, g.y);
+            ctx.lineTo(15000, g.y);
+          }
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
       if (this.showRulers && this.mode === 'edit') {
         this.drawRulers(ctx, w, h);
       }
@@ -1100,6 +1259,22 @@
       ctx.globalAlpha = Math.max(0, Math.min(1, lop));
 
       if (sprite.blendMode) ctx.globalCompositeOperation = sprite.blendMode;
+
+      // Apply Photoshop-style Graphic Filters
+      if (sprite.filters) {
+        const f = sprite.filters;
+        const fltrs = [];
+        if (f.blur) fltrs.push(`blur(${f.blur}px)`);
+        if (f.brightness !== undefined && f.brightness !== 100) fltrs.push(`brightness(${f.brightness}%)`);
+        if (f.contrast !== undefined && f.contrast !== 100) fltrs.push(`contrast(${f.contrast}%)`);
+        if (f.saturate !== undefined && f.saturate !== 100) fltrs.push(`saturate(${f.saturate}%)`);
+        if (f.grayscale) fltrs.push(`grayscale(${f.grayscale}%)`);
+        if (f.sepia) fltrs.push(`sepia(${f.sepia}%)`);
+        if (f.hueRotate) fltrs.push(`hue-rotate(${f.hueRotate}deg)`);
+        if (f.invert) fltrs.push(`invert(${f.invert}%)`);
+        if (f.dropShadow) fltrs.push(`drop-shadow(0px 8px 16px rgba(0,0,0,0.5))`);
+        if (fltrs.length > 0) ctx.filter = fltrs.join(' ');
+      }
 
       // Draw Brush Strokes
       if (sprite.strokes && sprite.strokes.length > 0) {
@@ -1234,32 +1409,44 @@
           ctx.beginPath();
           ctx.moveTo(sprite.pathPoints[0].x, sprite.pathPoints[0].y);
           for (let i = 1; i < sprite.pathPoints.length; i++) {
-            const p = sprite.pathPoints[i];
-            if ((p.type === 'C' || p.cp1x !== undefined) && p.cp1x !== undefined) {
-              ctx.bezierCurveTo(p.cp1x, p.cp1y, p.cp2x, p.cp2y, p.x, p.y);
-            } else if (p.type === 'Q' && p.cpx !== undefined) {
-              ctx.quadraticCurveTo(p.cpx, p.cpy, p.x, p.y);
-            } else {
-              ctx.lineTo(p.x, p.y);
-            }
+            const prev = sprite.pathPoints[i - 1];
+            const cur = sprite.pathPoints[i];
+            const cp1x = prev.cp2x !== undefined ? prev.cp2x : prev.x;
+            const cp1y = prev.cp2y !== undefined ? prev.cp2y : prev.y;
+            const cp2x = cur.cp1x !== undefined ? cur.cp1x : cur.x;
+            const cp2y = cur.cp1y !== undefined ? cur.cp1y : cur.y;
+            ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, cur.x, cur.y);
           }
           if (sprite.isClosedPath || sprite.pathClosed) ctx.closePath();
 
-          if (sprite.fillType !== 'none' && sprite.fill !== 'transparent') {
-            ctx.save();
-            if (sprite.fillOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.fillOpacity));
-            ctx.fill();
-            ctx.restore();
-          }
+          // Paths from Bezier & Pen have no fill
           if (sprite.strokeWidth > 0 && sprite.stroke) {
             ctx.save();
             ctx.strokeStyle = sprite.stroke;
             ctx.lineWidth = sprite.strokeWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
             if (sprite.strokeOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.strokeOpacity));
             ctx.stroke();
             ctx.restore();
           }
         }
+      } else if (sprite.type === 'screen_trigger') {
+        // Screen Trigger Area (Dotted Cyan Border + Label)
+        ctx.save();
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1.5;
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+        ctx.fillRect(-hw, -hh, sprite.width, sprite.height);
+        ctx.strokeRect(-hw, -hh, sprite.width, sprite.height);
+
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`⚡ ${sprite.name} (${sprite.triggerEvent || '진입 감지'})`, -hw + 8, -hh + 8);
+        ctx.restore();
       } else if (sprite.type === 'text') {
         ctx.font = `${sprite.fontWeight} ${sprite.fontSize}px ${sprite.fontFamily}`;
         ctx.textAlign = sprite.textAlign || 'center';
@@ -1331,26 +1518,30 @@
     }
 
     drawCurveOverlay(ctx, points) {
+      if (!points || points.length === 0) return;
       ctx.save();
       ctx.strokeStyle = '#38bdf8';
       ctx.lineWidth = 2 / this.zoom;
 
+      // Correct cubic bezier path connecting prev.cp2 -> cur.cp1 -> cur.x,y
       ctx.beginPath();
       ctx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i++) {
-        const p = points[i];
-        if (p.cp1x !== undefined) {
-          ctx.bezierCurveTo(p.cp1x, p.cp1y, p.cp2x, p.cp2y, p.x, p.y);
-        } else {
-          ctx.lineTo(p.x, p.y);
-        }
+        const prev = points[i - 1];
+        const cur = points[i];
+        const cp1x = prev.cp2x !== undefined ? prev.cp2x : prev.x;
+        const cp1y = prev.cp2y !== undefined ? prev.cp2y : prev.y;
+        const cp2x = cur.cp1x !== undefined ? cur.cp1x : cur.x;
+        const cp2y = cur.cp1y !== undefined ? cur.cp1y : cur.y;
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, cur.x, cur.y);
       }
       ctx.stroke();
 
-      // Tangent handles and anchors
-      for (const p of points) {
-        if (p.cp1x !== undefined) {
-          ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+      // Tangent handles and interactive anchors
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        if (p.cp1x !== undefined && p.cp2x !== undefined) {
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
           ctx.lineWidth = 1 / this.zoom;
           ctx.beginPath();
           ctx.moveTo(p.cp1x, p.cp1y);
@@ -1358,21 +1549,23 @@
           ctx.lineTo(p.cp2x, p.cp2y);
           ctx.stroke();
 
-          // Tangent handle diamonds
-          ctx.fillStyle = '#f59e0b';
+          // Control point handles (Circular dots)
+          ctx.fillStyle = '#38bdf8';
           ctx.beginPath();
-          ctx.arc(p.cp1x, p.cp1y, 3 / this.zoom, 0, Math.PI * 2);
-          ctx.arc(p.cp2x, p.cp2y, 3 / this.zoom, 0, Math.PI * 2);
+          ctx.arc(p.cp1x, p.cp1y, 4 / this.zoom, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(p.cp2x, p.cp2y, 4 / this.zoom, 0, Math.PI * 2);
           ctx.fill();
         }
 
-        // Anchor points
+        // Anchor point (Solid white square)
         ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = '#0284c7';
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 4 / this.zoom, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+        ctx.lineWidth = 1.5 / this.zoom;
+        const sz = 7 / this.zoom;
+        ctx.fillRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
+        ctx.strokeRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
       }
       ctx.restore();
     }
@@ -1486,15 +1679,34 @@
       }
 
       if (this.activeTool === 'curve') {
-        if (this.activeCurvePoints.length > 1) {
+        // Hit test existing anchor points and handles to allow adjusting already placed points
+        for (let i = 0; i < this.activeCurvePoints.length; i++) {
+          const pt = this.activeCurvePoints[i];
+          if (Math.hypot(wx - pt.x, wy - pt.y) < 10) {
+            this.activeCurveDragTarget = { index: i, type: 'anchor', origX: pt.x, origY: pt.y };
+            return;
+          }
+          if (pt.cp1x !== undefined && Math.hypot(wx - pt.cp1x, wy - pt.cp1y) < 8) {
+            this.activeCurveDragTarget = { index: i, type: 'cp1' };
+            return;
+          }
+          if (pt.cp2x !== undefined && Math.hypot(wx - pt.cp2x, wy - pt.cp2y) < 8) {
+            this.activeCurveDragTarget = { index: i, type: 'cp2' };
+            return;
+          }
+        }
+
+        if (this.activeCurvePoints.length > 2) {
           const first = this.activeCurvePoints[0];
           if (Math.hypot(wx - first.x, wy - first.y) < 16) {
             this.commitCurvePath(true);
             return;
           }
         }
-        this.activeCurvePoints.push({ type: 'C', x: wx, y: wy, cp1x: wx, cp1y: wy, cp2x: wx, cp2y: wy });
-        this.isDraggingCurveHandle = true;
+
+        const newPt = { type: 'C', x: wx, y: wy, cp1x: wx, cp1y: wy, cp2x: wx, cp2y: wy };
+        this.activeCurvePoints.push(newPt);
+        this.activeCurveDragTarget = { index: this.activeCurvePoints.length - 1, type: 'new_cp2' };
         if (this.onCanvasRender) this.onCanvasRender();
         return;
       }
@@ -1546,14 +1758,31 @@
     }
 
     handleMouseMove(wx, wy) {
-      if (this.activeTool === 'curve' && this.isDraggingCurveHandle && this.activeCurvePoints.length > 0) {
-        const curPt = this.activeCurvePoints[this.activeCurvePoints.length - 1];
-        curPt.cp2x = wx;
-        curPt.cp2y = wy;
-        curPt.cp1x = 2 * curPt.x - wx;
-        curPt.cp1y = 2 * curPt.y - wy;
-        if (this.onCanvasRender) this.onCanvasRender();
-        return;
+      if (this.activeTool === 'curve' && this.activeCurveDragTarget && this.activeCurvePoints.length > 0) {
+        const { index, type } = this.activeCurveDragTarget;
+        const pt = this.activeCurvePoints[index];
+        if (pt) {
+          if (type === 'anchor') {
+            const dx = wx - pt.x;
+            const dy = wy - pt.y;
+            pt.x = wx;
+            pt.y = wy;
+            if (pt.cp1x !== undefined) { pt.cp1x += dx; pt.cp1y += dy; }
+            if (pt.cp2x !== undefined) { pt.cp2x += dx; pt.cp2y += dy; }
+          } else if (type === 'cp1') {
+            pt.cp1x = wx;
+            pt.cp1y = wy;
+            pt.cp2x = 2 * pt.x - wx;
+            pt.cp2y = 2 * pt.y - wy;
+          } else if (type === 'cp2' || type === 'new_cp2') {
+            pt.cp2x = wx;
+            pt.cp2y = wy;
+            pt.cp1x = 2 * pt.x - wx;
+            pt.cp1y = 2 * pt.y - wy;
+          }
+          if (this.onCanvasRender) this.onCanvasRender();
+          return;
+        }
       }
 
       if (this.activeTool === 'brush' && this.activeBrushStroke) {
@@ -1577,7 +1806,7 @@
 
     handleMouseUp(wx, wy) {
       if (this.activeTool === 'curve') {
-        this.isDraggingCurveHandle = false;
+        this.activeCurveDragTarget = null;
         return;
       }
 
@@ -1696,7 +1925,7 @@
         height: Math.max(20, maxY - minY),
         pathPoints: relPts,
         pathClosed: closed,
-        fill: closed ? this.doc.foregroundColor : 'transparent',
+        fill: 'transparent', fillType: 'none',
         stroke: this.doc.foregroundColor,
         strokeWidth: 2
       });
@@ -1858,15 +2087,135 @@
 
               case 'follow_target': {
                 let tx = this.bus.mouse.x, ty = this.bus.mouse.y;
-                if (p.targetLayerId) {
+                if (p.targetSpriteId) {
+                  const targetSp = this.doc.findSpriteById(p.targetSpriteId);
+                  if (targetSp) { tx = targetSp.runtime.x; ty = targetSp.runtime.y; }
+                } else if (p.targetLayerId) {
                   const target = this.doc.getLayer(p.targetLayerId)?.primarySprite;
                   if (target) { tx = target.runtime.x; ty = target.runtime.y; }
                 }
-                const st = p.stiffness || 0.1, dp = p.damping || 0.8;
-                sprite.runtime.vx = ((sprite.runtime.vx || 0) + (tx + (p.offsetX || 0) - sprite.runtime.x) * st) * dp;
-                sprite.runtime.vy = ((sprite.runtime.vy || 0) + (ty + (p.offsetY || 0) - sprite.runtime.y) * st) * dp;
-                sprite.runtime.x += sprite.runtime.vx;
-                sprite.runtime.y += sprite.runtime.vy;
+                const mode = p.trackMode || 'spring';
+                const st = parseFloat(p.stiffness !== undefined ? p.stiffness : 0.1);
+                const dp = parseFloat(p.damping !== undefined ? p.damping : 0.8);
+                const maxS = parseFloat(p.maxSpeed !== undefined ? p.maxSpeed : 15);
+                const ox = parseFloat(p.offsetX || 0);
+                const oy = parseFloat(p.offsetY || 0);
+                const destX = tx + ox, destY = ty + oy;
+                const dx = destX - sprite.runtime.x, dy = destY - sprite.runtime.y;
+                const dist = Math.hypot(dx, dy);
+
+                if (mode === 'direct') {
+                  sprite.runtime.x = destX;
+                  sprite.runtime.y = destY;
+                } else if (mode === 'lerp') {
+                  const factor = Math.min(1, Math.max(0, st * 2));
+                  sprite.runtime.x += dx * factor;
+                  sprite.runtime.y += dy * factor;
+                } else if (mode === 'constant') {
+                  if (dist > 1) {
+                    const step = Math.min(dist, maxS);
+                    sprite.runtime.x += (dx / dist) * step;
+                    sprite.runtime.y += (dy / dist) * step;
+                  }
+                } else if (mode === 'orbit') {
+                  const spd = parseFloat(p.orbitSpeed || 2);
+                  const rad = parseFloat(p.orbitRadius || 80);
+                  const angle = this.bus.time * spd;
+                  sprite.runtime.x = tx + Math.cos(angle) * rad;
+                  sprite.runtime.y = ty + Math.sin(angle) * rad;
+                } else if (mode === 'elastic') {
+                  sprite.runtime.vx = ((sprite.runtime.vx || 0) + dx * (st * 1.5)) * Math.max(0.6, dp * 0.95);
+                  sprite.runtime.vy = ((sprite.runtime.vy || 0) + dy * (st * 1.5)) * Math.max(0.6, dp * 0.95);
+                  sprite.runtime.x += sprite.runtime.vx;
+                  sprite.runtime.y += sprite.runtime.vy;
+                } else {
+                  // default spring
+                  sprite.runtime.vx = ((sprite.runtime.vx || 0) + dx * st) * dp;
+                  sprite.runtime.vy = ((sprite.runtime.vy || 0) + dy * st) * dp;
+                  sprite.runtime.x += sprite.runtime.vx;
+                  sprite.runtime.y += sprite.runtime.vy;
+                }
+
+                if (p.rotateToTarget) {
+                  sprite.runtime.rotation = Math.atan2(dy, dx) * 180 / Math.PI;
+                }
+                break;
+              }
+
+              case 'math_calculate': {
+                const valA = parseFloat(p.inputA !== undefined ? p.inputA : (p.valA || 0));
+                const valB = parseFloat(p.inputB !== undefined ? p.inputB : (p.valB || 0));
+                let res = 0;
+                const op = p.operation || 'add';
+                switch (op) {
+                  case 'add': res = valA + valB; break;
+                  case 'subtract': res = valA - valB; break;
+                  case 'multiply': res = valA * valB; break;
+                  case 'divide': res = valB !== 0 ? valA / valB : 0; break;
+                  case 'sin': res = Math.sin(valA); break;
+                  case 'cos': res = Math.cos(valA); break;
+                  case 'min': res = Math.min(valA, valB); break;
+                  case 'max': res = Math.max(valA, valB); break;
+                  case 'clamp': {
+                    const cMin = parseFloat(p.clampMin || 0);
+                    const cMax = parseFloat(p.clampMax !== undefined ? p.clampMax : 1);
+                    res = Math.max(cMin, Math.min(cMax, valA));
+                    break;
+                  }
+                  case 'lerp': {
+                    const f = Math.max(0, Math.min(1, valB));
+                    res = valA + (parseFloat(p.targetVal || 0) - valA) * f;
+                    break;
+                  }
+                  case 'modulo': res = valB !== 0 ? valA % valB : 0; break;
+                  case 'abs': res = Math.abs(valA); break;
+                  case 'round': res = Math.round(valA); break;
+                  default: res = valA + valB; break;
+                }
+                p.outputResult = res;
+
+                const tgt = p.targetParam || 'none';
+                if (tgt === 'x') sprite.runtime.x = res;
+                else if (tgt === 'y') sprite.runtime.y = res;
+                else if (tgt === 'rotation') sprite.runtime.rotation = res;
+                else if (tgt === 'scaleX') sprite.runtime.scaleX = res;
+                else if (tgt === 'scaleY') sprite.runtime.scaleY = res;
+                else if (tgt === 'opacity') sprite.runtime.opacity = Math.max(0, Math.min(1, res));
+                else if (tgt === 'filter_blur') {
+                  if (!sprite.filters) sprite.filters = {};
+                  sprite.filters.blur = res;
+                }
+                break;
+              }
+
+              case 'photoshop_filter': {
+                if (!sprite.filters) sprite.filters = {};
+                if (p.blur !== undefined) sprite.filters.blur = parseFloat(p.blur || 0);
+                if (p.brightness !== undefined) sprite.filters.brightness = parseFloat(p.brightness || 100);
+                if (p.contrast !== undefined) sprite.filters.contrast = parseFloat(p.contrast || 100);
+                if (p.saturate !== undefined) sprite.filters.saturate = parseFloat(p.saturate || 100);
+                if (p.grayscale !== undefined) sprite.filters.grayscale = parseFloat(p.grayscale || 0);
+                if (p.sepia !== undefined) sprite.filters.sepia = parseFloat(p.sepia || 0);
+                if (p.hueRotate !== undefined) sprite.filters.hueRotate = parseFloat(p.hueRotate || 0);
+                if (p.invert !== undefined) sprite.filters.invert = parseFloat(p.invert || 0);
+                if (p.shadowBlur !== undefined) sprite.filters.shadowBlur = parseFloat(p.shadowBlur || 0);
+                if (p.shadowColor !== undefined) sprite.filters.shadowColor = p.shadowColor || 'rgba(0,0,0,0.5)';
+                break;
+              }
+
+              case 'screen_trigger': {
+                const mx = this.bus.mouse.x, my = this.bus.mouse.y;
+                const isInside = mx >= sprite.x - sprite.width / 2 && mx <= sprite.x + sprite.width / 2 &&
+                                 my >= sprite.y - sprite.height / 2 && my <= sprite.y + sprite.height / 2;
+                sprite.runtime.isTriggered = isInside;
+                if (isInside && p.targetSpriteId) {
+                  const tgt = this.doc.findSpriteById(p.targetSpriteId);
+                  if (tgt) {
+                    if (p.action === 'show_sprite') tgt.runtime.visible = true;
+                    else if (p.action === 'hide_sprite') tgt.runtime.visible = false;
+                    else if (p.action === 'pulse') tgt.runtime.scaleX = (tgt.scaleX || 1) * 1.1;
+                  }
+                }
                 break;
               }
 
@@ -2294,7 +2643,9 @@
 
                 <span class="ps-layer-count-badge">${l.sprites.length}개</span>
                 <button class="ps-btn-layer-add-sp" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+스프라이트</button>
+                <button class="ps-btn-layer-add-sp" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#38bdf8;color:#38bdf8;">+트리거</button>
                 <button class="ps-btn-add-module ${(l.modules && l.modules.length > 0) ? 'has-modules' : ''}" data-act="add-layer-mod" title="레이어 모듈 추가">+fx</button>
+                <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
                 <button class="ps-btn-del-item" data-act="delete-layer" title="레이어 삭제">✕</button>
               </div>
 
@@ -2326,6 +2677,7 @@
                         <button class="ps-btn-add-module ${hasMods ? 'has-modules' : ''}" data-act="add-sprite-mod" title="모듈 추가">
                           +fx ${hasMods ? `<span class="mod-count">${s.modules.length}</span>` : ''}
                         </button>
+                        <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
                         <button class="ps-btn-del-item" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
                       </div>
 
@@ -2418,6 +2770,28 @@
             this.doc.selectedSpriteId = layer.sprites[0].id;
           }
           this.cb.onUpdate();
+        } else if (act === 'rename-item') {
+          const spRow = e.target.closest('[data-sprite-id]');
+          const lyRow = e.target.closest('[data-layer-id]');
+          this.renamingId = spRow ? spRow.dataset.spriteId : lyRow?.dataset.layerId;
+          this.render();
+          return;
+        } else if (act === 'add-screen-trigger' && layer) {
+          const trg = layer.addSprite({
+            name: `화면 트리거 ${layer.sprites.length + 1}`,
+            type: 'screen_trigger',
+            x: Math.round(this.doc.width / 2),
+            y: Math.min(600, this.doc.height - 200),
+            width: Math.min(500, this.doc.width - 100),
+            height: 180,
+            triggerEvent: 'viewport_enter',
+            triggerAction: 'trigger_module'
+          });
+          layer.expanded = true;
+          this.doc.selectedLayerId = layer.id;
+          this.doc.selectedSpriteId = trg.id;
+          this.doc.saveState();
+          this.cb.onUpdate();
         } else if (act === 'add-child-sprite' && layer) {
           const sp = layer.addSprite({
             name: `스프라이트 ${layer.sprites.length + 1}`,
@@ -2428,6 +2802,7 @@
           });
           this.doc.selectedLayerId = layer.id;
           this.doc.selectedSpriteId = sp.id;
+          this.doc.saveState();
           this.cb.onUpdate();
         } else if (act === 'delete-layer' && layer) {
           if (this.doc.layers.length <= 1) {
@@ -2644,7 +3019,7 @@
         const grid = modal.querySelector('#modalModGrid');
         const keys = Object.keys(MODULE_REGISTRY).filter(k => {
           if (this.activeCategory === 'all') return true;
-          if (this.activeCategory === 'timing') return MODULE_REGISTRY[k].category === 'timing' || MODULE_REGISTRY[k].category === 'audio';
+          if (this.activeCategory === 'timing') return MODULE_REGISTRY[k].category === 'timing';
           return MODULE_REGISTRY[k].category === this.activeCategory;
         });
 
@@ -2925,6 +3300,108 @@
           </div>
         </div>
 
+        <!-- Sprite Link Group & Hierarchy Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">스프라이트 링크 & 그룹</div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">링크 그룹:</label>
+            <select class="ps-select" id="inpLinkGroup">
+              <option value="">링크 없음 (None)</option>
+              <option value="1" ${sprite.linkGroup === '1' ? 'selected' : ''}>🔗 그룹 1</option>
+              <option value="2" ${sprite.linkGroup === '2' ? 'selected' : ''}>🔗 그룹 2</option>
+              <option value="3" ${sprite.linkGroup === '3' ? 'selected' : ''}>🔗 그룹 3</option>
+              <option value="4" ${sprite.linkGroup === '4' ? 'selected' : ''}>🔗 그룹 4</option>
+              <option value="5" ${sprite.linkGroup === '5' ? 'selected' : ''}>🔗 그룹 5</option>
+            </select>
+          </div>
+        </div>
+
+        ${sprite.type === 'screen_trigger' ? `
+        <!-- Screen Trigger Properties -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">화면 트리거 설정 (Screen Trigger)</div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">발동 조건:</label>
+            <select class="ps-select" id="inpTriggerEvent">
+              <option value="viewport_enter" ${sprite.triggerEvent === 'viewport_enter' ? 'selected' : ''}>화면 진입 시 (Viewport Enter)</option>
+              <option value="viewport_exit" ${sprite.triggerEvent === 'viewport_exit' ? 'selected' : ''}>화면 이탈 시 (Viewport Exit)</option>
+              <option value="mouse_enter" ${sprite.triggerEvent === 'mouse_enter' ? 'selected' : ''}>마우스 진입 시 (Mouse Enter)</option>
+              <option value="mouse_move" ${sprite.triggerEvent === 'mouse_move' ? 'selected' : ''}>마우스 이동 시 (Mouse Move)</option>
+              <option value="scroll_reach" ${sprite.triggerEvent === 'scroll_reach' ? 'selected' : ''}>스크롤 도달 시 (Scroll Reach)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">발동 액션:</label>
+            <select class="ps-select" id="inpTriggerAction">
+              <option value="trigger_module" ${sprite.triggerAction === 'trigger_module' ? 'selected' : ''}>연결 모듈 실행</option>
+              <option value="show_sprite" ${sprite.triggerAction === 'show_sprite' ? 'selected' : ''}>스프라이트 표시</option>
+              <option value="hide_sprite" ${sprite.triggerAction === 'hide_sprite' ? 'selected' : ''}>스프라이트 숨김</option>
+              <option value="animate_in" ${sprite.triggerAction === 'animate_in' ? 'selected' : ''}>페이드인 모션</option>
+            </select>
+          </div>
+        </div>
+        ` : ''}
+
+        <!-- Photoshop-Style Graphics Filters -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">포토샵 그래픽 필터 (Filters)</div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">가우시안 블러:</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrBlur" min="0" max="60" value="${sprite.filters?.blur || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">밝기 (Brightness):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrBrightness" min="0" max="300" value="${sprite.filters?.brightness ?? 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">대비 (Contrast):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrContrast" min="0" max="300" value="${sprite.filters?.contrast ?? 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">채도 (Saturation):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrSaturate" min="0" max="300" value="${sprite.filters?.saturate ?? 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">흑백 (Grayscale):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrGrayscale" min="0" max="100" value="${sprite.filters?.grayscale || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">세피아 (Sepia):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrSepia" min="0" max="100" value="${sprite.filters?.sepia || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">색조 회전 (Hue):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrHue" min="0" max="360" value="${sprite.filters?.hueRotate || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">반전 (Invert):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrInvert" min="0" max="100" value="${sprite.filters?.invert || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">드롭 섀도우:</label>
+            <select class="ps-select" id="fltrDropShadow">
+              <option value="false" ${!sprite.filters?.dropShadow ? 'selected' : ''}>없음 (None)</option>
+              <option value="true" ${sprite.filters?.dropShadow ? 'selected' : ''}>소프트 그림자 (Drop Shadow)</option>
+            </select>
+          </div>
+        </div>
+
         <!-- Transform Section -->
         <div class="ps-prop-section">
           <div class="ps-prop-header">변형 (Transform)</div>
@@ -3095,6 +3572,51 @@
         });
       };
 
+      // Link Group
+      this.el.querySelector('#inpLinkGroup')?.addEventListener('change', e => {
+        sprite.linkGroup = e.target.value || null;
+        this.doc.saveState();
+        this.cb.onUpdate();
+      });
+
+      // Screen Trigger
+      this.el.querySelector('#inpTriggerEvent')?.addEventListener('change', e => {
+        sprite.triggerEvent = e.target.value;
+        this.doc.saveState();
+        this.cb.onUpdate();
+      });
+      this.el.querySelector('#inpTriggerAction')?.addEventListener('change', e => {
+        sprite.triggerAction = e.target.value;
+        this.doc.saveState();
+        this.cb.onUpdate();
+      });
+
+      // Filter Inputs
+      const bindFilter = (id, key, isBool = false) => {
+        const inp = this.el.querySelector('#' + id);
+        if (!inp) return;
+        inp.addEventListener('input', () => {
+          if (!sprite.filters) sprite.filters = {};
+          sprite.filters[key] = isBool ? (inp.value === 'true') : (parseFloat(inp.value) || 0);
+          this.cb.onCanvasRender();
+        });
+        inp.addEventListener('change', () => {
+          if (!sprite.filters) sprite.filters = {};
+          sprite.filters[key] = isBool ? (inp.value === 'true') : (parseFloat(inp.value) || 0);
+          this.doc.saveState();
+          this.cb.onUpdate();
+        });
+      };
+      bindFilter('fltrBlur', 'blur');
+      bindFilter('fltrBrightness', 'brightness');
+      bindFilter('fltrContrast', 'contrast');
+      bindFilter('fltrSaturate', 'saturate');
+      bindFilter('fltrGrayscale', 'grayscale');
+      bindFilter('fltrSepia', 'sepia');
+      bindFilter('fltrHue', 'hueRotate');
+      bindFilter('fltrInvert', 'invert');
+      bindFilter('fltrDropShadow', 'dropShadow', true);
+
       bindProp('inpX', 'x');
       bindProp('inpY', 'y');
       bindProp('inpW', 'width');
@@ -3179,10 +3701,7 @@
             <button class="tl-btn ${loop ? 'active' : ''}" id="tlLoop" title="루프 반복 재생">⟳</button>
           </div>
 
-          <div class="tl-controls-right">
-            
-            <button class="tl-btn" id="tlToggleCollapse" title="타임라인 접기/펼치기">${this.collapsed ? '▲ 펼치기' : '▼ 접기'}</button>
-          </div>
+          <div class="tl-controls-right"></div>
         </div>
 
         <div class="tl-body">
@@ -3239,6 +3758,18 @@
         this.render();
         if (window.jspenApp) window.jspenApp.handleResize();
       });
+
+      // Mouse Wheel Horizontal Scrolling on Keyframe Tracks
+      const gArea = this.el.querySelector('#tlGridArea');
+      const rArea = this.el.querySelector('#tlRulerArea');
+      if (gArea) {
+        gArea.addEventListener('wheel', e => {
+          e.preventDefault();
+          const d = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+          gArea.scrollLeft += d;
+          if (rArea) rArea.scrollLeft = gArea.scrollLeft;
+        }, { passive: false });
+      }
 
       this.el.querySelector('#tlCurFrame')?.addEventListener('change', e => {
         this.doc.setFrame(parseInt(e.target.value, 10) || 0);
@@ -3587,12 +4118,22 @@
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="wResetLayout">기본 작업영역 재설정 (Reset Layout)</button>
                 <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">캔버스 규격 (Canvas Viewport)</div>
-                <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="900">🖥️ 데스크톱 표준 (1440 × 900)</button>
-                <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="1080">🖥️ Full HD (1920 × 1080)</button>
-                <button class="ps-dropdown-item" data-preset-w="1024" data-preset-h="768">💻 랩탑 (1024 × 768)</button>
-                <button class="ps-dropdown-item" data-preset-w="768" data-preset-h="1024">📱 태블릿 (768 × 1024)</button>
-                <button class="ps-dropdown-item" data-preset-w="375" data-preset-h="812">📱 모바일 (375 × 812)</button>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">🖥️ 데스크톱 웹 규격 (Desktop)</div>
+                <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="1080">Full HD 표준 (1920 × 1080)</button>
+                <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="900">맥북 / 노트북 (1440 × 900)</button>
+                <button class="ps-dropdown-item" data-preset-w="1280" data-preset-h="800">소형 랩탑 (1280 × 800)</button>
+                <div class="ps-dropdown-sep"></div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">📱 모바일 & 태블릿 (Mobile & Tablet)</div>
+                <button class="ps-dropdown-item" data-preset-w="390" data-preset-h="844">iPhone 14/15/16 (390 × 844)</button>
+                <button class="ps-dropdown-item" data-preset-w="412" data-preset-h="915">Galaxy S / Android (412 × 915)</button>
+                <button class="ps-dropdown-item" data-preset-w="768" data-preset-h="1024">iPad / 태블릿 (768 × 1024)</button>
+                <div class="ps-dropdown-sep"></div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">📜 세로 스크롤 롱페이지 웹 (Vertical Long-page)</div>
+                <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="3200">데스크톱 랜딩페이지 (1920 × 3200)</button>
+                <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="4800">포트폴리오 / 쇼핑몰 (1440 × 4800)</button>
+                <button class="ps-dropdown-item" data-preset-w="390" data-preset-h="2500">모바일 세로 웹사이트 (390 × 2500)</button>
+                <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" id="mCustomCanvasSize">📐 사용자 정의 크기 직접 입력...</button>
               </div>
             </div>
           </div>
@@ -3652,6 +4193,23 @@
             this.cb.onCanvasResize();
           }
         });
+      });
+
+      this.el.querySelector('#mCustomCanvasSize')?.addEventListener('click', () => {
+        const curW = this.doc.width || 1440;
+        const curH = this.doc.height || 900;
+        const wStr = prompt('캔버스 가로 너비(px)를 입력하세요:', curW);
+        if (!wStr) return;
+        const hStr = prompt('캔버스 세로 높이(px)를 입력하세요 (긴 페이지는 3000~8000 가능):', curH);
+        if (!hStr) return;
+        const w = parseInt(wStr, 10);
+        const h = parseInt(hStr, 10);
+        if (w > 0 && h > 0) {
+          this.doc.width = w;
+          this.doc.height = h;
+          this.doc.saveState();
+          this.cb.onCanvasResize();
+        }
       });
 
       this.el.querySelector('#winClose')?.addEventListener('click', () => {
@@ -3771,13 +4329,13 @@
       this.nodes = [];
       const newWires = [];
 
-      // Output Master Node (Red Header)
-      const masterPos = existingPositions.get('output_master') || { x: 800, y: 120 };
+      // Output Master Node (Header: OUTPUT)
+      const masterPos = existingPositions.get('output_master') || { x: 860, y: 120 };
       this.nodes.push({
         id: 'output_master',
         category: 'output',
         type: 'output_master',
-        title: '최종 출력 (OUTPUT)',
+        title: '최종 웹사이트 출력 (OUTPUT)',
         badge: 'MASTER',
         x: masterPos.x, y: masterPos.y,
         inputs: [{ name: 'In', type: 'flow' }],
@@ -3809,96 +4367,133 @@
         }
       }
 
-      const descEl = this.container.querySelector('.ne-desc');
-      if (descEl) {
-        if (targetSprites.length > 0) {
-          const names = targetSprites.map(s => s.name + (s.linkGroup ? ` (🔗그룹${s.linkGroup})` : '')).join(', ');
-          descEl.textContent = `현재 노드 대상: [${names}] — 연결된 모듈만 실제 작동합니다`;
-        } else {
-          descEl.textContent = `선택된 스프라이트가 없습니다. 레이어 창에서 스프라이트를 선택하세요.`;
-        }
-      }
+      this.updateToolbarSpriteSelector(targetSprites[0]);
 
       let curY = 60;
       for (const sprite of targetSprites) {
         const spNodeId = 'sp_' + sprite.id;
-          const spPos = existingPositions.get(spNodeId) || { x: 80, y: curY };
+        const spPos = existingPositions.get(spNodeId) || { x: 80, y: curY };
+        this.nodes.push({
+          id: spNodeId,
+          category: 'output',
+          type: 'output_sprite',
+          spriteId: sprite.id,
+          title: sprite.name + (sprite.linkGroup ? ` (🔗그룹${sprite.linkGroup})` : ''),
+          badge: sprite.type === 'screen_trigger' ? 'TRIG' : 'SPRITE',
+          x: spPos.x, y: spPos.y,
+          inputs: [],
+          outputs: [
+            { name: 'Transform', type: 'vector' },
+            { name: 'Visual', type: 'color' },
+            { name: 'Flow', type: 'flow' }
+          ],
+          params: {}
+        });
+
+        let modX = 360;
+        let prevModNodeId = spNodeId;
+        for (const mod of (sprite.modules || [])) {
+          const mNodeId = 'node_' + mod.id;
+          const mPos = existingPositions.get(mNodeId) || { x: modX, y: curY };
+          const def = MODULE_REGISTRY[mod.type] || {};
+          const cat = def.category || 'motion';
+
+          // Build dynamic input ports corresponding to parameters
+          const modInputs = [{ name: 'In', type: 'flow' }];
+          const pKeys = Object.keys(mod.params || {});
+          for (const k of pKeys) {
+            modInputs.push({ name: 'param_' + k, type: 'float', paramKey: k });
+          }
+
+          const modOutputs = [
+            { name: 'Out', type: 'flow' }
+          ];
+          if (mod.type === 'math_calculate' || cat === 'logic') {
+            modOutputs.push({ name: 'Result', type: 'float' });
+          } else {
+            modOutputs.push({ name: 'Transform', type: 'vector' });
+          }
+
           this.nodes.push({
-            id: spNodeId,
-            category: 'output',
-            type: 'output_sprite',
+            id: mNodeId,
+            category: cat,
+            type: mod.type,
+            modId: mod.id,
             spriteId: sprite.id,
-            title: sprite.name,
-            badge: 'SPRITE',
-            x: spPos.x, y: spPos.y,
-            inputs: [],
-            outputs: [
-              { name: 'Transform', type: 'vector' },
-              { name: 'Visual', type: 'color' },
-              { name: 'Flow', type: 'flow' }
-            ],
-            params: {}
+            title: mod.name,
+            badge: def.icon || 'MOD',
+            x: mPos.x, y: mPos.y,
+            inputs: modInputs,
+            outputs: modOutputs,
+            params: mod.params || {}
           });
 
-          let modX = 380;
-          let prevModNodeId = spNodeId;
-          for (const mod of (sprite.modules || [])) {
-            const mNodeId = 'node_' + mod.id;
-            const mPos = existingPositions.get(mNodeId) || { x: modX, y: curY };
-            const def = MODULE_REGISTRY[mod.type] || {};
-            const cat = def.category || 'motion';
-            this.nodes.push({
-              id: mNodeId,
-              category: cat,
-              type: mod.type,
-              modId: mod.id,
-              spriteId: sprite.id,
-              title: mod.name,
-              badge: def.icon || 'MOD',
-              x: mPos.x, y: mPos.y,
-              inputs: [
-                { name: 'In', type: 'flow' },
-                { name: 'Value', type: 'float' }
-              ],
-              outputs: [
-                { name: 'Out', type: 'flow' },
-                { name: 'Transform', type: 'vector' }
-              ],
-              params: mod.params || {}
-            });
+          newWires.push({
+            id: 'w_' + Math.random().toString(36).substr(2, 7),
+            fromNode: prevModNodeId, fromPort: 'Flow',
+            toNode: mNodeId, toPort: 'In'
+          });
+          prevModNodeId = mNodeId;
+          modX += 270;
+        }
 
-            newWires.push({
-              id: 'w_' + Math.random().toString(36).substr(2, 7),
-              fromNode: prevModNodeId, fromPort: 'Flow',
-              toNode: mNodeId, toPort: 'In'
-            });
-            prevModNodeId = mNodeId;
-            modX += 280;
-          }
+        if (prevModNodeId !== spNodeId) {
+          newWires.push({
+            id: 'w_' + Math.random().toString(36).substr(2, 7),
+            fromNode: prevModNodeId, fromPort: 'Out',
+            toNode: 'output_master', toPort: 'In'
+          });
+        }
 
-          if (prevModNodeId !== spNodeId) {
-            newWires.push({
-              id: 'w_' + Math.random().toString(36).substr(2, 7),
-              fromNode: prevModNodeId, fromPort: 'Out',
-              toNode: 'output_master', toPort: 'In'
-            });
-          }
-
-          curY += 200;
+        curY += 240;
       }
 
-      // Keep existing manual wires if valid, otherwise seed newWires
+      // Preserve existing valid wires
       if (this.wires.length === 0) {
         this.wires = newWires;
       } else {
         const validNodeIds = new Set(this.nodes.map(n => n.id));
         this.wires = this.wires.filter(w => validNodeIds.has(w.fromNode) && validNodeIds.has(w.toNode));
         for (const nw of newWires) {
-          if (!this.wires.some(w => w.toNode === nw.toNode)) {
+          if (!this.wires.some(w => w.toNode === nw.toNode && w.toPort === nw.toPort)) {
             this.wires.push(nw);
           }
         }
       }
+    }
+
+    updateToolbarSpriteSelector(curSel) {
+      const tb = this.container.querySelector('.node-editor-toolbar .ne-title-group');
+      if (!tb) return;
+
+      let selEl = tb.querySelector('#neSpriteFilter');
+      if (!selEl) {
+        selEl = document.createElement('select');
+        selEl.id = 'neSpriteFilter';
+        selEl.className = 'form-control form-control-sm';
+        selEl.style.cssText = 'background:#18181b;color:#f4f4f5;border:1px solid #3f3f46;height:24px;font-size:11px;border-radius:2px;max-width:170px;margin-left:8px;';
+        tb.appendChild(selEl);
+
+        selEl.addEventListener('change', () => {
+          const chosenId = selEl.value;
+          if (chosenId) {
+            this.doc.selectedSpriteId = chosenId;
+            this.syncFromDoc();
+            this.render();
+            this.cb.onUpdate();
+          }
+        });
+      }
+
+      let options = '';
+      for (const ly of this.doc.layers) {
+        for (const sp of ly.sprites) {
+          const isSelected = curSel && curSel.id === sp.id;
+          const linkStr = sp.linkGroup ? ` (🔗그룹${sp.linkGroup})` : '';
+          options += `<option value="${sp.id}" ${isSelected ? 'selected' : ''}>${sp.name}${linkStr}</option>`;
+        }
+      }
+      selEl.innerHTML = options || '<option value="">스프라이트 없음</option>';
     }
 
     getActiveModuleIds() {
@@ -3923,18 +4518,59 @@
       return activeMods;
     }
 
+    evaluateParamWires() {
+      // Propagate connected parameter sockets
+      for (const w of this.wires) {
+        if (w.toPort && w.toPort.startsWith('param_')) {
+          const paramKey = w.toPort.replace('param_', '');
+          const fromN = this.nodes.find(n => n.id === w.fromNode);
+          const toN = this.nodes.find(n => n.id === w.toNode);
+          if (fromN && toN) {
+            let val = 0;
+            if (fromN.type === 'math_calculate') {
+              const a = parseFloat(fromN.params?.inputA || fromN.params?.valA || 0);
+              const b = parseFloat(fromN.params?.inputB || fromN.params?.valB || 0);
+              const op = fromN.params?.operation || 'add';
+              if (op === 'add') val = a + b;
+              else if (op === 'subtract') val = a - b;
+              else if (op === 'multiply') val = a * b;
+              else if (op === 'divide') val = b !== 0 ? a / b : 0;
+              else if (op === 'sin') val = Math.sin(a);
+              else if (op === 'cos') val = Math.cos(a);
+              else if (op === 'clamp') val = Math.max(0, Math.min(1, a));
+              else val = a + b;
+            } else if (fromN.params && fromN.params.value !== undefined) {
+              val = parseFloat(fromN.params.value || 0);
+            }
+            if (!toN.params) toN.params = {};
+            toN.params[paramKey] = val;
+            if (toN.modId) {
+              const sp = this.doc.findSpriteById(toN.spriteId);
+              const mod = sp?.modules?.find(m => m.id === toN.modId);
+              if (mod) mod.params[paramKey] = val;
+            }
+          }
+        }
+      }
+    }
+
     render() {
       const area = this.container.querySelector('#nodeGraphArea');
       const nodesLayer = this.container.querySelector('#nodesLayer');
       if (!area || !nodesLayer) return;
 
       this.updateTransform();
+      this.evaluateParamWires();
 
       const activeMods = this.getActiveModuleIds();
 
       nodesLayer.innerHTML = this.nodes.map(n => {
         const isActive = n.type === 'output_master' || (n.modId && activeMods.has(n.modId));
         const catClass = 'cat-' + (n.category || 'motion');
+
+        // Main input/output ports (excluding parameter inputs)
+        const mainInputs = (n.inputs || []).filter(p => !p.name.startsWith('param_'));
+        const mainOutputs = n.outputs || [];
 
         return `
           <div class="graph-node ${catClass} ${n.type === 'output_master' ? 'node-output' : ''} ${n.id === this.doc.selectedNodeId ? 'selected' : ''}" id="${n.id}" style="left:${n.x}px; top:${n.y}px;">
@@ -3951,7 +4587,7 @@
             
             <div class="graph-node-body">
               <div class="graph-ports-col graph-inputs">
-                ${(n.inputs || []).map(p => `
+                ${mainInputs.map(p => `
                   <div class="graph-port-row">
                     <div class="graph-port graph-port-input port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type || 'flow'})"></div>
                     <span class="graph-port-label">${p.name}</span>
@@ -3960,7 +4596,7 @@
               </div>
 
               <div class="graph-ports-col graph-outputs">
-                ${(n.outputs || []).map(p => `
+                ${mainOutputs.map(p => `
                   <div class="graph-port-row" style="justify-content:flex-end;">
                     <span class="graph-port-label">${p.name}</span>
                     <div class="graph-port graph-port-output port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type || 'flow'})"></div>
@@ -3969,7 +4605,7 @@
               </div>
             </div>
 
-            <!-- Inline Blender-like On-Node Controls -->
+            <!-- Inline Blender-like Parameter Sockets & Controls -->
             <div class="graph-node-controls">
               ${this.renderNodeInlineControls(n)}
             </div>
@@ -3981,42 +4617,117 @@
     }
 
     renderNodeInlineControls(n) {
-      if (n.category === 'logic' || n.type === 'math_op') {
+      const isConnected = (pName) => this.wires.some(w => w.toNode === n.id && w.toPort === pName);
+
+      if (n.type === 'math_calculate' || n.category === 'logic') {
+        const op = n.params.operation || 'add';
+        const aConnected = isConnected('param_valA') || isConnected('param_inputA');
+        const bConnected = isConnected('param_valB') || isConnected('param_inputB');
         return `
-          <div class="node-inline-control">
-            <span class="node-inline-label">값 A:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="valA" value="${n.params.valA || 0}">
+          <div class="node-inline-control" style="margin-bottom:6px;">
+            <span class="node-inline-label">연산:</span>
+            <select class="node-inline-select" data-node-ctrl="operation" style="width:100px;background:#27272a;border:1px solid #3f3f46;color:#f4f4f5;font-size:10px;padding:2px;border-radius:2px;">
+              <option value="add" ${op==='add'?'selected':''}>+ 더하기 (Add)</option>
+              <option value="subtract" ${op==='subtract'?'selected':''}>- 빼기 (Subtract)</option>
+              <option value="multiply" ${op==='multiply'?'selected':''}>× 곱하기 (Multiply)</option>
+              <option value="divide" ${op==='divide'?'selected':''}>÷ 나누기 (Divide)</option>
+              <option value="sin" ${op==='sin'?'selected':''}>sin 사인</option>
+              <option value="cos" ${op==='cos'?'selected':''}>cos 코사인</option>
+              <option value="clamp" ${op==='clamp'?'selected':''}>clamp (0~1)</option>
+              <option value="min" ${op==='min'?'selected':''}>min 최솟값</option>
+              <option value="max" ${op==='max'?'selected':''}>max 최댓값</option>
+            </select>
           </div>
-          <div class="node-inline-control">
-            <span class="node-inline-label">값 B:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="valB" value="${n.params.valB || 1}">
+          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
+            <div class="graph-port graph-port-input port-float ${aConnected?'port-connected':''}" data-node="${n.id}" data-port="param_inputA" data-type="float" title="값 A 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <span class="node-inline-label" style="flex:1;">값 A:</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="inputA" value="${n.params.inputA !== undefined ? n.params.inputA : (n.params.valA || 0)}" ${aConnected?'disabled style="opacity:0.6;"':''}>
+          </div>
+          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
+            <div class="graph-port graph-port-input port-float ${bConnected?'port-connected':''}" data-node="${n.id}" data-port="param_inputB" data-type="float" title="값 B 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <span class="node-inline-label" style="flex:1;">값 B:</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="inputB" value="${n.params.inputB !== undefined ? n.params.inputB : (n.params.valB !== undefined ? n.params.valB : 1)}" ${bConnected?'disabled style="opacity:0.6;"':''}>
           </div>
         `;
       }
-      if (n.category === 'color' || n.type === 'color_val') {
+
+      if (n.type === 'photoshop_filter') {
+        const blurConn = isConnected('param_blur');
+        const brightConn = isConnected('param_brightness');
         return `
-          <div class="node-inline-control">
+          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
+            <div class="graph-port graph-port-input port-float ${blurConn?'port-connected':''}" data-node="${n.id}" data-port="param_blur" data-type="float" title="블러 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <span class="node-inline-label" style="flex:1;">블러(px):</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="blur" step="1" min="0" value="${n.params.blur || 0}" ${blurConn?'disabled style="opacity:0.6;"':''}>
+          </div>
+          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
+            <div class="graph-port graph-port-input port-float ${brightConn?'port-connected':''}" data-node="${n.id}" data-port="param_brightness" data-type="float" title="밝기 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <span class="node-inline-label" style="flex:1;">밝기(%):</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="brightness" step="5" min="0" value="${n.params.brightness !== undefined ? n.params.brightness : 100}" ${brightConn?'disabled style="opacity:0.6;"':''}>
+          </div>
+        `;
+      }
+
+      if (n.type === 'follow_target') {
+        const stConn = isConnected('param_stiffness');
+        const dpConn = isConnected('param_damping');
+        return `
+          <div class="node-inline-control" style="margin-bottom:6px;">
+            <span class="node-inline-label">모드:</span>
+            <select class="node-inline-select" data-node-ctrl="trackMode" style="width:100px;background:#27272a;border:1px solid #3f3f46;color:#f4f4f5;font-size:10px;padding:2px;border-radius:2px;">
+              <option value="spring" ${n.params.trackMode==='spring'?'selected':''}>스프링 (Spring)</option>
+              <option value="lerp" ${n.params.trackMode==='lerp'?'selected':''}>부드러운 추적 (Lerp)</option>
+              <option value="constant" ${n.params.trackMode==='constant'?'selected':''}>일정 속도 (Constant)</option>
+              <option value="orbit" ${n.params.trackMode==='orbit'?'selected':''}>주변 공전 (Orbit)</option>
+              <option value="elastic" ${n.params.trackMode==='elastic'?'selected':''}>탄성 (Elastic)</option>
+              <option value="direct" ${n.params.trackMode==='direct'?'selected':''}>즉시 고정 (Direct)</option>
+            </select>
+          </div>
+          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
+            <div class="graph-port graph-port-input port-float ${stConn?'port-connected':''}" data-node="${n.id}" data-port="param_stiffness" data-type="float" title="강도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <span class="node-inline-label" style="flex:1;">강도 (Stiffness):</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="stiffness" step="0.05" value="${n.params.stiffness !== undefined ? n.params.stiffness : 0.1}" ${stConn?'disabled style="opacity:0.6;"':''}>
+          </div>
+          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
+            <div class="graph-port graph-port-input port-float ${dpConn?'port-connected':''}" data-node="${n.id}" data-port="param_damping" data-type="float" title="감쇠 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <span class="node-inline-label" style="flex:1;">감쇠 (Damping):</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="damping" step="0.05" value="${n.params.damping !== undefined ? n.params.damping : 0.8}" ${dpConn?'disabled style="opacity:0.6;"':''}>
+          </div>
+        `;
+      }
+
+      if (n.category === 'motion' || n.type === 'motion_pos') {
+        const spdConn = isConnected('param_speed');
+        const smConn = isConnected('param_smooth');
+        return `
+          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
+            <div class="graph-port graph-port-input port-float ${spdConn?'port-connected':''}" data-node="${n.id}" data-port="param_speed" data-type="float" title="속도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <span class="node-inline-label" style="flex:1;">속도:</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="speed" step="0.1" value="${n.params.speed || 1}" ${spdConn?'disabled style="opacity:0.6;"':''}>
+          </div>
+          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
+            <div class="graph-port graph-port-input port-float ${smConn?'port-connected':''}" data-node="${n.id}" data-port="param_smooth" data-type="float" title="스무딩 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <span class="node-inline-label" style="flex:1;">스무딩:</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="smooth" step="0.05" min="0" max="1" value="${n.params.smooth || 0.15}" ${smConn?'disabled style="opacity:0.6;"':''}>
+          </div>
+        `;
+      }
+
+      if (n.category === 'color' || n.type === 'color_val') {
+        const alpConn = isConnected('param_alpha');
+        return `
+          <div class="node-inline-control" style="margin-bottom:4px;">
             <span class="node-inline-label">색상:</span>
             <input type="color" class="node-inline-color" data-node-ctrl="color" value="${n.params.color || '#d4d4d8'}">
           </div>
-          <div class="node-inline-control">
-            <span class="node-inline-label">투명도:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="alpha" step="0.1" min="0" max="1" value="${n.params.alpha !== undefined ? n.params.alpha : 1}">
+          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
+            <div class="graph-port graph-port-input port-float ${alpConn?'port-connected':''}" data-node="${n.id}" data-port="param_alpha" data-type="float" title="투명도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <span class="node-inline-label" style="flex:1;">투명도:</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="alpha" step="0.1" min="0" max="1" value="${n.params.alpha !== undefined ? n.params.alpha : 1}" ${alpConn?'disabled style="opacity:0.6;"':''}>
           </div>
         `;
       }
-      if (n.category === 'motion' || n.type === 'motion_pos') {
-        return `
-          <div class="node-inline-control">
-            <span class="node-inline-label">속도:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="speed" step="0.1" value="${n.params.speed || 1}">
-          </div>
-          <div class="node-inline-control">
-            <span class="node-inline-label">스무딩:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="smooth" step="0.05" min="0" max="1" value="${n.params.smooth || 0.15}">
-          </div>
-        `;
-      }
+
       return '';
     }
 
@@ -4024,11 +4735,11 @@
       const dx = x2 - x1;
       const dy = y2 - y1;
       if (dx >= 0) {
-        // Forward flow (Output -> Input to the right): Blender cubic bezier
+        // Forward flow: Blender cubic bezier
         const tension = Math.max(45, Math.min(200, dx * 0.55));
         return `M ${x1} ${y1} C ${x1 + tension} ${y1}, ${x2 - tension} ${y2}, ${x2} ${y2}`;
       } else {
-        // Backward loop (Node placed behind or looping back)
+        // Backward loop
         const tension = Math.min(180, Math.max(55, Math.abs(dx) * 0.45 + 40));
         const vBow = (dy >= 0 ? 1 : -1) * Math.min(Math.abs(dy) * 0.25 + 20, 70);
         return `M ${x1} ${y1} C ${x1 + tension} ${y1 + vBow}, ${x2 - tension} ${y2 - vBow}, ${x2} ${y2}`;
@@ -4040,7 +4751,11 @@
       if (!node) return { x: 0, y: 0 };
       const nodeEl = document.getElementById(nodeId);
       if (nodeEl) {
-        const portEl = nodeEl.querySelector(isOutput ? '.graph-port-output' : '.graph-port-input');
+        // Exact port lookup by data-port
+        let portEl = nodeEl.querySelector(`.graph-port[data-port="${portName}"]`);
+        if (!portEl) {
+          portEl = nodeEl.querySelector(isOutput ? '.graph-port-output' : '.graph-port-input');
+        }
         if (portEl) {
           const nRect = nodeEl.getBoundingClientRect();
           const pRect = portEl.getBoundingClientRect();
@@ -4071,7 +4786,7 @@
         const p1 = this.getPortCoord(w.fromNode, w.fromPort, true);
         const p2 = this.getPortCoord(w.toNode, w.toPort, false);
         const d = this.calculateWirePath(p1.x, p1.y, p2.x, p2.y);
-        const isAct = toN.id === 'output_master' || (toN.modId && activeMods.has(toN.modId));
+        const isAct = toN.id === 'output_master' || (toN.modId && activeMods.has(toN.modId)) || w.toPort?.startsWith('param_');
 
         paths += `<path id="wire_${w.id}" d="${d}" class="graph-wire ${isAct ? 'wire-active' : ''}" data-wire-id="${w.id}" data-from="${w.fromNode}" data-to="${w.toNode}" title="클릭하여 연결 끊기" />`;
       }
@@ -4089,8 +4804,6 @@
         const wId = pathEl.dataset.wireId;
         const w = this.wires.find(wire => wire.id === wId);
         if (!w) return;
-        const toN = this.nodes.find(n => n.id === w.toNode);
-        if (!toN) return;
         const p1 = this.getPortCoord(w.fromNode, w.fromPort, true);
         const p2 = this.getPortCoord(w.toNode, w.toPort, false);
         pathEl.setAttribute('d', this.calculateWirePath(p1.x, p1.y, p2.x, p2.y));
@@ -4100,8 +4813,6 @@
         const wId = pathEl.dataset.wireId;
         const w = this.wires.find(wire => wire.id === wId);
         if (!w) return;
-        const fromN = this.nodes.find(n => n.id === w.fromNode);
-        if (!fromN) return;
         const p1 = this.getPortCoord(w.fromNode, w.fromPort, true);
         const p2 = this.getPortCoord(w.toNode, w.toPort, false);
         pathEl.setAttribute('d', this.calculateWirePath(p1.x, p1.y, p2.x, p2.y));
@@ -4138,7 +4849,6 @@
       }
       this.nodes = this.nodes.filter(n => n.id !== nId);
       this.wires = this.wires.filter(w => w.fromNode !== nId && w.toNode !== nId);
-      this.sound.play('pop');
       this.render();
       this.cb.onUpdate();
     }
@@ -4156,9 +4866,9 @@
       });
 
       // Shift+A / Add Node Menu Button
-      this.container.querySelector('#btnNodeAddMenu')?.addEventListener('click', e => {
+      this.container.querySelector('#btnNodeAddMenu')?.addEventListener('click', () => {
         const r = area.getBoundingClientRect();
-        this.showSearchMenu(r.width / 2 - 130, r.height / 2 - 150);
+        this.showSearchMenu(r.width / 2 - 250, r.height / 2 - 200);
       });
 
       // Auto Layout
@@ -4178,7 +4888,6 @@
         if (wireEl) {
           const wId = wireEl.dataset.wireId;
           this.wires = this.wires.filter(w => w.id !== wId);
-          this.sound.play('cut');
           this.renderWires();
           this.cb.onUpdate();
         }
@@ -4234,17 +4943,17 @@
               const fromN = this.nodes.find(n => n.id === existingWire.fromNode);
               startNodeId = existingWire.fromNode;
               startPortName = existingWire.fromPort;
-              startX = fromN ? fromN.x + 220 : 0;
-              startY = fromN ? fromN.y + 45 : 0;
-              this.sound.play('pop');
+              const pStart = this.getPortCoord(existingWire.fromNode, existingWire.fromPort, true);
+              startX = pStart.x;
+              startY = pStart.y;
               this.renderWires();
             } else {
               return; // Input port with no wire cannot drag out
             }
           } else {
-            const fromN = this.nodes.find(n => n.id === nId);
-            startX = fromN ? fromN.x + 220 : 0;
-            startY = fromN ? fromN.y + 45 : 0;
+            const pStart = this.getPortCoord(nId, pName, true);
+            startX = pStart.x;
+            startY = pStart.y;
           }
 
           const onPortMove = ev => {
@@ -4267,7 +4976,6 @@
                 toNode: targetPort.dataset.node,
                 toPort: targetPort.dataset.port
               });
-              this.sound.play('coin');
               this.renderWires();
               this.cb.onUpdate();
             }
@@ -4287,7 +4995,6 @@
           this.doc.selectedNodeId = node.id;
           if (node.modId) this.doc.selectedModuleId = node.modId;
           
-          // Fast selection class update without innerHTML
           nodesLayer.querySelectorAll('.graph-node').forEach(el => el.classList.toggle('selected', el.id === node.id));
           this.cb.onUpdate();
 
@@ -4312,7 +5019,7 @@
         }
       });
 
-      // Canvas Panning & Knife Cutting on area
+      // Canvas Panning & Knife Cutting
       area.addEventListener('mousedown', e => {
         // Knife Cut Tool: Ctrl + Right Click drag
         if (e.ctrlKey && e.button === 2) {
@@ -4371,7 +5078,7 @@
         }
       });
 
-      // Pan mousemove: Only update transform (0ms CPU, 60fps)
+      // Pan mousemove
       window.addEventListener('mousemove', e => {
         if (this.isPanning) {
           this.pan.x = e.clientX - this.panStart.x;
@@ -4382,7 +5089,7 @@
 
       window.addEventListener('mouseup', () => { this.isPanning = false; });
 
-      // Canvas Zooming: Only update transform (0ms CPU, 60fps)
+      // Canvas Zooming
       area.addEventListener('wheel', e => {
         e.preventDefault();
         const factor = e.deltaY < 0 ? 1.1 : 0.9;
@@ -4397,7 +5104,7 @@
         if (e.shiftKey && (e.key === 'A' || e.key === 'a')) {
           e.preventDefault();
           const r = area.getBoundingClientRect();
-          this.showSearchMenu(r.width / 2 - 130, r.height / 2 - 150);
+          this.showSearchMenu(r.width / 2 - 250, r.height / 2 - 200);
           return;
         }
 
@@ -4420,10 +5127,11 @@
         const toN = this.nodes.find(n => n.id === w.toNode);
         if (!fromN || !toN) return true;
 
-        const x1 = fromN.x + 220;
-        const y1 = fromN.y + 45;
-        const x2 = toN.x;
-        const y2 = toN.y + 45;
+        const pStart = this.getPortCoord(w.fromNode, w.fromPort, true);
+        const pEnd = this.getPortCoord(w.toNode, w.toPort, false);
+
+        const x1 = pStart.x, y1 = pStart.y;
+        const x2 = pEnd.x, y2 = pEnd.y;
 
         const minX = Math.min(x1, x2) - 10, maxX = Math.max(x1, x2) + 10;
         const minY = Math.min(y1, y2) - 10, maxY = Math.max(y1, y2) + 10;
@@ -4441,7 +5149,6 @@
       });
 
       if (severedCount > 0) {
-        this.sound.play('cut');
         this.renderWires();
         this.cb.onUpdate();
       }
@@ -4460,8 +5167,8 @@
       const input = this.container.querySelector('#nsmSearchInput');
       if (!menu || !input) return;
 
-      menu.style.left = `${Math.max(10, x)}px`;
-      menu.style.top = `${Math.max(10, y)}px`;
+      menu.style.left = `${Math.max(10, Math.min(window.innerWidth - 560, x))}px`;
+      menu.style.top = `${Math.max(10, Math.min(window.innerHeight - 440, y))}px`;
       menu.classList.remove('hidden');
       input.value = '';
       input.focus();
@@ -4475,55 +5182,52 @@
       if (!menu || !input || !body) return;
 
       const NODE_PRESETS = [
-        // 1. Input / Sensor
-        { cat: 'input', name: '마우스 위치 감지', icon: 'POS', type: 'mouse_pos', in: [], out: [{ name: 'Vector', type: 'vector' }, { name: 'Flow', type: 'flow' }] },
-        { cat: 'input', name: '클릭 & 제스처', icon: 'TRG', type: 'click_sensor', in: [], out: [{ name: 'Flow', type: 'flow' }] },
-        { cat: 'input', name: '호버 & 근접 감지', icon: 'ZONE', type: 'hover_sensor', in: [], out: [{ name: 'Distance', type: 'float' }, { name: 'Flow', type: 'flow' }] },
-        { cat: 'input', name: '자유 드래그 감지', icon: 'DRG', type: 'drag_sensor', in: [], out: [{ name: 'Position', type: 'vector' }] },
-        { cat: 'input', name: '스크롤 휠 감지', icon: 'WHL', type: 'wheel_sensor', in: [], out: [{ name: 'Delta', type: 'float' }] },
-        { cat: 'input', name: '타이머 / 펄스 틱', icon: 'CLK', type: 'time_tick', in: [], out: [{ name: 'Time', type: 'float' }] },
+        // 1. Math & Calculation
+        { cat: 'logic', name: '계산 노드 (Math Node)', desc: '사칙연산, 삼각함수, 클램프 연산', icon: 'CALC', type: 'math_calculate', in: [{ name: 'A', type: 'float' }, { name: 'B', type: 'float' }], out: [{ name: 'Result', type: 'float' }, { name: 'Out', type: 'flow' }] },
+        { cat: 'logic', name: '실수 값 상수 (Float Value)', desc: '지정된 고정 숫자 출력', icon: 'NUM', type: 'float_val', in: [], out: [{ name: 'Value', type: 'float' }] },
+        { cat: 'logic', name: '2D 벡터 (Vector2)', desc: 'X, Y 2차원 좌표값', icon: 'VEC', type: 'vector2_val', in: [{ name: 'X', type: 'float' }, { name: 'Y', type: 'float' }], out: [{ name: 'Vector', type: 'vector' }] },
+        { cat: 'logic', name: '비교 연산 (Compare)', desc: '값 크기 비교 및 참/거짓 판단', icon: 'CMP', type: 'compare_op', in: [{ name: 'A', type: 'float' }, { name: 'B', type: 'float' }], out: [{ name: 'Flow', type: 'flow' }] },
 
-        // 2. Color & Visual
-        { cat: 'color', name: 'RGB 색상 지정', icon: 'RGB', type: 'color_val', in: [], out: [{ name: 'Color', type: 'color' }] },
-        { cat: 'color', name: '베벨 & 라운딩 FX', icon: 'BVL', type: 'bevel_fx', in: [{ name: 'Radius', type: 'float' }], out: [{ name: 'Flow', type: 'flow' }] },
-        { cat: 'color', name: '그림자 효과 (Shadow)', icon: 'SHD', type: 'shadow_fx', in: [{ name: 'Color', type: 'color' }], out: [{ name: 'Flow', type: 'flow' }] },
-        { cat: 'color', name: '투명도 조절 (Opacity)', icon: 'ALP', type: 'opacity_fx', in: [{ name: 'Alpha', type: 'float' }], out: [{ name: 'Flow', type: 'flow' }] },
-        { cat: 'color', name: '외곽선 스트로크', icon: 'STR', type: 'stroke_fx', in: [{ name: 'Color', type: 'color' }, { name: 'Width', type: 'float' }], out: [{ name: 'Flow', type: 'flow' }] },
+        // 2. Input / Sensor / Triggers
+        { cat: 'input', name: '마우스 위치 감지 (Mouse Pos)', desc: '마우스 X, Y 실시간 추적', icon: 'POS', type: 'mouse_pos', in: [], out: [{ name: 'Vector', type: 'vector' }, { name: 'Flow', type: 'flow' }] },
+        { cat: 'input', name: '클릭 & 제스처 (Click Sensor)', desc: '클릭 및 터치 상호작용', icon: 'TRG', type: 'click_sensor', in: [], out: [{ name: 'Flow', type: 'flow' }] },
+        { cat: 'input', name: '호버 & 근접 감지 (Hover Area)', desc: '마우스 오버 및 진입 감지', icon: 'ZONE', type: 'hover_sensor', in: [], out: [{ name: 'Distance', type: 'float' }, { name: 'Flow', type: 'flow' }] },
+        { cat: 'input', name: '화면 트리거 (Screen Trigger)', desc: '뷰포트 스크롤 진입 및 마우스 감지', icon: 'TRIG', type: 'screen_trigger', in: [], out: [{ name: 'Flow', type: 'flow' }] },
+        { cat: 'input', name: '자유 드래그 (Draggable)', desc: '스프라이트를 마우스로 드래그', icon: 'DRG', type: 'draggable', in: [], out: [{ name: 'Flow', type: 'flow' }] },
+        { cat: 'input', name: '타이머 / 펄스 틱 (Time Tick)', desc: '실시간 시간 흐름 및 주기 펄스', icon: 'CLK', type: 'time_tick', in: [], out: [{ name: 'Time', type: 'float' }] },
 
         // 3. Motion & Physics
-        { cat: 'motion', name: '위치 이동 (Position)', icon: 'MOV', type: 'motion_pos', in: [{ name: 'Vector', type: 'vector' }], out: [{ name: 'Transform', type: 'vector' }] },
-        { cat: 'motion', name: '회전 모션 (Rotation)', icon: 'ROT', type: 'motion_rot', in: [{ name: 'Angle', type: 'float' }], out: [{ name: 'Angle', type: 'float' }] },
-        { cat: 'motion', name: '크기 스케일 (Scale)', icon: 'SCL', type: 'motion_scale', in: [{ name: 'Scale', type: 'float' }], out: [{ name: 'Scale', type: 'float' }] },
-        { cat: 'motion', name: '물리 중력 (Gravity)', icon: 'GRV', type: 'physics_gravity', in: [{ name: 'Weight', type: 'float' }], out: [{ name: 'Transform', type: 'vector' }] },
-        { cat: 'motion', name: '스프링 댐핑 (Spring)', icon: 'SPG', type: 'spring_damp', in: [{ name: 'Target', type: 'vector' }], out: [{ name: 'Position', type: 'vector' }] },
-        { cat: 'motion', name: '궤도 공전 (Orbit)', icon: 'ORB', type: 'orbit_rot', in: [{ name: 'Speed', type: 'float' }], out: [{ name: 'Position', type: 'vector' }] },
+        { cat: 'motion', name: '타겟 추적 (Follow Target)', desc: '스프링/보간/궤도/탄성 물리 추적', icon: 'FLW', type: 'follow_target', in: [{ name: 'In', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }, { name: 'Transform', type: 'vector' }] },
+        { cat: 'motion', name: '위치 이동 (Position Transform)', desc: '스프라이트 X, Y 위치 변형', icon: 'MOV', type: 'motion_pos', in: [{ name: 'In', type: 'flow' }, { name: 'Vector', type: 'vector' }], out: [{ name: 'Out', type: 'flow' }, { name: 'Transform', type: 'vector' }] },
+        { cat: 'motion', name: '회전 모션 (Rotation)', desc: '각도 회전 및 스핀', icon: 'ROT', type: 'motion_rot', in: [{ name: 'In', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }, { name: 'Angle', type: 'float' }] },
+        { cat: 'motion', name: '크기 스케일 (Scale Pulse)', desc: '크기 확대/축소 및 펄스', icon: 'SCL', type: 'pulse_scale', in: [{ name: 'In', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }] },
+        { cat: 'motion', name: '파티클 방출 (Particle Emitter)', desc: '화려한 입자 이펙트 생성', icon: 'PRT', type: 'particle_emitter', in: [{ name: 'In', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }] },
 
-        // 4. Logic & Math
-        { cat: 'logic', name: '수학 연산 (Math)', icon: 'MTH', type: 'math_op', in: [{ name: 'A', type: 'float' }, { name: 'B', type: 'float' }], out: [{ name: 'Value', type: 'float' }] },
-        { cat: 'logic', name: '비교 연산 (Compare)', icon: 'CMP', type: 'compare_op', in: [{ name: 'A', type: 'float' }, { name: 'B', type: 'float' }], out: [{ name: 'Flow', type: 'flow' }] },
-        { cat: 'logic', name: '실수 값 상수 (Float)', icon: 'NUM', type: 'float_val', in: [], out: [{ name: 'Value', type: 'float' }] },
-        { cat: 'logic', name: '2D 벡터 (Vector2)', icon: 'VEC', type: 'vector2_val', in: [{ name: 'X', type: 'float' }, { name: 'Y', type: 'float' }], out: [{ name: 'Vector', type: 'vector' }] },
-        { cat: 'logic', name: '조건 스위치 (Switch)', icon: 'SWT', type: 'switch_cond', in: [{ name: 'True', type: 'flow' }, { name: 'False', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }] },
+        // 4. Color & Filters
+        { cat: 'color', name: '포토샵 필터 (Photoshop Filter)', desc: '블러, 밝기, 대비, 채도, 흑백, 그림자 FX', icon: 'FLTR', type: 'photoshop_filter', in: [{ name: 'In', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }] },
+        { cat: 'color', name: 'RGB 색상 지정 (Color Value)', desc: '색상 및 알파 투명도 제어', icon: 'RGB', type: 'color_val', in: [], out: [{ name: 'Color', type: 'color' }] },
+        { cat: 'color', name: '외곽선 테두리 (Stroke Outline)', desc: '스프라이트 테두리 선 렌더링', icon: 'STR', type: 'stroke_fx', in: [{ name: 'In', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }] },
+        { cat: 'color', name: '베벨 & 라운딩 (Bevel & Radius)', desc: '모서리 둥글기 및 베벨 효과', icon: 'BVL', type: 'bevel_fx', in: [{ name: 'In', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }] },
 
-        // 5. Combine & Mix
-        { cat: 'combine', name: '모듈 합치기 (Mix)', icon: 'MRG', type: 'combine_mix', in: [{ name: 'In A', type: 'flow' }, { name: 'In B', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }] },
-        { cat: 'combine', name: '보간 블렌드 (Lerp)', icon: 'LRP', type: 'lerp_blend', in: [{ name: 'A', type: 'float' }, { name: 'B', type: 'float' }, { name: 'Factor', type: 'float' }], out: [{ name: 'Value', type: 'float' }] },
+        // 5. Mix & Combine
+        { cat: 'combine', name: '모듈 합치기 (Mix / Merge)', desc: '여러 노드 흐름을 하나로 결합', icon: 'MRG', type: 'combine_mix', in: [{ name: 'In A', type: 'flow' }, { name: 'In B', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }] },
+        { cat: 'combine', name: '보간 블렌드 (Lerp Blend)', desc: '두 값 사이를 부드럽게 보간', icon: 'LRP', type: 'lerp_blend', in: [{ name: 'A', type: 'float' }, { name: 'B', type: 'float' }, { name: 'Factor', type: 'float' }], out: [{ name: 'Value', type: 'float' }] },
 
         // 6. Output
-        { cat: 'output', name: '스프라이트 최종 출력', icon: 'OUT', type: 'output_sprite', in: [{ name: 'Transform', type: 'vector' }, { name: 'Visual', type: 'color' }, { name: 'Flow', type: 'flow' }], out: [] }
+        { cat: 'output', name: '스프라이트 최종 출력', desc: '스프라이트 객체로 데이터 전달', icon: 'OUT', type: 'output_sprite', in: [{ name: 'Transform', type: 'vector' }, { name: 'Visual', type: 'color' }, { name: 'Flow', type: 'flow' }], out: [] }
       ];
 
       this.filterSearchMenu = (query) => {
         const q = query.trim().toLowerCase();
-        const filtered = NODE_PRESETS.filter(p => !q || p.name.toLowerCase().includes(q) || p.cat.toLowerCase().includes(q));
+        const filtered = NODE_PRESETS.filter(p => !q || p.name.toLowerCase().includes(q) || p.desc.toLowerCase().includes(q) || p.cat.toLowerCase().includes(q));
 
         const cats = {
-          input: '입력 / 센서 (Input & Sensor)',
-          color: '시각 / 색상 (Color & Visual)',
-          motion: '모션 / 물리 (Motion & Physics)',
-          logic: '로직 / 연산 (Logic & Math)',
-          combine: '합성 / 믹스 (Mix & Combine)',
-          output: '출력 (Output)'
+          logic: '🧮 계산 & 수학 (Math & Logic)',
+          input: '📥 입력 & 센서 (Input & Sensor)',
+          motion: '🏃 모션 & 물리 (Motion & Physics)',
+          color: '🎨 필터 & 시각 (Filter & Visual)',
+          combine: '🔀 합성 & 블렌드 (Mix & Combine)',
+          output: '📤 출력 (Output)'
         };
 
         let html = '';
@@ -4534,15 +5238,18 @@
             items.forEach((item, idx) => {
               html += `
                 <div class="nsm-item ${idx === 0 && q ? 'highlighted' : ''}" data-type="${item.type}">
-                  <span>${item.name}</span>
-                  <span style="font-size:9px;color:#71717a;">${item.icon}</span>
+                  <div style="display:flex;flex-direction:column;gap:2px;">
+                    <div style="font-weight:700;color:#f4f4f5;font-size:11.5px;">${item.name}</div>
+                    <div style="font-size:10px;color:#71717a;">${item.desc}</div>
+                  </div>
+                  <span class="nsm-badge">${item.icon}</span>
                 </div>
               `;
             });
           }
         });
 
-        body.innerHTML = html || '<div style="padding:10px;font-size:11px;color:#71717a;text-align:center;">일치하는 노드가 없습니다</div>';
+        body.innerHTML = html || '<div style="padding:16px;font-size:11px;color:#71717a;text-align:center;">일치하는 노드가 없습니다</div>';
 
         body.querySelectorAll('.nsm-item').forEach(itemEl => {
           itemEl.addEventListener('click', () => {
@@ -4568,7 +5275,6 @@
         }
       });
 
-      // Close menu when clicking outside
       window.addEventListener('mousedown', e => {
         if (!e.target.closest('#nodeSearchMenu') && !e.target.closest('#btnNodeAddMenu')) {
           menu.classList.add('hidden');
@@ -4578,10 +5284,9 @@
 
     createNodeFromPreset(p) {
       const nId = 'node_' + Math.random().toString(36).substr(2, 7);
-      const spawnX = Math.round((-this.pan.x + 300) / this.zoom);
-      const spawnY = Math.round((-this.pan.y + 200) / this.zoom);
+      const spawnX = Math.round((-this.pan.x + 380) / this.zoom);
+      const spawnY = Math.round((-this.pan.y + 180) / this.zoom);
 
-      // Create functional module on selected sprite if available
       const sp = this.doc.getSelectedSprite() || this.doc.layers[0]?.sprites[0];
       let newModId = null;
       if (sp && p.cat !== 'output') {
@@ -4611,7 +5316,6 @@
         params: {}
       });
 
-      // Automatically wire to output master if possible
       if (this.nodes.some(n => n.id === 'output_master')) {
         this.wires.push({
           id: 'w_' + Math.random().toString(36).substr(2, 7),
@@ -4622,51 +5326,108 @@
         });
       }
 
-      this.sound.play('coin');
       this.render();
       this.cb.onUpdate();
     }
   }
+
+  // ==========================================================================
+  // SettingsModalUI with Customizable Shortcuts & Plugin Manager
+  // ==========================================================================
   class SettingsModalUI {
-    constructor(pluginManager) {
+    constructor(pluginManager, appInstance) {
       this.pm = pluginManager;
+      this.app = appInstance;
       this.el = document.createElement('div');
       this.el.className = 'modal-overlay hidden';
       this.activeTab = 'shortcuts';
+      this.recordingId = null;
+
+      this.defaultShortcuts = [
+        { id: 'preview', name: '실시간 웹 미리보기 (새 창)', key: 'Ctrl + Space' },
+        { id: 'nodeMode', name: '모듈 노드 모드 / 스튜디오 전환', key: 'Shift + Tab' },
+        { id: 'selectAll', name: '전체 스프라이트 선택', key: 'Ctrl + A' },
+        { id: 'copy', name: '스프라이트 복사', key: 'Ctrl + C' },
+        { id: 'paste', name: '스프라이트 붙여넣기', key: 'Ctrl + V' },
+        { id: 'undo', name: '실행 취소 (Undo)', key: 'Ctrl + Z' },
+        { id: 'redo', name: '다시 실행 (Redo)', key: 'Ctrl + Y' },
+        { id: 'rename', name: '이름 변경 (Rename)', key: 'F2' },
+        { id: 'toolMove', name: '이동 도구 (Move)', key: 'V' },
+        { id: 'toolDirect', name: '직접 선택 도구 (Direct)', key: 'A' },
+        { id: 'toolCurve', name: '베지어 곡선 도구 (Bezier)', key: 'C' },
+        { id: 'toolPen', name: '펜 도구 (Pen)', key: 'P' },
+        { id: 'toolBrush', name: '브러시 도구 (Brush)', key: 'B' },
+        { id: 'toolShape', name: '도형 도구 (Shape)', key: 'U' },
+        { id: 'toolText', name: '문자 도구 (Text)', key: 'T' },
+        { id: 'toolEyedropper', name: '스포이드 도구 (Eyedropper)', key: 'I' },
+        { id: 'toolZoom', name: '돋보기 도구 (Zoom)', key: 'Z' }
+      ];
+
+      this.loadShortcuts();
       this.render();
       document.body.appendChild(this.el);
     }
 
+    loadShortcuts() {
+      try {
+        const saved = localStorage.getItem('jspen_custom_shortcuts');
+        if (saved) {
+          const map = JSON.parse(saved);
+          this.shortcuts = this.defaultShortcuts.map(s => ({
+            ...s,
+            key: map[s.id] || s.key
+          }));
+          return;
+        }
+      } catch (err) {}
+      this.shortcuts = JSON.parse(JSON.stringify(this.defaultShortcuts));
+    }
+
+    saveShortcuts() {
+      try {
+        const map = {};
+        for (const s of this.shortcuts) map[s.id] = s.key;
+        localStorage.setItem('jspen_custom_shortcuts', JSON.stringify(map));
+      } catch (err) {}
+    }
+
+    getShortcutKey(id) {
+      const s = this.shortcuts.find(item => item.id === id);
+      return s ? s.key : null;
+    }
+
     show(tab = 'shortcuts') {
       this.activeTab = tab;
+      this.recordingId = null;
       this.render();
       this.el.classList.remove('hidden');
     }
 
     hide() {
+      this.recordingId = null;
       this.el.classList.add('hidden');
     }
 
     render() {
       this.el.innerHTML = `
-        <div class="modal-card" style="max-width:680px;height:520px;">
+        <div class="modal-card" style="max-width:700px;height:540px;display:flex;flex-direction:column;">
           <div class="modal-header">
             <div class="modal-title-group">
               <span class="modal-icon" style="font-size:12px;font-weight:700;color:#38bdf8;">⚙</span>
               <div>
                 <h2 class="modal-title">환경 설정 (Settings)</h2>
-                <p class="modal-desc">단축키 구성 확인 및 오픈소스 커스텀 플러그인을 설치/관리합니다.</p>
+                <p class="modal-desc">원하는 키로 단축키를 자유롭게 수정하거나 오픈소스 플러그인을 관리합니다.</p>
               </div>
             </div>
             <button class="modal-close-btn" id="sClose">✕</button>
           </div>
 
           <div class="settings-tabs">
-            <button class="settings-tab ${this.activeTab==='shortcuts'?'active':''}" id="tabShortcuts">단축키 안내 (Shortcuts)</button>
+            <button class="settings-tab ${this.activeTab==='shortcuts'?'active':''}" id="tabShortcuts">단축키 커스텀 (Hotkeys)</button>
             <button class="settings-tab ${this.activeTab==='plugins'?'active':''}" id="tabPlugins">플러그인 관리 (Plugins)</button>
           </div>
 
-          <div class="settings-panel">
+          <div class="settings-panel" style="flex:1;overflow-y:auto;padding:16px;">
             ${this.activeTab === 'shortcuts' ? this.renderShortcutsTab() : this.renderPluginsTab()}
           </div>
         </div>
@@ -4678,7 +5439,9 @@
       this.el.querySelector('#tabShortcuts').addEventListener('click', () => { this.activeTab = 'shortcuts'; this.render(); });
       this.el.querySelector('#tabPlugins').addEventListener('click', () => { this.activeTab = 'plugins'; this.render(); });
 
-      if (this.activeTab === 'plugins') {
+      if (this.activeTab === 'shortcuts') {
+        this.bindShortcutsTabEvents();
+      } else {
         this.el.querySelector('#btnInstallPlugin')?.addEventListener('click', () => {
           const code = this.el.querySelector('#txtPluginCode').value;
           if (this.pm.loadFromCode(code)) {
@@ -4690,48 +5453,110 @@
     }
 
     renderShortcutsTab() {
-      const SHORTCUTS = [
-        { key: 'Ctrl + Space', desc: '실시간 모듈 미리보기 즉시 토글' },
-        { key: 'Shift + Tab', desc: '모듈 노드 모드 / 스튜디오 모드 전환' },
-        { key: 'Ctrl + A', desc: '전체 스프라이트/레이어 선택' },
-        { key: 'F2', desc: '선택 레이어 및 스프라이트 이름 변경' },
-        { key: 'Ctrl + E', desc: '순수 자바스크립트 및 HTML 내보내기' },
-        { key: 'Ctrl + S', desc: '프로젝트 파일(.jspen) 저장' },
-        { key: 'Ctrl + O', desc: '프로젝트 파일(.jspen) 열기' },
-        { key: 'Ctrl + Z / Y', desc: '실행 취소 / 다시 실행' },
-        { key: 'V / A', desc: '이동 도구 / 직접 선택 도구' },
-        { key: 'C / P / B', desc: '베지어 곡선 / 펜 / 브러시 도구' },
-        { key: 'U / T / I', desc: '도형 / 문자 / 스포이드 도구' },
-        { key: 'Space', desc: '손 도구 (Pan 뷰포트 이동)' },
-        { key: 'Z (우클릭 / Alt)', desc: '돋보기 (우클릭: 축소, Alt클릭: 100% 초기화)' }
-      ];
-
       return `
-        <table class="shortcuts-table">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <span style="font-size:11.5px;color:#a1a1aa;">원하는 단축키 항목의 <strong style="color:#f4f4f5;">[수정]</strong> 버튼을 누른 후 새 키를 입력하세요.</span>
+          <button class="btn btn-secondary btn-sm" id="btnResetShortcuts" style="font-size:11px;">기본값으로 복원</button>
+        </div>
+        <table class="shortcuts-table" style="width:100%;border-collapse:collapse;font-size:11.5px;">
           <thead>
-            <tr><th style="width:180px;">단축키</th><th>설명</th></tr>
+            <tr style="border-bottom:1px solid #27272a;text-align:left;color:#71717a;">
+              <th style="padding:6px 10px;">기능</th>
+              <th style="padding:6px 10px;width:180px;">현재 단축키</th>
+              <th style="padding:6px 10px;width:90px;text-align:right;">설정</th>
+            </tr>
           </thead>
           <tbody>
-            ${SHORTCUTS.map(s => `
-              <tr>
-                <td><span class="shortcut-key-badge">${s.key}</span></td>
-                <td>${s.desc}</td>
-              </tr>
-            `).join('')}
+            ${this.shortcuts.map(s => {
+              const isRec = this.recordingId === s.id;
+              return `
+                <tr style="border-bottom:1px solid #1f1f23;">
+                  <td style="padding:8px 10px;color:#e4e4e7;">${s.name}</td>
+                  <td style="padding:8px 10px;">
+                    <span class="shortcut-key-badge ${isRec ? 'recording' : ''}" style="${isRec ? 'background:#38bdf8;color:#000;font-weight:700;' : ''}">
+                      ${isRec ? '키 입력 대기 중 (ESC 취소)...' : s.key}
+                    </span>
+                  </td>
+                  <td style="padding:8px 10px;text-align:right;">
+                    <button class="btn btn-secondary btn-sm btn-edit-shortcut" data-id="${s.id}" style="font-size:10.5px;padding:2px 8px;">
+                      ${isRec ? '취소' : '수정'}
+                    </button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
       `;
     }
 
+    bindShortcutsTabEvents() {
+      this.el.querySelector('#btnResetShortcuts')?.addEventListener('click', () => {
+        if (confirm('모든 단축키를 기본값으로 되돌리시겠습니까?')) {
+          localStorage.removeItem('jspen_custom_shortcuts');
+          this.shortcuts = JSON.parse(JSON.stringify(this.defaultShortcuts));
+          this.render();
+        }
+      });
+
+      this.el.querySelectorAll('.btn-edit-shortcut').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.dataset.id;
+          if (this.recordingId === id) {
+            this.recordingId = null;
+            this.render();
+            return;
+          }
+          this.recordingId = id;
+          this.render();
+
+          const onRecordKey = e => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (e.key === 'Escape') {
+              this.recordingId = null;
+              window.removeEventListener('keydown', onRecordKey, true);
+              this.render();
+              return;
+            }
+
+            if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+
+            let combo = '';
+            if (e.ctrlKey || e.metaKey) combo += 'Ctrl + ';
+            if (e.altKey) combo += 'Alt + ';
+            if (e.shiftKey) combo += 'Shift + ';
+
+            let keyName = e.key.toUpperCase();
+            if (e.code === 'Space') keyName = 'Space';
+            combo += keyName;
+
+            const target = this.shortcuts.find(s => s.id === this.recordingId);
+            if (target) {
+              target.key = combo;
+              this.saveShortcuts();
+            }
+
+            this.recordingId = null;
+            window.removeEventListener('keydown', onRecordKey, true);
+            this.render();
+          };
+
+          window.addEventListener('keydown', onRecordKey, true);
+        });
+      });
+    }
+
     renderPluginsTab() {
       return `
-        <div style="font-size:11.5px;color:#a1a1aa;">
+        <div style="font-size:11.5px;color:#a1a1aa;margin-bottom:12px;">
           JSPen Studio는 오픈소스 생태계를 위해 <code style="color:#38bdf8;">window.JSPen.registerPlugin</code> API를 지원합니다.<br>
-          커스텀 모듈 및 도구를 누구나 5줄의 자바스크립트로 제작하여 추가할 수 있습니다.
+          커스텀 모듈 및 도구를 누구나 자바스크립트로 제작하여 추가할 수 있습니다.
         </div>
 
-        <div style="font-weight:700;color:#fff;font-size:12px;margin-top:4px;">설치된 플러그인 목록:</div>
-        <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="font-weight:700;color:#fff;font-size:12px;margin-bottom:6px;">설치된 플러그인 목록:</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;">
           ${this.pm.plugins.map(p => `
             <div class="plugin-card">
               <div class="plugin-info">
@@ -4743,852 +5568,17 @@
           `).join('')}
         </div>
 
-        <div style="font-weight:700;color:#fff;font-size:12px;margin-top:10px;">새 오픈소스 플러그인 코드 추가:</div>
-        <textarea class="plugin-code-area" id="txtPluginCode" placeholder="JSPen.registerPlugin({\n  id: 'custom_glow',\n  name: '네온 글로우 모듈',\n  init(api) { ... }\n});"></textarea>
+        <div style="font-weight:700;color:#fff;font-size:12px;margin-bottom:6px;">새 오픈소스 플러그인 코드 추가:</div>
+        <textarea class="plugin-code-area" id="txtPluginCode" placeholder="JSPen.registerPlugin({
+  id: 'custom_glow',
+  name: '네온 글로우 모듈',
+  init(api) { ... }
+});" style="width:100%;height:100px;background:#141416;border:1px solid #27272a;color:#f4f4f5;font-family:monospace;font-size:11px;padding:8px;border-radius:2px;margin-bottom:8px;"></textarea>
         <button class="btn btn-primary btn-sm" id="btnInstallPlugin">+ 플러그인 등록 및 적용</button>
       `;
     }
   }
 
-  class PluginManager {
-    constructor() {
-      this.plugins = [];
-      this.initBuiltins();
-    }
-
-    initBuiltins() {
-      this.register({
-        id: 'neon_fx',
-        name: '네온 발광 효과 (Neon FX)',
-        version: '1.0.0',
-        author: 'JSPen OpenSource',
-        description: '스프라이트에 부드러운 네온 빛과 발광 효과를 추가하는 샘플 오픈소스 플러그인입니다.',
-        init: (api) => {}
-      });
-    }
-
-    register(def) {
-      if (this.plugins.some(p => p.id === def.id)) return;
-      this.plugins.push(def);
-      if (typeof def.init === 'function') {
-        def.init({
-          MODULE_REGISTRY,
-          registerModule: (id, modDef) => { MODULE_REGISTRY[id] = modDef; }
-        });
-      }
-    }
-
-    loadFromCode(jsCode) {
-      try {
-        const fn = new Function('JSPen', jsCode);
-        fn({
-          registerPlugin: def => this.register(def),
-          MODULE_REGISTRY: MODULE_REGISTRY
-        });
-        return true;
-      } catch (e) {
-        alert('플러그인 실행 오류:\n' + e.message);
-        return false;
-      }
-    }
-  }
-
-  // ==========================================================================
-  // 17. Export Modal
-  // ==========================================================================
-  class ExportModalUI {
-    constructor(doc) {
-      this.doc = doc;
-      this.el = document.createElement('div');
-      this.el.className = 'modal-overlay hidden';
-      this.el.innerHTML = `
-        <div class="modal-card">
-          <div class="modal-header">
-            <div class="modal-title-group">
-              <span class="modal-icon" style="font-size:12px;font-weight:700;color:#38bdf8;">&lt;/&gt;</span>
-              <div>
-                <h2 class="modal-title">순수 자바스크립트 코드 출력</h2>
-                <p class="modal-desc">외부 라이브러리 없는 순수 HTML5 Canvas 2D 코드가 자동 생성되었습니다.</p>
-              </div>
-            </div>
-            <button class="modal-close-btn" id="mClose">✕</button>
-          </div>
-          <div class="modal-body">
-            <div class="code-container">
-              <div class="code-header">
-                <span>Vanilla JS (HTML5 Canvas 2D)</span>
-                <div class="code-actions">
-                  <button class="btn btn-secondary btn-sm" id="btnCopy">코드 복사</button>
-                  <button class="btn btn-primary btn-sm" id="btnDl">파일 다운로드</button>
-                  <button class="btn btn-accent btn-sm" id="btnRun">새 창에서 바로 실행</button>
-                </div>
-              </div>
-              <pre class="code-pre"><code id="codeText"></code></pre>
-            </div>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(this.el);
-      this.el.querySelector('#mClose').addEventListener('click', () => this.hide());
-      this.el.addEventListener('click', e => { if (e.target === this.el) this.hide(); });
-      this.el.querySelector('#btnCopy').addEventListener('click', () => {
-        navigator.clipboard.writeText(PhotoshopJSExporter.generateJS(this.doc)).then(() => {
-          const b = this.el.querySelector('#btnCopy'); b.textContent = '복사 완료!';
-          setTimeout(() => b.textContent = '코드 복사', 1500);
-        });
-      });
-      this.el.querySelector('#btnDl').addEventListener('click', () => {
-        const b = new Blob([PhotoshopJSExporter.generateHTML(this.doc)], { type: 'text/html' });
-        const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'index.html'; a.click();
-      });
-      this.el.querySelector('#btnRun')?.addEventListener('click', () => {
-        const win = window.open();
-        win.document.write(PhotoshopJSExporter.generateHTML(this.doc));
-        win.document.close();
-      });
-    }
-    show() {
-      this.el.querySelector('#codeText').textContent = PhotoshopJSExporter.generateJS(this.doc);
-      this.el.classList.remove('hidden');
-    }
-    hide() { this.el.classList.add('hidden'); }
-  }
-
-  // ==========================================================================
-  // 18. Main Application Controller
-  // ==========================================================================
-  // ==========================================================================
-  // 18. Krita Docker Manager (4-Way 50% Split Docking: Left/Right/Top/Bottom, Live Drag, Window Menu Sync)
-  // ==========================================================================
-  class KritaDockerManager {
-    constructor(app) {
-      this.app = app;
-      this.dockers = {
-        inspector: {
-          id: 'inspector',
-          title: '속성 (Inspector)',
-          el: document.getElementById('inspectorContainer'),
-          state: 'docked', // 'docked' or 'floating'
-          dockArea: 'right', // 'right' or 'bottom'
-          dockSlot: 'top', // 'top' or 'bottom'
-          splitDir: null, // null, 'row', 'col'
-          splitPos: 0,
-          floatingRect: { x: window.innerWidth - 320, y: 70, w: 290, h: 420 },
-          collapsed: false,
-          hidden: false
-        },
-        layers: {
-          id: 'layers',
-          title: '레이어 (Layers)',
-          el: document.getElementById('layersContainer'),
-          state: 'docked',
-          dockArea: 'right',
-          dockSlot: 'bottom',
-          splitDir: null,
-          splitPos: 0,
-          floatingRect: { x: window.innerWidth - 320, y: 500, w: 290, h: 360 },
-          collapsed: false,
-          hidden: false
-        },
-        timeline: {
-          id: 'timeline',
-          title: '타임라인 (Timeline)',
-          el: document.getElementById('bottomTimeline'),
-          state: 'docked',
-          dockArea: 'bottom',
-          dockSlot: 'bottom',
-          splitDir: null,
-          splitPos: 0,
-          floatingRect: { x: 50, y: window.innerHeight - 240, w: 760, h: 220 },
-          collapsed: false,
-          hidden: false
-        }
-      };
-
-      this.activeDropTarget = null;
-      this.init();
-    }
-
-    init() {
-      this.renderDockers();
-      this.bindTitlebars();
-      this.bindSplitters();
-      this.attachFloatingResizeHandles();
-    }
-
-    isVisible(id) {
-      return this.dockers[id] ? !this.dockers[id].hidden : true;
-    }
-
-    toggleVisibility(dockerId) {
-      const d = this.dockers[dockerId];
-      if (!d) return;
-      d.hidden = !d.hidden;
-      this.renderDockers();
-      this.app.handleResize();
-      if (this.app.menuBar) this.app.menuBar.render();
-    }
-
-    toggleFloat(dockerId) {
-      const d = this.dockers[dockerId];
-      if (!d) return;
-      if (d.state === 'docked') {
-        d.state = 'floating';
-        d.splitDir = null;
-        d.splitPos = 0;
-        d.floatingRect.x = Math.max(80, window.innerWidth - 340);
-        d.floatingRect.y = dockerId === 'inspector' ? 70 : (dockerId === 'layers' ? 480 : 200);
-      } else {
-        d.state = 'docked';
-        d.splitDir = null;
-        d.splitPos = 0;
-        if (dockerId === 'inspector') { d.dockArea = 'right'; d.dockSlot = 'top'; }
-        else if (dockerId === 'layers') { d.dockArea = 'right'; d.dockSlot = 'bottom'; }
-        else if (dockerId === 'timeline') { d.dockArea = 'bottom'; d.dockSlot = 'bottom'; }
-      }
-      this.renderDockers();
-    }
-
-    toggleCollapse(dockerId) {
-      const d = this.dockers[dockerId];
-      if (!d) return;
-      d.collapsed = !d.collapsed;
-      this.renderDockers();
-    }
-
-    renderDockers() {
-      const rightCol = document.getElementById('kritaDockRight');
-      const bottomRow = document.getElementById('kritaDockBottom');
-      const floatLayer = document.getElementById('kritaFloatingLayer');
-      const splitRight = document.getElementById('kritaSplitterRight');
-      const splitInner = document.getElementById('kritaSplitterRightInner');
-      const splitBottom = document.getElementById('kritaSplitterBottom');
-
-      // Unwrap any existing split rows or cols so elements can be cleanly reorganized
-      document.querySelectorAll('.krita-dock-split-row, .krita-dock-split-col').forEach(wrapper => {
-        const p = wrapper.parentElement;
-        if (p) {
-          while (wrapper.firstChild) {
-            p.insertBefore(wrapper.firstChild, wrapper);
-          }
-          wrapper.remove();
-        }
-      });
-
-      const visibleDockers = Object.values(this.dockers).filter(d => !d.hidden);
-      const hiddenDockers = Object.values(this.dockers).filter(d => d.hidden);
-
-      // Hide toggled-off dockers
-      hiddenDockers.forEach(d => {
-        if (d.el) {
-          d.el.classList.add('hidden');
-          d.el.style.display = 'none';
-        }
-      });
-
-      // 1. Right Dock Column
-      const rightDockers = visibleDockers.filter(d => d.state === 'docked' && d.dockArea === 'right');
-      if (rightDockers.length > 0) {
-        if (rightCol) rightCol.classList.remove('hidden');
-        if (splitRight) splitRight.classList.remove('hidden');
-
-        const slots = { top: [], bottom: [] };
-        rightDockers.forEach(d => {
-          const s = d.dockSlot === 'top' ? 'top' : 'bottom';
-          slots[s].push(d);
-        });
-
-        // Show inner horizontal splitter only when both slots are occupied
-        if (splitInner) {
-          splitInner.classList.toggle('hidden', slots.top.length === 0 || slots.bottom.length === 0);
-        }
-
-        ['top', 'bottom'].forEach(slotName => {
-          const slotGroup = slots[slotName];
-          if (slotGroup.length === 0) return;
-
-          if (slotGroup.length === 1) {
-            const d = slotGroup[0];
-            d.splitDir = null;
-            d.splitPos = 0;
-            if (slotName === 'top' && splitInner && splitInner.parentElement === rightCol) {
-              rightCol.insertBefore(d.el, splitInner);
-            } else {
-              rightCol.appendChild(d.el);
-            }
-            d.el.classList.remove('is-floating', 'hidden');
-            d.el.classList.add('docked-flex');
-            d.el.style.position = '';
-            d.el.style.left = '';
-            d.el.style.top = '';
-            d.el.style.width = '100%';
-            d.el.style.display = 'flex';
-            if (d.collapsed) {
-              d.el.style.height = '32px';
-              d.el.style.flex = 'none';
-            } else {
-              d.el.style.height = '';
-              d.el.style.flex = '1';
-            }
-          } else {
-            // Check if horizontal (row) or vertical (col) split!
-            const isCol = slotGroup.some(d => d.splitDir === 'col');
-            const splitWrapper = document.createElement('div');
-            splitWrapper.className = isCol ? 'krita-dock-split-col' : 'krita-dock-split-row';
-            splitWrapper.dataset.slot = slotName;
-
-            slotGroup.sort((a, b) => (a.splitPos || 0) - (b.splitPos || 0));
-
-            slotGroup.forEach(d => {
-              splitWrapper.appendChild(d.el);
-              d.el.classList.remove('is-floating', 'hidden');
-              d.el.classList.add('docked-flex');
-              d.el.style.position = '';
-              d.el.style.left = '';
-              d.el.style.top = '';
-              d.el.style.display = 'flex';
-
-              if (isCol) {
-                // Vertical 50% split: 50% height each
-                d.el.style.width = '100%';
-                d.el.style.height = d.collapsed ? '32px' : '50%';
-                d.el.style.flex = '1 1 50%';
-                d.el.style.minHeight = '0';
-              } else {
-                // Horizontal 50% split: 50% width each
-                d.el.style.width = '50%';
-                d.el.style.height = d.collapsed ? '32px' : '100%';
-                d.el.style.flex = '1 1 50%';
-                d.el.style.minWidth = '0';
-              }
-            });
-
-            if (slotName === 'top' && splitInner && splitInner.parentElement === rightCol) {
-              rightCol.insertBefore(splitWrapper, splitInner);
-            } else {
-              rightCol.appendChild(splitWrapper);
-            }
-          }
-        });
-      } else {
-        if (rightCol) rightCol.classList.add('hidden');
-        if (splitRight) splitRight.classList.add('hidden');
-      }
-
-      // 2. Bottom Dock Row
-      const bottomDockers = visibleDockers.filter(d => d.state === 'docked' && d.dockArea === 'bottom');
-      if (bottomDockers.length > 0) {
-        if (bottomRow) bottomRow.classList.remove('hidden');
-        if (splitBottom) splitBottom.classList.remove('hidden');
-
-        if (bottomDockers.length === 1) {
-          const d = bottomDockers[0];
-          d.splitDir = null;
-          d.splitPos = 0;
-          bottomRow.appendChild(d.el);
-          d.el.classList.remove('is-floating', 'hidden');
-          d.el.classList.add('docked-flex');
-          d.el.style.position = '';
-          d.el.style.left = '';
-          d.el.style.top = '';
-          d.el.style.width = '100%';
-          d.el.style.display = 'flex';
-          if (d.collapsed) {
-            d.el.style.height = '35px';
-            d.el.style.flex = 'none';
-          } else {
-            d.el.style.height = '';
-            d.el.style.flex = '1';
-          }
-        } else {
-          // Check if horizontal (row) or vertical (col) split in bottom dock!
-          const isCol = bottomDockers.some(d => d.splitDir === 'col');
-          const splitWrapper = document.createElement('div');
-          splitWrapper.className = isCol ? 'krita-dock-split-col' : 'krita-dock-split-row';
-
-          bottomDockers.sort((a, b) => (a.splitPos || 0) - (b.splitPos || 0));
-
-          bottomDockers.forEach(d => {
-            splitWrapper.appendChild(d.el);
-            d.el.classList.remove('is-floating', 'hidden');
-            d.el.classList.add('docked-flex');
-            d.el.style.position = '';
-            d.el.style.left = '';
-            d.el.style.top = '';
-            d.el.style.display = 'flex';
-
-            if (isCol) {
-              d.el.style.width = '100%';
-              d.el.style.height = d.collapsed ? '35px' : '50%';
-              d.el.style.flex = '1 1 50%';
-              d.el.style.minHeight = '0';
-            } else {
-              d.el.style.width = '50%';
-              d.el.style.height = d.collapsed ? '35px' : '100%';
-              d.el.style.flex = '1 1 50%';
-              d.el.style.minWidth = '0';
-            }
-          });
-          bottomRow.appendChild(splitWrapper);
-        }
-      } else {
-        if (bottomRow) bottomRow.classList.add('hidden');
-        if (splitBottom) splitBottom.classList.add('hidden');
-      }
-
-      // 3. Floating Layer
-      const floatingDockers = visibleDockers.filter(d => d.state === 'floating');
-      floatingDockers.forEach(d => {
-        if (d.el && floatLayer) {
-          floatLayer.appendChild(d.el);
-          d.el.classList.add('is-floating');
-          d.el.classList.remove('docked-flex', 'hidden');
-          d.el.style.display = 'flex';
-          d.el.style.position = 'absolute';
-          d.el.style.left = `${d.floatingRect.x}px`;
-          d.el.style.top = `${d.floatingRect.y}px`;
-          d.el.style.width = `${d.floatingRect.w}px`;
-          d.el.style.height = d.collapsed ? '32px' : `${d.floatingRect.h}px`;
-        }
-      });
-
-      this.attachFloatingResizeHandles();
-      this.app.handleResize();
-    }
-
-    bindTitlebars() {
-      const ws = document.getElementById('psWorkspace');
-      const preview = document.getElementById('kritaDropPreview');
-      if (!ws) return;
-
-      Object.values(this.dockers).forEach(docker => {
-        const el = docker.el;
-        if (!el) return;
-
-        this.ensureTitlebar(docker);
-
-        const titlebar = el.querySelector('.krita-docker-titlebar, .timeline-header, .ps-dock-header');
-        if (!titlebar) return;
-
-        titlebar.addEventListener('mousedown', e => {
-          if (e.target.closest('button, input, select, .ps-win-btn, .win-resize-handle')) return;
-          e.preventDefault();
-
-          if (e.detail === 2) {
-            this.toggleFloat(docker.id);
-            return;
-          }
-
-          const startX = e.clientX;
-          const startY = e.clientY;
-          const initRect = el.getBoundingClientRect();
-          let grabOffsetX = Math.min(e.clientX - initRect.left, 160);
-          let grabOffsetY = Math.min(e.clientY - initRect.top, 24);
-          let isDragging = false;
-
-          const onMove = ev => {
-            const dx = ev.clientX - startX;
-            const dy = ev.clientY - startY;
-
-            if (!isDragging && Math.hypot(dx, dy) > 4) {
-              isDragging = true;
-              el.classList.add('is-dragging-ghost');
-              el.style.position = 'fixed';
-              el.style.zIndex = '999999';
-              el.style.pointerEvents = 'none';
-              el.style.width = `${Math.min(initRect.width, 320)}px`;
-              el.style.height = `${Math.min(initRect.height, 280)}px`;
-              if (preview) preview.classList.remove('hidden');
-            }
-
-            if (isDragging) {
-              // Window follows mouse directly!
-              el.style.left = `${ev.clientX - grabOffsetX}px`;
-              el.style.top = `${ev.clientY - grabOffsetY}px`;
-
-              const wsRect = ws.getBoundingClientRect();
-
-              // Hit test other docked dockers for 4-way 50% split docking (상하좌우 50% 분할)
-              let dropTarget = null;
-              for (const other of Object.values(this.dockers)) {
-                if (other.id !== docker.id && other.state === 'docked' && !other.hidden && other.el) {
-                  const oRect = other.el.getBoundingClientRect();
-                  if (ev.clientX >= oRect.left && ev.clientX <= oRect.right &&
-                      ev.clientY >= oRect.top && ev.clientY <= oRect.bottom) {
-
-                    const relX = (ev.clientX - oRect.left) / oRect.width;
-                    const relY = (ev.clientY - oRect.top) / oRect.height;
-
-                    // 4-Quadrant partition using diagonals
-                    let side = 'top';
-                    if (relY < relX) {
-                      side = (relY < 1 - relX) ? 'top' : 'right';
-                    } else {
-                      side = (relY < 1 - relX) ? 'left' : 'bottom';
-                    }
-
-                    dropTarget = {
-                      type: 'split',
-                      area: other.dockArea,
-                      slot: other.dockSlot,
-                      side: side,
-                      targetId: other.id
-                    };
-
-                    if (preview) {
-                      preview.style.display = 'flex';
-                      if (side === 'top') {
-                        preview.style.left = `${oRect.left - wsRect.left}px`;
-                        preview.style.top = `${oRect.top - wsRect.top}px`;
-                        preview.style.width = `${oRect.width}px`;
-                        preview.style.height = `${Math.floor(oRect.height * 0.5)}px`;
-                        preview.textContent = '상단 50% 분할 도킹 (Split Top)';
-                      } else if (side === 'bottom') {
-                        preview.style.left = `${oRect.left - wsRect.left}px`;
-                        preview.style.top = `${oRect.top - wsRect.top + Math.floor(oRect.height * 0.5)}px`;
-                        preview.style.width = `${oRect.width}px`;
-                        preview.style.height = `${Math.floor(oRect.height * 0.5)}px`;
-                        preview.textContent = '하단 50% 분할 도킹 (Split Bottom)';
-                      } else if (side === 'left') {
-                        preview.style.left = `${oRect.left - wsRect.left}px`;
-                        preview.style.top = `${oRect.top - wsRect.top}px`;
-                        preview.style.width = `${Math.floor(oRect.width * 0.5)}px`;
-                        preview.style.height = `${oRect.height}px`;
-                        preview.textContent = '좌측 50% 분할 도킹 (Split Left)';
-                      } else { // right
-                        preview.style.left = `${oRect.left - wsRect.left + Math.floor(oRect.width * 0.5)}px`;
-                        preview.style.top = `${oRect.top - wsRect.top}px`;
-                        preview.style.width = `${Math.floor(oRect.width * 0.5)}px`;
-                        preview.style.height = `${oRect.height}px`;
-                        preview.textContent = '우측 50% 분할 도킹 (Split Right)';
-                      }
-                    }
-                    break;
-                  }
-                }
-              }
-
-              // Hit test dock areas if not hovering over another docker
-              if (!dropTarget) {
-                const W = wsRect.width;
-                const H = wsRect.height;
-                const mx = ev.clientX - wsRect.left;
-                const my = ev.clientY - wsRect.top;
-
-                if (mx > W - 280 && mx <= W) {
-                  const isTop = my < H * 0.5;
-                  dropTarget = { type: 'dock', area: 'right', slot: isTop ? 'top' : 'bottom' };
-                  if (preview) {
-                    preview.style.display = 'flex';
-                    preview.style.left = `${W - 290}px`;
-                    preview.style.top = `${isTop ? 4 : Math.floor(H * 0.5)}px`;
-                    preview.style.width = '286px';
-                    preview.style.height = `${Math.floor(H * 0.48)}px`;
-                    preview.textContent = isTop ? '우측 상단 도킹 (Dock Top)' : '우측 하단 도킹 (Dock Bottom)';
-                  }
-                } else if (my > H - 190 && my <= H && mx > 40 && mx < W - 280) {
-                  dropTarget = { type: 'dock', area: 'bottom', slot: 'bottom' };
-                  if (preview) {
-                    preview.style.display = 'flex';
-                    preview.style.left = '40px';
-                    preview.style.top = `${H - 190}px`;
-                    preview.style.width = `${W - 330}px`;
-                    preview.style.height = '186px';
-                    preview.textContent = '하단 도킹 (Dock Bottom)';
-                  }
-                } else {
-                  dropTarget = {
-                    type: 'float',
-                    x: Math.max(40, ev.clientX - grabOffsetX),
-                    y: Math.max(40, ev.clientY - grabOffsetY)
-                  };
-                  if (preview) preview.style.display = 'none';
-                }
-              }
-
-              this.activeDropTarget = dropTarget;
-            }
-          };
-
-          const onUp = ev => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-
-            if (preview) {
-              preview.classList.add('hidden');
-              preview.style.display = 'none';
-            }
-
-            if (isDragging) {
-              el.classList.remove('is-dragging-ghost');
-              el.style.position = '';
-              el.style.pointerEvents = '';
-              el.style.zIndex = '';
-              el.style.width = '';
-              el.style.height = '';
-
-              const target = this.activeDropTarget || { type: 'float', x: ev.clientX - grabOffsetX, y: ev.clientY - grabOffsetY };
-
-              if (target.type === 'split') {
-                const other = this.dockers[target.targetId];
-                docker.state = 'docked';
-                docker.dockArea = other.dockArea;
-
-                if (other.dockArea === 'right') {
-                  if (target.side === 'top' || target.side === 'bottom') {
-                    // Check if other was the only docker in right dock
-                    const rightDockers = Object.values(this.dockers).filter(d => d.id !== docker.id && d.state === 'docked' && d.dockArea === 'right' && !d.hidden);
-                    if (rightDockers.length === 1) {
-                      // Stack vertically in right dock column using top/bottom slots
-                      if (target.side === 'top') {
-                        docker.dockSlot = 'top';
-                        docker.splitDir = null;
-                        docker.splitPos = 0;
-                        other.dockSlot = 'bottom';
-                        other.splitDir = null;
-                        other.splitPos = 0;
-                      } else {
-                        other.dockSlot = 'top';
-                        other.splitDir = null;
-                        other.splitPos = 0;
-                        docker.dockSlot = 'bottom';
-                        docker.splitDir = null;
-                        docker.splitPos = 0;
-                      }
-                    } else {
-                      // Multiple dockers: split this specific slot vertically!
-                      docker.dockSlot = other.dockSlot;
-                      docker.splitDir = 'col';
-                      other.splitDir = 'col';
-                      if (target.side === 'top') {
-                        docker.splitPos = 0;
-                        other.splitPos = 1;
-                      } else {
-                        other.splitPos = 0;
-                        docker.splitPos = 1;
-                      }
-                    }
-                  } else { // left or right horizontal split
-                    docker.dockSlot = other.dockSlot;
-                    docker.splitDir = 'row';
-                    other.splitDir = 'row';
-                    if (target.side === 'left') {
-                      docker.splitPos = 0;
-                      other.splitPos = 1;
-                    } else {
-                      other.splitPos = 0;
-                      docker.splitPos = 1;
-                    }
-                  }
-                } else { // bottom dock
-                  docker.dockArea = 'bottom';
-                  docker.dockSlot = 'bottom';
-                  other.dockArea = 'bottom';
-                  other.dockSlot = 'bottom';
-                  if (target.side === 'top' || target.side === 'bottom') {
-                    docker.splitDir = 'col';
-                    other.splitDir = 'col';
-                    if (target.side === 'top') {
-                      docker.splitPos = 0;
-                      other.splitPos = 1;
-                    } else {
-                      other.splitPos = 0;
-                      docker.splitPos = 1;
-                    }
-                  } else { // left or right
-                    docker.splitDir = 'row';
-                    other.splitDir = 'row';
-                    if (target.side === 'left') {
-                      docker.splitPos = 0;
-                      other.splitPos = 1;
-                    } else {
-                      other.splitPos = 0;
-                      docker.splitPos = 1;
-                    }
-                  }
-                }
-              } else if (target.type === 'dock') {
-                docker.state = 'docked';
-                docker.dockArea = target.area;
-                docker.dockSlot = target.slot;
-                docker.splitDir = null;
-                docker.splitPos = 0;
-              } else {
-                docker.state = 'floating';
-                docker.splitDir = null;
-                docker.splitPos = 0;
-                docker.floatingRect.x = target.x;
-                docker.floatingRect.y = target.y;
-              }
-
-              this.renderDockers();
-            }
-          };
-
-          window.addEventListener('mousemove', onMove);
-          window.addEventListener('mouseup', onUp);
-        });
-      });
-    }
-
-    ensureTitlebar(docker) {
-      const el = docker.el;
-      if (!el) return;
-
-      const titlebar = el.querySelector('.ps-dock-header, .timeline-header, .ps-panel-header');
-      if (!titlebar) return;
-
-      titlebar.classList.add('krita-docker-titlebar');
-
-      let actions = titlebar.querySelector('.krita-docker-actions');
-      if (!actions) {
-        actions = document.createElement('div');
-        actions.className = 'krita-docker-actions';
-        titlebar.appendChild(actions);
-
-        actions.innerHTML = `
-          <button class="krita-action-btn" data-docker-act="toggle-collapse" title="접기/펼치기">▼</button>
-          <button class="krita-action-btn" data-docker-act="toggle-float" title="창 분리(Float) / 도킹(Dock)">⧉</button>
-        `;
-
-        actions.querySelector('[data-docker-act="toggle-collapse"]')?.addEventListener('click', e => {
-          e.stopPropagation();
-          this.toggleCollapse(docker.id);
-        });
-
-        actions.querySelector('[data-docker-act="toggle-float"]')?.addEventListener('click', e => {
-          e.stopPropagation();
-          this.toggleFloat(docker.id);
-        });
-      }
-    }
-
-    bindSplitters() {
-      const splitRight = document.getElementById('kritaSplitterRight');
-      const rightCol = document.getElementById('kritaDockRight');
-      if (splitRight && rightCol) {
-        splitRight.addEventListener('mousedown', e => {
-          e.preventDefault();
-          const startX = e.clientX;
-          const startW = rightCol.offsetWidth;
-          splitRight.classList.add('dragging');
-
-          const onMove = ev => {
-            const newW = Math.max(200, Math.min(600, startW - (ev.clientX - startX)));
-            rightCol.style.width = `${newW}px`;
-            this.app.handleResize();
-          };
-          const onUp = () => {
-            splitRight.classList.remove('dragging');
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-            this.app.handleResize();
-          };
-          window.addEventListener('mousemove', onMove);
-          window.addEventListener('mouseup', onUp);
-        });
-      }
-
-      const splitBottom = document.getElementById('kritaSplitterBottom');
-      const bottomRow = document.getElementById('kritaDockBottom');
-      if (splitBottom && bottomRow) {
-        splitBottom.addEventListener('mousedown', e => {
-          e.preventDefault();
-          const startY = e.clientY;
-          const startH = bottomRow.offsetHeight;
-          splitBottom.classList.add('dragging');
-
-          const onMove = ev => {
-            const newH = Math.max(100, Math.min(500, startH - (ev.clientY - startY)));
-            bottomRow.style.height = `${newH}px`;
-            this.app.handleResize();
-          };
-          const onUp = () => {
-            splitBottom.classList.remove('dragging');
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-            this.app.handleResize();
-          };
-          window.addEventListener('mousemove', onMove);
-          window.addEventListener('mouseup', onUp);
-        });
-      }
-    }
-
-    attachFloatingResizeHandles() {
-      const handles = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'];
-      Object.values(this.dockers).forEach(docker => {
-        const el = docker.el;
-        if (!el) return;
-
-        el.querySelectorAll('.win-resize-handle').forEach(h => h.remove());
-
-        if (docker.state === 'floating' && !docker.collapsed) {
-          handles.forEach(dir => {
-            const h = document.createElement('div');
-            h.className = `win-resize-handle handle-${dir}`;
-            el.appendChild(h);
-
-            h.addEventListener('mousedown', e => {
-              e.preventDefault();
-              e.stopPropagation();
-
-              const startX = e.clientX;
-              const startY = e.clientY;
-              const startL = el.offsetLeft;
-              const startT = el.offsetTop;
-              const startW = el.offsetWidth;
-              const startH = el.offsetHeight;
-
-              const onMove = ev => {
-                const dx = ev.clientX - startX;
-                const dy = ev.clientY - startY;
-
-                let newW = startW;
-                let newH = startH;
-                let newL = startL;
-                let newT = startT;
-
-                if (dir.includes('e')) newW = Math.max(200, startW + dx);
-                if (dir.includes('w')) {
-                  newW = Math.max(200, startW - dx);
-                  newL = startL + (startW - newW);
-                }
-                if (dir.includes('s')) newH = Math.max(100, startH + dy);
-                if (dir.includes('n')) {
-                  newH = Math.max(100, startH - dy);
-                  newT = startT + (startH - newH);
-                }
-
-                el.style.left = `${newL}px`;
-                el.style.top = `${newT}px`;
-                el.style.width = `${newW}px`;
-                el.style.height = `${newH}px`;
-
-                docker.floatingRect.x = newL;
-                docker.floatingRect.y = newT;
-                docker.floatingRect.w = newW;
-                docker.floatingRect.h = newH;
-              };
-
-              const onUp = () => {
-                window.removeEventListener('mousemove', onMove);
-                window.removeEventListener('mouseup', onUp);
-                this.app.handleResize();
-              };
-
-              window.addEventListener('mousemove', onMove);
-              window.addEventListener('mouseup', onUp);
-            });
-          });
-        }
-      });
-    }
-  }
-
-  // ==========================================================================
-  // 19. Main Application Controller (Decoupled Loop, Anti-Lag, Web Studio)
-  // ==========================================================================
   class App {
     constructor() {
       this.canvas = document.getElementById('viewportCanvas');
@@ -5733,7 +5723,7 @@
       const doc = this.doc;
       const W = doc.width || 1440;
       const H = doc.height || 900;
-      const bg = doc.transparentBackground ? 'transparent' : (doc.backgroundColor || '#ffffff');
+      const bg = doc.transparentBackground ? '#ffffff' : (doc.backgroundColor || '#ffffff');
 
       let elementsHtml = '';
       const allSprites = [];
@@ -5747,6 +5737,8 @@
       allSprites.sort((a, b) => a.z - b.z);
 
       allSprites.forEach(({ sprite, z }) => {
+        if (sprite.type === 'screen_trigger') return; // Triggers are invisible in production
+
         const tag = sprite.tag || 'div';
         const isBtn = tag === 'button';
         const isLink = tag === 'a' || !!sprite.linkUrl;
@@ -5762,14 +5754,34 @@
         }
 
         const borderRadius = sprite.type === 'circle' ? '50%' : `${sprite.cornerRadius || 0}px`;
-        const fill = sprite.fill || '#38bdf8';
+        const fill = (sprite.type === 'path' || sprite.type === 'brush') ? 'transparent' : (sprite.fill || '#38bdf8');
         const stroke = (sprite.strokeWidth && sprite.strokeWidth > 0) ? `${sprite.strokeWidth}px solid ${sprite.stroke}` : 'none';
+
+        // Filters
+        const fltrs = [];
+        if (sprite.filters) {
+          const f = sprite.filters;
+          if (f.blur) fltrs.push(`blur(${f.blur}px)`);
+          if (f.brightness !== undefined && f.brightness !== 100) fltrs.push(`brightness(${f.brightness}%)`);
+          if (f.contrast !== undefined && f.contrast !== 100) fltrs.push(`contrast(${f.contrast}%)`);
+          if (f.saturate !== undefined && f.saturate !== 100) fltrs.push(`saturate(${f.saturate}%)`);
+          if (f.grayscale) fltrs.push(`grayscale(${f.grayscale}%)`);
+          if (f.sepia) fltrs.push(`sepia(${f.sepia}%)`);
+          if (f.hueRotate) fltrs.push(`hue-rotate(${f.hueRotate}deg)`);
+          if (f.invert) fltrs.push(`invert(${f.invert}%)`);
+          if (f.dropShadow) fltrs.push(`drop-shadow(0px 8px 16px rgba(0,0,0,0.4))`);
+        }
+        const filterStyle = fltrs.length > 0 ? `filter: ${fltrs.join(' ')};` : '';
+
+        // Exact match with studio coordinates: Center (x, y) translated to CSS Top-Left (x - w/2, y - h/2)
+        const leftPos = Math.round(sprite.x - sprite.width / 2);
+        const topPos = Math.round(sprite.y - sprite.height / 2);
 
         elementsHtml += `
           <${tag} class="web-sprite ${hoverCls}" id="${sprite.id}" ${hrefAttr} style="
             position: absolute;
-            left: ${sprite.x}px;
-            top: ${sprite.y}px;
+            left: ${leftPos}px;
+            top: ${topPos}px;
             width: ${sprite.width}px;
             height: ${sprite.height}px;
             transform: rotate(${sprite.rotation || 0}deg) scale(${sprite.scaleX || 1}, ${sprite.scaleY || 1});
@@ -5780,11 +5792,12 @@
             border-radius: ${borderRadius};
             z-index: ${z};
             ${cursorStyle}
+            ${filterStyle}
             display: flex;
             align-items: center;
             justify-content: center;
             color: #ffffff;
-            font-family: ${sprite.fontFamily || 'sans-serif'};
+            font-family: ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'};
             font-size: ${sprite.fontSize || 16}px;
             font-weight: ${sprite.fontWeight || 'normal'};
             text-align: ${sprite.textAlign || 'center'};
@@ -5800,90 +5813,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${doc.name} - 웹사이트 라이브 미리보기</title>
+  <title>${doc.name}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: #09090b;
-      color: #f4f4f5;
+    html, body {
+      background: ${bg};
+      color: #18181b;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
+      width: 100%;
       overflow-x: hidden;
-    }
-    .preview-bar {
-      height: 42px;
-      background: #141416;
-      border-bottom: 1px solid #28282c;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 16px;
-      position: sticky;
-      top: 0;
-      z-index: 9999;
-    }
-    .preview-info {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 11px;
-    }
-    .preview-badge {
-      background: #28282e;
-      color: #e4e4e7;
-      padding: 2px 6px;
-      border-radius: 2px;
-      font-weight: 700;
-      font-size: 10px;
-    }
-    .viewport-switchers {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .vp-btn {
-      background: #1f1f23;
-      border: 1px solid #333338;
-      color: #a1a1aa;
-      padding: 4px 10px;
-      border-radius: 2px;
-      font-size: 11px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .vp-btn:hover, .vp-btn.active {
-      background: #28282e;
-      color: #ffffff;
-      border-color: #52525b;
-    }
-    .stage-wrapper {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      background: #0d0d0f;
+      overflow-y: auto;
     }
     #webArtboard {
       position: relative;
       width: ${W}px;
-      height: ${H}px;
+      min-height: ${H}px;
+      margin: 0 auto;
       background: ${bg};
-      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8), 0 0 0 1px #28282c;
-      overflow: hidden;
-      transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow: visible;
     }
     .hover-lift:hover {
       transform: translateY(-6px) scale(1.02) !important;
-      box-shadow: 0 12px 28px rgba(0,0,0,0.4);
+      box-shadow: 0 12px 28px rgba(0,0,0,0.25);
     }
     .hover-zoom:hover {
       transform: scale(1.06) !important;
     }
     .hover-glow:hover {
-      box-shadow: 0 0 20px rgba(255, 255, 255, 0.35);
+      box-shadow: 0 0 24px rgba(56, 189, 248, 0.45);
     }
     .hover-fade:hover {
       opacity: 0.75 !important;
@@ -5891,32 +5849,9 @@
   </style>
 </head>
 <body>
-  <header class="preview-bar">
-    <div class="preview-info">
-      <span class="preview-badge">LIVE WEB PREVIEW</span>
-      <span>${doc.name} (${W} × ${H})</span>
-    </div>
-    <div class="viewport-switchers">
-      <button class="vp-btn active" onclick="setVp(${W}, ${H}, this)">🖥️ 데스크톱 (${W}px)</button>
-      <button class="vp-btn" onclick="setVp(1024, 768, this)">💻 랩탑 (1024px)</button>
-      <button class="vp-btn" onclick="setVp(768, 1024, this)">📱 태블릿 (768px)</button>
-      <button class="vp-btn" onclick="setVp(375, 812, this)">📱 모바일 (375px)</button>
-    </div>
-  </header>
-  <main class="stage-wrapper">
-    <div id="webArtboard">
-      ${elementsHtml}
-    </div>
-  </main>
-  <script>
-    function setVp(w, h, btn) {
-      document.querySelectorAll('.vp-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const ab = document.getElementById('webArtboard');
-      ab.style.width = w + 'px';
-      if (h) ab.style.height = h + 'px';
-    }
-  </script>
+  <div id="webArtboard">
+    ${elementsHtml}
+  </div>
 </body>
 </html>`;
 
@@ -6101,12 +6036,40 @@
         this.tools.handleMouseUp(mw.x, mw.y);
       });
 
+            // Helper to match key combo with configured shortcuts
+      const checkShortcutMatch = (e, comboStr) => {
+        if (!comboStr) return false;
+        const parts = comboStr.split('+').map(p => p.trim().toUpperCase());
+        const hasCtrl = parts.includes('CTRL') || parts.includes('CMD');
+        const hasShift = parts.includes('SHIFT');
+        const hasAlt = parts.includes('ALT');
+        const mainKey = parts.filter(p => !['CTRL', 'CMD', 'SHIFT', 'ALT'].includes(p))[0];
+
+        if (hasCtrl !== (e.ctrlKey || e.metaKey)) return false;
+        if (hasShift !== e.shiftKey) return false;
+        if (hasAlt !== e.altKey) return false;
+
+        const k = (e.key || '').toUpperCase();
+        const code = (e.code || '').toUpperCase();
+        if (mainKey === 'SPACE') return code === 'SPACE';
+        return k === mainKey;
+      };
+
       // Global Keydown Shortcuts - Undo / Redo FIRST!
       window.addEventListener('keydown', e => {
         const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
 
-        // 1. UNDO: Ctrl+Z / Cmd+Z (without Shift)
-        if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+        const undoKey = this.settingsModal?.getShortcutKey('undo') || 'Ctrl + Z';
+        const redoKey = this.settingsModal?.getShortcutKey('redo') || 'Ctrl + Y';
+        const prevKey = this.settingsModal?.getShortcutKey('preview') || 'Ctrl + Space';
+        const nodeKey = this.settingsModal?.getShortcutKey('nodeMode') || 'Shift + Tab';
+        const selKey  = this.settingsModal?.getShortcutKey('selectAll') || 'Ctrl + A';
+        const copyKey = this.settingsModal?.getShortcutKey('copy') || 'Ctrl + C';
+        const pasteKey= this.settingsModal?.getShortcutKey('paste') || 'Ctrl + V';
+        const renKey  = this.settingsModal?.getShortcutKey('rename') || 'F2';
+
+        // 1. UNDO
+        if (checkShortcutMatch(e, undoKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey)) {
           if (!isInput) {
             e.preventDefault();
             if (this.doc.undo()) {
@@ -6120,11 +6083,8 @@
           }
         }
 
-        // 2. REDO: Ctrl+Y / Cmd+Y or Ctrl+Shift+Z / Cmd+Shift+Z
-        if (
-          ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) ||
-          ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z'))
-        ) {
+        // 2. REDO
+        if (checkShortcutMatch(e, redoKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y'))) {
           if (!isInput) {
             e.preventDefault();
             if (this.doc.redo()) {
@@ -6138,39 +6098,67 @@
           }
         }
 
-        // 3. Ctrl + Space: Live Web Preview in New Window
-        if (e.ctrlKey && e.code === 'Space') {
+        // 3. Web Preview
+        if (checkShortcutMatch(e, prevKey) || (e.ctrlKey && e.code === 'Space')) {
           e.preventDefault();
           this.openWebPreviewWindow();
           return;
         }
 
-        // 4. Shift + Tab: Toggle Module Node Mode
-        if (e.shiftKey && e.key === 'Tab') {
+        // 4. Node Mode Toggle
+        if (checkShortcutMatch(e, nodeKey) || (e.shiftKey && e.key === 'Tab')) {
           e.preventDefault();
           this.toggleNodeMode();
           return;
         }
 
-        // 5. F2: Inline Rename
-        if (e.key === 'F2') {
+        // 5. Rename
+        if (checkShortcutMatch(e, renKey) || e.key === 'F2') {
           e.preventDefault();
           this.layersUI.startRenameSelected();
           return;
         }
 
-        // 6. Ctrl + A: Select All
-        if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A') && !isInput) {
-          e.preventDefault();
-          this.doc.selectAll();
-          this.refreshUI();
+        // 6. Copy
+        if (checkShortcutMatch(e, copyKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C') && !isInput)) {
+          const sel = this.doc.getSelectedSprite();
+          if (sel) {
+            e.preventDefault();
+            this.clipboardSprite = JSON.parse(JSON.stringify(sel));
+          }
           return;
         }
 
-        // 7. Ctrl + , : Settings
-        if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        // 7. Paste
+        if (checkShortcutMatch(e, pasteKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V') && !isInput)) {
+          if (this.clipboardSprite) {
+            e.preventDefault();
+            const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
+            if (activeLayer) {
+              const clone = JSON.parse(JSON.stringify(this.clipboardSprite));
+              clone.id = 'sp_' + Math.random().toString(36).substring(2, 9);
+              clone.name = clone.name + ' 복사본';
+              clone.x = (clone.x || 0) + 24;
+              clone.y = (clone.y || 0) + 24;
+              if (clone.modules) {
+                clone.modules.forEach(m => {
+                  m.id = 'mod_' + Math.random().toString(36).substring(2, 9);
+                });
+              }
+              const added = activeLayer.addSprite(clone);
+              this.doc.selectedSpriteId = added.id;
+              this.doc.saveState();
+              this.refreshUI();
+            }
+          }
+          return;
+        }
+
+        // 8. Select All
+        if (checkShortcutMatch(e, selKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A') && !isInput)) {
           e.preventDefault();
-          this.settingsModal.show();
+          this.doc.selectAll();
+          this.refreshUI();
           return;
         }
 
@@ -6209,6 +6197,8 @@
       });
 
       // Prevent clicked buttons from retaining focus and triggering on Spacebar
+      window.addEventListener('contextmenu', e => e.preventDefault());
+
       window.addEventListener('click', e => {
         if (e.target.closest('button')) {
           setTimeout(() => {
