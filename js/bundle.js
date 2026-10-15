@@ -2233,7 +2233,7 @@
                           ${s.modules.map((m, mIdx) => `
                             <div class="ps-layer-module-row ${m.id === this.doc.selectedModuleId ? 'selected-mod' : ''}" data-mod-id="${m.id}" data-mod-idx="${mIdx}" draggable="true">
                               <span class="mod-indent">↳</span>
-                              <span class="mod-badge" style="background:${MODULE_REGISTRY[m.type]?.color || '#0284c7'};">${MODULE_REGISTRY[m.type]?.icon || 'MOD'}</span>
+                              <span class="mod-badge">${MODULE_REGISTRY[m.type]?.icon || 'MOD'}</span>
                               <span class="mod-name" data-act="select-mod">${m.name}</span>
                               <button class="mod-toggle ${m.enabled ? 'active' : ''}" data-act="toggle-mod">${m.enabled ? 'ON' : 'OFF'}</button>
                               <button class="mod-del" data-act="del-mod" title="모듈 삭제">×</button>
@@ -2498,7 +2498,7 @@
           const m = MODULE_REGISTRY[k];
           return `
             <div class="ps-module-card" data-key="${k}">
-              <div class="ps-mod-badge" style="background:${m.color || '#0284c7'};">${m.icon}</div>
+              <div class="ps-mod-badge">${m.icon}</div>
               <div class="ps-mod-info">
                 <div class="ps-mod-name">${m.name}</div>
                 <div class="ps-mod-desc">${m.description}</div>
@@ -2596,7 +2596,7 @@
         <div class="ps-prop-section">
           <div class="ps-prop-header" style="justify-content:space-between;">
             <div style="display:flex;align-items:center;gap:6px;">
-              <span class="mod-badge" style="background:${def.color||'#0284c7'};">${def.icon||'MOD'}</span>
+              <span class="mod-badge" >${def.icon||'MOD'}</span>
               <span style="font-weight:700;color:#fff;">${mod.name}</span>
             </div>
             <button class="btn btn-secondary btn-sm" id="btnBackToVisual">스프라이트 속성 보기</button>
@@ -2673,7 +2673,7 @@
           <div class="ps-prop-row">
             <label class="ps-prop-label">채우기 색상:</label>
             <div class="ps-color-picker-wrap">
-              <input type="color" class="ps-color-picker" id="inpFill" value="${sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#38bdf8'}">
+              <input type="color" class="ps-color-picker" id="inpFill" value="${sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#d4d4d8'}">
               <span class="ps-val-tag">${sprite.fill}</span>
             </div>
           </div>
@@ -3567,7 +3567,7 @@
                 ${n.title}
               </span>
               <div style="display:flex;align-items:center;gap:6px;">
-                <span style="font-size:9px;font-weight:700;color:${isActive ? '#22c55e' : '#71717a'};">${isActive ? '● ON' : '○ OFF'}</span>
+                <span style="font-size:9px;font-weight:700;color:${isActive ? '#e4e4e7' : '#52525b'};">${isActive ? '● ON' : '○ OFF'}</span>
                 ${n.type !== 'output_master' && n.type !== 'output_sprite' ? `<button class="graph-node-close" data-act="del-node" data-node-id="${n.id}">✕</button>` : ''}
               </div>
             </div>
@@ -3620,7 +3620,7 @@
         return `
           <div class="node-inline-control">
             <span class="node-inline-label">색상:</span>
-            <input type="color" class="node-inline-color" data-node-ctrl="color" value="${n.params.color || '#38bdf8'}">
+            <input type="color" class="node-inline-color" data-node-ctrl="color" value="${n.params.color || '#d4d4d8'}">
           </div>
           <div class="node-inline-control">
             <span class="node-inline-label">투명도:</span>
@@ -3710,7 +3710,7 @@
         temp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         temp.id = 'tempConnectingWire';
         temp.setAttribute('class', 'graph-wire');
-        temp.style.stroke = '#fbbf24';
+        temp.style.stroke = '#d4d4d8';
         temp.style.strokeDasharray = '4,4';
         temp.style.strokeWidth = '2.5';
         svg.appendChild(temp);

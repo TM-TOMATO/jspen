@@ -45,24 +45,25 @@ class MainWindow(QMainWindow):
             QMenuBar::item {
                 background: transparent;
                 padding: 4px 10px;
-                border-radius: 4px;
+                border-radius: 2px;
             }
             QMenuBar::item:selected {
                 background-color: #27272a;
-                color: #38bdf8;
+                color: #ffffff;
             }
             QMenu {
-                background-color: #1f1f23;
+                background-color: #1a1a1d;
                 color: #f4f4f5;
-                border: 1px solid #333338;
+                border: 1px solid #2e2e34;
                 font-size: 12px;
                 padding: 4px 0px;
+                border-radius: 2px;
             }
             QMenu::item {
                 padding: 6px 24px;
             }
             QMenu::item:selected {
-                background-color: #0284c7;
+                background-color: #28282e;
                 color: #ffffff;
             }
             QMenu::separator {
