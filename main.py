@@ -113,10 +113,22 @@ class MainWindow(QMainWindow):
         settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, False)
 
+        # Support opening .jspen project file passed via command line or double click
+        self.initial_file = None
+        if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+            self.initial_file = os.path.abspath(sys.argv[1])
+
+        # Enable Drag and Drop on Native Window
+        self.setAcceptDrops(True)
+        self.browser.installEventFilter(self)
+
         # Load Local Studio App
         base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
         html_path = os.path.abspath(os.path.join(base_dir, "index.html"))
         self.browser.load(QUrl.fromLocalFile(html_path))
+
+        # Open initial project file when page finish loading
+        self.browser.loadFinished.connect(self.on_load_finished)
 
         # Command Bridge via titleChanged for Native Windows File Dialogs
         self.browser.titleChanged.connect(self.handle_js_command)
@@ -272,20 +284,67 @@ class MainWindow(QMainWindow):
 
             self.run_js("JSON.stringify(window.jspenApp.doc.toJSON(), null, 2);", on_json_ready)
 
+    def on_load_finished(self, ok):
+        if ok and self.initial_file:
+            self.open_project_file(self.initial_file)
+            self.initial_file = None
+
+    def open_project_file(self, file_path):
+        """Open a .jspen or .json file and load into the Canvas engine."""
+        try:
+            if not os.path.exists(file_path):
+                return
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            escaped = json.dumps(content)
+            self.run_js(f"if (window.jspenApp) {{ window.jspenApp.loadProjectFromJSON(JSON.parse({escaped})); }}")
+            self.statusBar().showMessage(f"프로젝트를 불러왔습니다: {os.path.basename(file_path)}", 4000)
+        except Exception as e:
+            QMessageBox.critical(self, "불러오기 오류", f"파일을 열 수 없습니다:\n{e}")
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                fn = url.toLocalFile()
+                if fn.lower().endswith(('.jspen', '.json')):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                fn = url.toLocalFile()
+                if fn.lower().endswith(('.jspen', '.json')):
+                    self.open_project_file(fn)
+                    event.acceptProposedAction()
+                    return
+
+    def eventFilter(self, watched, event):
+        if watched == self.browser:
+            if event.type() == event.Type.DragEnter:
+                if event.mimeData().hasUrls():
+                    for url in event.mimeData().urls():
+                        if url.toLocalFile().lower().endswith(('.jspen', '.json')):
+                            event.acceptProposedAction()
+                            return True
+            elif event.type() == event.Type.Drop:
+                if event.mimeData().hasUrls():
+                    for url in event.mimeData().urls():
+                        fn = url.toLocalFile()
+                        if fn.lower().endswith(('.jspen', '.json')):
+                            self.open_project_file(fn)
+                            event.acceptProposedAction()
+                            return True
+        return super().eventFilter(watched, event)
+
     def native_open_project(self):
         """Native Windows Open File Dialog for loading .jspen project file."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "JSPen 프로젝트 열기", "", "JSPen Project (*.jspen *.json);;All Files (*.*)"
         )
         if file_path:
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                escaped = json.dumps(content)
-                self.run_js(f"window.jspenApp.doc.loadFromData(JSON.parse({escaped}), true); window.jspenApp.refreshUI();")
-                self.statusBar().showMessage(f"프로젝트를 불러왔습니다: {os.path.basename(file_path)}", 4000)
-            except Exception as e:
-                QMessageBox.critical(self, "불러오기 오류", f"파일을 열 수 없습니다:\n{e}")
+            self.open_project_file(file_path)
 
     def native_export_js(self):
         """Export pure Vanilla JS Canvas code to a local .js file via native dialog."""
@@ -321,11 +380,54 @@ class MainWindow(QMainWindow):
 
             self.run_js("PhotoshopJSExporter.generateHTML(window.jspenApp.doc);", on_html_ready)
 
+def register_windows_file_association():
+    """Register .jspen extension in HKCU so Windows recognizes it as an Application without admin rights."""
+    if sys.platform != 'win32':
+        return
+    try:
+        import winreg
+        import ctypes
+
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        if getattr(sys, 'frozen', False):
+            app_cmd = f'"{sys.executable}" "%1"'
+            icon_path = f'"{sys.executable}",0'
+        else:
+            main_py = os.path.abspath(os.path.join(base_dir, 'main.py'))
+            py_exe = sys.executable
+            pyw = py_exe.replace("python.exe", "pythonw.exe")
+            exec_bin = pyw if os.path.exists(pyw) else py_exe
+            app_cmd = f'"{exec_bin}" "{main_py}" "%1"'
+            icon_path = f'"{exec_bin}",0'
+
+        # 1. Register .jspen extension
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\.jspen") as key:
+            winreg.SetValue(key, "", winreg.REG_SZ, "JSPenStudio.Project")
+
+        # 2. Register ProgID JSPenStudio.Project
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\JSPenStudio.Project") as key:
+            winreg.SetValue(key, "", winreg.REG_SZ, "JSPen Studio 프로젝트")
+            winreg.SetValueEx(key, "FriendlyTypeName", 0, winreg.REG_SZ, "JSPen Studio Project File")
+
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\JSPenStudio.Project\DefaultIcon") as key:
+            winreg.SetValue(key, "", winreg.REG_SZ, icon_path)
+
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\JSPenStudio.Project\shell\open\command") as key:
+            winreg.SetValue(key, "", winreg.REG_SZ, app_cmd)
+
+        # 3. Notify Windows Explorer
+        ctypes.windll.shell32.SHChangeNotify(0x08000000, 0, 0, 0)
+    except Exception as e:
+        pass
+
 def main():
     # Enable High DPI Scaling
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     app = QApplication(sys.argv)
     app.setApplicationName("JSPen Studio")
+
+    # Associate .jspen files in Windows registry
+    register_windows_file_association()
 
     window = MainWindow()
     window.show()

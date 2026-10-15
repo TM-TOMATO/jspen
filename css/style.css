@@ -2828,3 +2828,163 @@ input:focus, select:focus, textarea:focus {
 .snap-right-bottom {
   right: 6px; bottom: 6px; width: 270px; height: calc(50% - 16px);
 }
+
+/* ==========================================================================
+   33. Krita Side-by-Side 50% Split Docking & Live Dragging Ghost
+   ========================================================================== */
+.krita-dock-split-row {
+  display: flex !important;
+  flex-direction: row !important;
+  width: 100% !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  gap: 2px !important;
+  background-color: #121214 !important;
+  overflow: hidden !important;
+}
+.krita-dock-split-row > .krita-docker {
+  flex: 1 1 50% !important;
+  width: 50% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+}
+
+.krita-docker.is-dragging-ghost {
+  position: fixed !important;
+  z-index: 999999 !important;
+  pointer-events: none !important;
+  opacity: 0.9 !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 0 1px #3f3f46 !important;
+  transform: scale(0.98) !important;
+  transition: none !important;
+  max-width: 340px !important;
+  max-height: 280px !important;
+  overflow: hidden !important;
+}
+
+/* ==========================================================================
+   34. Sprite Module Nested Hierarchy in Layers Panel
+   ========================================================================== */
+.ps-sprite-item-wrap {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.ps-sp-fold-btn {
+  background: transparent;
+  border: none;
+  color: #71717a;
+  font-size: 8px;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  margin-right: 2px;
+  transition: color 0.1s;
+}
+.ps-sp-fold-btn:hover {
+  color: #ffffff;
+}
+.ps-layer-sub-modules {
+  display: flex;
+  flex-direction: column;
+  background-color: rgba(0, 0, 0, 0.25);
+  border-left: 2px solid #27272a;
+  margin-left: 22px;
+  margin-top: 1px;
+  margin-bottom: 2px;
+}
+.ps-layer-module-row {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 6px 0 6px;
+  font-size: 11px;
+  color: #a1a1aa;
+  cursor: pointer;
+  gap: 5px;
+  user-select: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+  transition: background-color 0.1s, color 0.1s;
+}
+.ps-layer-module-row:hover {
+  background-color: #27272a;
+  color: #ffffff;
+}
+.ps-layer-module-row.selected-mod {
+  background-color: #2e2e34;
+  color: #ffffff;
+  border-left: 2px solid #e4e4e7;
+}
+.ps-layer-module-row .mod-indent {
+  font-size: 10px;
+  color: #52525b;
+}
+.ps-layer-module-row .mod-badge {
+  font-size: 11px;
+  line-height: 1;
+}
+.ps-layer-module-row .mod-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-layer-module-row .mod-toggle {
+  background: #1f1f23;
+  border: 1px solid #333338;
+  color: #71717a;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.ps-layer-module-row .mod-toggle.active {
+  background: #27272a;
+  color: #e4e4e7;
+  border-color: #52525b;
+}
+.ps-layer-module-row .mod-del {
+  background: transparent;
+  border: none;
+  color: #71717a;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.ps-layer-module-row .mod-del:hover {
+  color: #ef4444;
+}
+
+/* ==========================================================================
+   35. Blender Shader Node Style Smooth Wires
+   ========================================================================== */
+.graph-wire {
+  stroke: #71717a;
+  stroke-width: 2.2;
+  fill: none;
+  pointer-events: stroke;
+  cursor: pointer;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+}
+.graph-wire:hover {
+  stroke: #ffffff;
+  stroke-width: 3.5;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.4));
+}
+.graph-wire.wire-active {
+  stroke: #e4e4e7;
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 3px rgba(228, 228, 231, 0.25));
+}
+#tempConnectingWire {
+  stroke: #ffffff !important;
+  stroke-width: 2.5 !important;
+  stroke-dasharray: 4,4 !important;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5)) !important;
+}

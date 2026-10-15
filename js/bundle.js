@@ -316,6 +316,7 @@
       this.tag = options.tag || 'div';
       this.linkUrl = options.linkUrl || '';
       this.hoverEffect = options.hoverEffect || 'none';
+      this.collapsed = options.collapsed || false;
 
       this.runtime = {
         x: this.x, y: this.y, rotation: this.rotation,
@@ -404,7 +405,8 @@
         linkGroup: this.linkGroup,
         tag: this.tag,
         linkUrl: this.linkUrl,
-        hoverEffect: this.hoverEffect
+        hoverEffect: this.hoverEffect,
+        collapsed: this.collapsed
       };
     }
   }
@@ -2217,27 +2219,51 @@
               <!-- Child Sprites (Clearly Nested in Fabric Tree Structure) -->
               ${l.expanded ? `
                 <div class="ps-layer-sub-sprites">
-                  ${l.sprites.length === 0 ? '<div style="font-size:10px;color:#71717a;padding:2px 4px;">스프라이트 없음</div>' : l.sprites.map(s => `
-                    <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : ''}" data-act="select-sprite" data-sprite-id="${s.id}" data-layer-id="${l.id}" draggable="true">
-                      <button class="ps-layer-vis-btn ${s.visible ? '' : 'muted'}" data-act="vis-sprite" title="스프라이트 가시성">${s.visible ? '●' : '○'}</button>
-                      <span class="ps-sp-icon">${s.type === 'rect' ? '▭' : (s.type === 'circle' ? '○' : (s.type === 'text' ? 'T' : (s.type === 'path' ? '⟿' : '✎')))}</span>
-                      
-                      ${this.renamingId === s.id ? `
-                        <input type="text" class="ps-layer-title-input" value="${s.name}" autofocus>
-                      ` : `
-                        <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${s.name}</span>
-                      `}
+                  ${l.sprites.length === 0 ? '<div style="font-size:10px;color:#71717a;padding:2px 4px;">스프라이트 없음</div>' : l.sprites.map(s => {
+                    const hasMods = s.modules && s.modules.length > 0;
+                    const isFolded = s.collapsed === true;
+                    return `
+                    <div class="ps-sprite-item-wrap">
+                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : ''}" data-act="select-sprite" data-sprite-id="${s.id}" data-layer-id="${l.id}" draggable="true">
+                        <button class="ps-sp-fold-btn" data-act="toggle-sprite-fold" title="모듈 접기/펼치기" style="${hasMods ? '' : 'visibility:hidden;'}">
+                          ${isFolded ? '▶' : '▼'}
+                        </button>
+                        <button class="ps-layer-vis-btn ${s.visible ? '' : 'muted'}" data-act="vis-sprite" title="스프라이트 가시성">${s.visible ? '●' : '○'}</button>
+                        <span class="ps-sp-icon">${s.type === 'rect' ? '▭' : (s.type === 'circle' ? '○' : (s.type === 'text' ? 'T' : (s.type === 'path' ? '⟿' : '✎')))}</span>
+                        
+                        ${this.renamingId === s.id ? `
+                          <input type="text" class="ps-layer-title-input" value="${s.name}" autofocus>
+                        ` : `
+                          <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${s.name}</span>
+                        `}
 
-                      <button class="ps-sp-link-btn ${s.linkGroup ? 'active' : ''}" data-act="toggle-link" title="${s.linkGroup ? '스프라이트 링크 해제 (현재 그룹: ' + s.linkGroup + ')' : '다른 스프라이트와 링크하기'}">
-                        ${s.linkGroup ? `🔗${s.linkGroup}` : '🔗'}
-                      </button>
+                        <button class="ps-sp-link-btn ${s.linkGroup ? 'active' : ''}" data-act="toggle-link" title="${s.linkGroup ? '스프라이트 링크 해제 (현재 그룹: ' + s.linkGroup + ')' : '다른 스프라이트와 링크하기'}">
+                          ${s.linkGroup ? `🔗${s.linkGroup}` : '🔗'}
+                        </button>
 
-                      <button class="ps-btn-add-module ${(s.modules && s.modules.length > 0) ? 'has-modules' : ''}" data-act="add-sprite-mod" title="모듈 추가">
-                        +fx ${(s.modules && s.modules.length > 0) ? `<span class="mod-count">${s.modules.length}</span>` : ''}
-                      </button>
-                      <button class="ps-btn-del-item" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
+                        <button class="ps-btn-add-module ${hasMods ? 'has-modules' : ''}" data-act="add-sprite-mod" title="모듈 추가">
+                          +fx ${hasMods ? `<span class="mod-count">${s.modules.length}</span>` : ''}
+                        </button>
+                        <button class="ps-btn-del-item" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
+                      </div>
+
+                      <!-- Sub-Modules nested under sprite like layers inside folder -->
+                      ${(hasMods && !isFolded) ? `
+                        <div class="ps-layer-sub-modules">
+                          ${s.modules.map((m, mIdx) => `
+                            <div class="ps-layer-module-row ${m.id === this.doc.selectedModuleId ? 'selected-mod' : ''}" data-mod-id="${m.id}" data-sprite-id="${s.id}" data-mod-idx="${mIdx}">
+                              <span class="mod-indent">↳</span>
+                              <span class="mod-badge">${MODULE_REGISTRY[m.type]?.icon || 'MOD'}</span>
+                              <span class="mod-name" data-act="select-mod" title="클릭하여 모듈 설정">${m.name}</span>
+                              <button class="mod-toggle ${m.enabled ? 'active' : ''}" data-act="toggle-mod" title="모듈 활성/비활성">${m.enabled ? 'ON' : 'OFF'}</button>
+                              <button class="mod-del" data-act="del-mod" title="모듈 삭제">×</button>
+                            </div>
+                          `).join('')}
+                        </div>
+                      ` : ''}
                     </div>
-                  `).join('')}
+                  `;
+                  }).join('')}
                 </div>
               ` : ''}
             </div>
@@ -2333,7 +2359,7 @@
           this.cb.onUpdate();
         } else if (act === 'select-sprite' && sprite) {
           this.doc.selectedLayerId = layerId;
-          this.doc.selectedSpriteId = sprite.id;
+          this.doc.selectedSpriteId = sprite.id; this.doc.selectedModuleId = null;
           this.doc.selectedModuleId = null;
           this.cb.onUpdate();
         } else if (act === 'delete-sprite' && layer && sprite) {
@@ -2343,7 +2369,7 @@
           }
           this.cb.onUpdate();
         } else if (act === 'select-mod' && modId) {
-          this.doc.selectedModuleId = modId;
+          if (sprite) { this.doc.selectedSpriteId = sprite.id; } this.doc.selectedModuleId = modId;
           this.cb.onUpdate();
         } else if (act === 'toggle-mod' && sprite && modRow) {
           const mod = sprite.modules?.find(m => m.id === modId);
@@ -2352,7 +2378,11 @@
           sprite.modules = sprite.modules?.filter(m => m.id !== modId);
           if (this.doc.selectedModuleId === modId) this.doc.selectedModuleId = null;
           this.cb.onUpdate();
-                } else if (act === 'toggle-link' && sprite) {
+                } else if (act === 'toggle-sprite-fold' && sprite) {
+          sprite.collapsed = !sprite.collapsed;
+          this.render();
+          return;
+        } else if (act === 'toggle-link' && sprite) {
           if (sprite.linkGroup) {
             sprite.linkGroup = null;
           } else {
@@ -3442,18 +3472,26 @@
       });
 
       // Window layout toggle
-      const togglePanel = (name, selector) => {
-        this.windowToggles[name] = !this.windowToggles[name];
-        const el = document.querySelector(selector);
-        if (el) el.classList.toggle('hidden', !this.windowToggles[name]);
+      this.el.querySelector('#wToolbox')?.addEventListener('click', () => {
+        if (this.cb.onToggleToolbox) this.cb.onToggleToolbox();
         this.render();
-      };
-
-      this.el.querySelector('#wToolbox')?.addEventListener('click', () => togglePanel('toolbox', '#leftToolbox'));
-      this.el.querySelector('#wOptionBar')?.addEventListener('click', () => togglePanel('optionBar', '#toolOptionBar'));
-      this.el.querySelector('#wInspector')?.addEventListener('click', () => togglePanel('inspector', '#inspectorContainer'));
-      this.el.querySelector('#wLayers')?.addEventListener('click', () => togglePanel('layers', '#layersContainer'));
-      this.el.querySelector('#wTimeline')?.addEventListener('click', () => togglePanel('timeline', '#bottomTimeline'));
+      });
+      this.el.querySelector('#wOptionBar')?.addEventListener('click', () => {
+        if (this.cb.onToggleOptionBar) this.cb.onToggleOptionBar();
+        this.render();
+      });
+      this.el.querySelector('#wInspector')?.addEventListener('click', () => {
+        if (this.cb.onToggleDocker) this.cb.onToggleDocker('inspector');
+        this.render();
+      });
+      this.el.querySelector('#wLayers')?.addEventListener('click', () => {
+        if (this.cb.onToggleDocker) this.cb.onToggleDocker('layers');
+        this.render();
+      });
+      this.el.querySelector('#wTimeline')?.addEventListener('click', () => {
+        if (this.cb.onToggleDocker) this.cb.onToggleDocker('timeline');
+        this.render();
+      });
       this.el.querySelector('#wResetLayout')?.addEventListener('click', () => {
         if (this.cb.onResetLayout) this.cb.onResetLayout();
       });
@@ -3760,6 +3798,42 @@
       return '';
     }
 
+    calculateWirePath(x1, y1, x2, y2) {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      if (dx >= 0) {
+        // Forward flow (Output -> Input to the right): Blender cubic bezier
+        const tension = Math.max(45, Math.min(200, dx * 0.55));
+        return `M ${x1} ${y1} C ${x1 + tension} ${y1}, ${x2 - tension} ${y2}, ${x2} ${y2}`;
+      } else {
+        // Backward loop (Node placed behind or looping back)
+        const tension = Math.min(180, Math.max(55, Math.abs(dx) * 0.45 + 40));
+        const vBow = (dy >= 0 ? 1 : -1) * Math.min(Math.abs(dy) * 0.25 + 20, 70);
+        return `M ${x1} ${y1} C ${x1 + tension} ${y1 + vBow}, ${x2 - tension} ${y2 - vBow}, ${x2} ${y2}`;
+      }
+    }
+
+    getPortCoord(nodeId, portName, isOutput) {
+      const node = this.nodes.find(n => n.id === nodeId);
+      if (!node) return { x: 0, y: 0 };
+      const nodeEl = document.getElementById(nodeId);
+      if (nodeEl) {
+        const portEl = nodeEl.querySelector(isOutput ? '.graph-port-output' : '.graph-port-input');
+        if (portEl) {
+          const nRect = nodeEl.getBoundingClientRect();
+          const pRect = portEl.getBoundingClientRect();
+          const z = this.zoom || 1;
+          const px = node.x + (pRect.left + pRect.width / 2 - nRect.left) / z;
+          const py = node.y + (pRect.top + pRect.height / 2 - nRect.top) / z;
+          return { x: px, y: py };
+        }
+      }
+      return {
+        x: isOutput ? node.x + 220 : node.x,
+        y: node.y + 42
+      };
+    }
+
     renderWires() {
       const svg = this.container.querySelector('#nodeWiresSvg');
       if (!svg) return;
@@ -3772,14 +3846,9 @@
         const toN = this.nodes.find(n => n.id === w.toNode);
         if (!fromN || !toN) continue;
 
-        // Render in local node space (0 to width) because SVG has identical CSS transform
-        const x1 = fromN.x + 220;
-        const y1 = fromN.y + 45;
-        const x2 = toN.x;
-        const y2 = toN.y + 45;
-
-        const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
-        const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+        const p1 = this.getPortCoord(w.fromNode, w.fromPort, true);
+        const p2 = this.getPortCoord(w.toNode, w.toPort, false);
+        const d = this.calculateWirePath(p1.x, p1.y, p2.x, p2.y);
         const isAct = toN.id === 'output_master' || (toN.modId && activeMods.has(toN.modId));
 
         paths += `<path id="wire_${w.id}" d="${d}" class="graph-wire ${isAct ? 'wire-active' : ''}" data-wire-id="${w.id}" data-from="${w.fromNode}" data-to="${w.toNode}" title="클릭하여 연결 끊기" />`;
@@ -3800,10 +3869,9 @@
         if (!w) return;
         const toN = this.nodes.find(n => n.id === w.toNode);
         if (!toN) return;
-        const x1 = node.x + 220, y1 = node.y + 45;
-        const x2 = toN.x, y2 = toN.y + 45;
-        const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
-        pathEl.setAttribute('d', `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`);
+        const p1 = this.getPortCoord(w.fromNode, w.fromPort, true);
+        const p2 = this.getPortCoord(w.toNode, w.toPort, false);
+        pathEl.setAttribute('d', this.calculateWirePath(p1.x, p1.y, p2.x, p2.y));
       });
 
       svg.querySelectorAll(`.graph-wire[data-to="${nodeId}"]`).forEach(pathEl => {
@@ -3812,10 +3880,9 @@
         if (!w) return;
         const fromN = this.nodes.find(n => n.id === w.fromNode);
         if (!fromN) return;
-        const x1 = fromN.x + 220, y1 = fromN.y + 45;
-        const x2 = node.x, y2 = node.y + 45;
-        const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
-        pathEl.setAttribute('d', `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`);
+        const p1 = this.getPortCoord(w.fromNode, w.fromPort, true);
+        const p2 = this.getPortCoord(w.toNode, w.toPort, false);
+        pathEl.setAttribute('d', this.calculateWirePath(p1.x, p1.y, p2.x, p2.y));
       });
     }
 
@@ -3827,13 +3894,9 @@
         temp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         temp.id = 'tempConnectingWire';
         temp.setAttribute('class', 'graph-wire');
-        temp.style.stroke = '#d4d4d8';
-        temp.style.strokeDasharray = '4,4';
-        temp.style.strokeWidth = '2.5';
         svg.appendChild(temp);
       }
-      const dx = Math.max(30, Math.abs(curX - startX) * 0.5);
-      temp.setAttribute('d', `M ${startX} ${startY} C ${startX + dx} ${startY}, ${curX - dx} ${curY}, ${curX} ${curY}`);
+      temp.setAttribute('d', this.calculateWirePath(startX, startY, curX, curY));
     }
 
     removeTempWire() {
@@ -4573,7 +4636,7 @@
   // 18. Main Application Controller
   // ==========================================================================
   // ==========================================================================
-  // 18. Krita Docker Manager (Dock, Tear-Off Float, Drop Previews, Splitters)
+  // 18. Krita Docker Manager (Side-by-Side 50% Split Docking, Live Drag, Window Menu Sync)
   // ==========================================================================
   class KritaDockerManager {
     constructor(app) {
@@ -4586,8 +4649,10 @@
           state: 'docked', // 'docked' or 'floating'
           dockArea: 'right', // 'right' or 'bottom'
           dockSlot: 'top', // 'top' or 'bottom'
+          split: null, // null, 'left', 'right'
           floatingRect: { x: window.innerWidth - 320, y: 70, w: 290, h: 420 },
-          collapsed: false
+          collapsed: false,
+          hidden: false
         },
         layers: {
           id: 'layers',
@@ -4596,8 +4661,10 @@
           state: 'docked',
           dockArea: 'right',
           dockSlot: 'bottom',
+          split: null,
           floatingRect: { x: window.innerWidth - 320, y: 500, w: 290, h: 360 },
-          collapsed: false
+          collapsed: false,
+          hidden: false
         },
         timeline: {
           id: 'timeline',
@@ -4606,12 +4673,13 @@
           state: 'docked',
           dockArea: 'bottom',
           dockSlot: 'bottom',
+          split: null,
           floatingRect: { x: 50, y: window.innerHeight - 240, w: 760, h: 220 },
-          collapsed: false
+          collapsed: false,
+          hidden: false
         }
       };
 
-      this.activeTabRight = 'inspector';
       this.activeDropTarget = null;
       this.init();
     }
@@ -4623,6 +4691,44 @@
       this.attachFloatingResizeHandles();
     }
 
+    isVisible(id) {
+      return this.dockers[id] ? !this.dockers[id].hidden : true;
+    }
+
+    toggleVisibility(dockerId) {
+      const d = this.dockers[dockerId];
+      if (!d) return;
+      d.hidden = !d.hidden;
+      this.renderDockers();
+      this.app.handleResize();
+      if (this.app.menuBar) this.app.menuBar.render();
+    }
+
+    toggleFloat(dockerId) {
+      const d = this.dockers[dockerId];
+      if (!d) return;
+      if (d.state === 'docked') {
+        d.state = 'floating';
+        d.split = null;
+        d.floatingRect.x = Math.max(80, window.innerWidth - 340);
+        d.floatingRect.y = dockerId === 'inspector' ? 70 : (dockerId === 'layers' ? 480 : 200);
+      } else {
+        d.state = 'docked';
+        d.split = null;
+        if (dockerId === 'inspector') { d.dockArea = 'right'; d.dockSlot = 'top'; }
+        else if (dockerId === 'layers') { d.dockArea = 'right'; d.dockSlot = 'bottom'; }
+        else if (dockerId === 'timeline') { d.dockArea = 'bottom'; d.dockSlot = 'bottom'; }
+      }
+      this.renderDockers();
+    }
+
+    toggleCollapse(dockerId) {
+      const d = this.dockers[dockerId];
+      if (!d) return;
+      d.collapsed = !d.collapsed;
+      this.renderDockers();
+    }
+
     renderDockers() {
       const rightCol = document.getElementById('kritaDockRight');
       const bottomRow = document.getElementById('kritaDockBottom');
@@ -4631,32 +4737,97 @@
       const splitInner = document.getElementById('kritaSplitterRightInner');
       const splitBottom = document.getElementById('kritaSplitterBottom');
 
-      const rightDockers = Object.values(this.dockers).filter(d => d.state === 'docked' && d.dockArea === 'right');
-      const bottomDockers = Object.values(this.dockers).filter(d => d.state === 'docked' && d.dockArea === 'bottom');
-      const floatingDockers = Object.values(this.dockers).filter(d => d.state === 'floating');
+      // Unwrap any existing split rows so elements can be cleanly reorganized
+      document.querySelectorAll('.krita-dock-split-row').forEach(row => {
+        const p = row.parentElement;
+        if (p) {
+          while (row.firstChild) {
+            p.insertBefore(row.firstChild, row);
+          }
+          row.remove();
+        }
+      });
+
+      const visibleDockers = Object.values(this.dockers).filter(d => !d.hidden);
+      const hiddenDockers = Object.values(this.dockers).filter(d => d.hidden);
+
+      // Hide toggled-off dockers
+      hiddenDockers.forEach(d => {
+        if (d.el) {
+          d.el.classList.add('hidden');
+          d.el.style.display = 'none';
+        }
+      });
 
       // 1. Right Dock
+      const rightDockers = visibleDockers.filter(d => d.state === 'docked' && d.dockArea === 'right');
       if (rightDockers.length > 0) {
         if (rightCol) rightCol.classList.remove('hidden');
         if (splitRight) splitRight.classList.remove('hidden');
-        if (splitInner) splitInner.classList.toggle('hidden', rightDockers.length <= 1);
 
+        const slots = { top: [], bottom: [] };
         rightDockers.forEach(d => {
-          if (d.el && rightCol) {
-            rightCol.appendChild(d.el);
-            d.el.classList.remove('is-floating');
+          const s = d.dockSlot === 'top' ? 'top' : 'bottom';
+          slots[s].push(d);
+        });
+
+        // Show inner horizontal splitter only when both slots are occupied
+        if (splitInner) {
+          splitInner.classList.toggle('hidden', slots.top.length === 0 || slots.bottom.length === 0);
+        }
+
+        ['top', 'bottom'].forEach(slotName => {
+          const slotGroup = slots[slotName];
+          if (slotGroup.length === 0) return;
+
+          if (slotGroup.length === 1) {
+            const d = slotGroup[0];
+            d.split = null;
+            if (slotName === 'top' && splitInner && splitInner.parentElement === rightCol) {
+              rightCol.insertBefore(d.el, splitInner);
+            } else {
+              rightCol.appendChild(d.el);
+            }
+            d.el.classList.remove('is-floating', 'hidden');
+            d.el.classList.add('docked-flex');
             d.el.style.position = '';
             d.el.style.left = '';
             d.el.style.top = '';
-            d.el.style.width = '';
+            d.el.style.width = '100%';
             d.el.style.display = 'flex';
-            d.el.classList.add('docked-flex');
             if (d.collapsed) {
               d.el.style.height = '32px';
               d.el.style.flex = 'none';
             } else {
               d.el.style.height = '';
               d.el.style.flex = '1';
+            }
+          } else {
+            // Side-by-side 50% split docking in this slot!
+            const splitRow = document.createElement('div');
+            splitRow.className = 'krita-dock-split-row';
+            splitRow.dataset.slot = slotName;
+
+            slotGroup.sort((a, b) => (a.split === 'right' ? 1 : 0) - (b.split === 'right' ? 1 : 0));
+
+            slotGroup.forEach(d => {
+              splitRow.appendChild(d.el);
+              d.el.classList.remove('is-floating', 'hidden');
+              d.el.classList.add('docked-flex');
+              d.el.style.position = '';
+              d.el.style.left = '';
+              d.el.style.top = '';
+              d.el.style.width = '50%';
+              d.el.style.flex = '1 1 50%';
+              d.el.style.display = 'flex';
+              d.el.style.minWidth = '0';
+              d.el.style.height = d.collapsed ? '32px' : '100%';
+            });
+
+            if (slotName === 'top' && splitInner && splitInner.parentElement === rightCol) {
+              rightCol.insertBefore(splitRow, splitInner);
+            } else {
+              rightCol.appendChild(splitRow);
             }
           }
         });
@@ -4666,39 +4837,62 @@
       }
 
       // 2. Bottom Dock
+      const bottomDockers = visibleDockers.filter(d => d.state === 'docked' && d.dockArea === 'bottom');
       if (bottomDockers.length > 0) {
         if (bottomRow) bottomRow.classList.remove('hidden');
         if (splitBottom) splitBottom.classList.remove('hidden');
-        bottomDockers.forEach(d => {
-          if (d.el && bottomRow) {
-            bottomRow.appendChild(d.el);
-            d.el.classList.remove('is-floating');
+
+        if (bottomDockers.length === 1) {
+          const d = bottomDockers[0];
+          d.split = null;
+          bottomRow.appendChild(d.el);
+          d.el.classList.remove('is-floating', 'hidden');
+          d.el.classList.add('docked-flex');
+          d.el.style.position = '';
+          d.el.style.left = '';
+          d.el.style.top = '';
+          d.el.style.width = '100%';
+          d.el.style.display = 'flex';
+          if (d.collapsed) {
+            d.el.style.height = '35px';
+            d.el.style.flex = 'none';
+          } else {
+            d.el.style.height = '';
+            d.el.style.flex = '1';
+          }
+        } else {
+          // Side-by-side 50% split docking in bottom!
+          const splitRow = document.createElement('div');
+          splitRow.className = 'krita-dock-split-row';
+          bottomDockers.sort((a, b) => (a.split === 'right' ? 1 : 0) - (b.split === 'right' ? 1 : 0));
+
+          bottomDockers.forEach(d => {
+            splitRow.appendChild(d.el);
+            d.el.classList.remove('is-floating', 'hidden');
+            d.el.classList.add('docked-flex');
             d.el.style.position = '';
             d.el.style.left = '';
             d.el.style.top = '';
-            d.el.style.width = '';
+            d.el.style.width = '50%';
+            d.el.style.flex = '1 1 50%';
             d.el.style.display = 'flex';
-            d.el.classList.add('docked-flex');
-            if (d.collapsed) {
-              d.el.style.height = '35px';
-              d.el.style.flex = 'none';
-            } else {
-              d.el.style.height = '';
-              d.el.style.flex = '1';
-            }
-          }
-        });
+            d.el.style.minWidth = '0';
+            d.el.style.height = d.collapsed ? '35px' : '100%';
+          });
+          bottomRow.appendChild(splitRow);
+        }
       } else {
         if (bottomRow) bottomRow.classList.add('hidden');
         if (splitBottom) splitBottom.classList.add('hidden');
       }
 
       // 3. Floating Layer
+      const floatingDockers = visibleDockers.filter(d => d.state === 'floating');
       floatingDockers.forEach(d => {
         if (d.el && floatLayer) {
           floatLayer.appendChild(d.el);
           d.el.classList.add('is-floating');
-          d.el.classList.remove('docked-flex');
+          d.el.classList.remove('docked-flex', 'hidden');
           d.el.style.display = 'flex';
           d.el.style.position = 'absolute';
           d.el.style.left = `${d.floatingRect.x}px`;
@@ -4737,68 +4931,104 @@
 
           const startX = e.clientX;
           const startY = e.clientY;
+          const initRect = el.getBoundingClientRect();
+          let grabOffsetX = Math.min(e.clientX - initRect.left, 160);
+          let grabOffsetY = Math.min(e.clientY - initRect.top, 24);
           let isDragging = false;
-          let grabOffsetX = 100;
-          let grabOffsetY = 16;
 
           const onMove = ev => {
             const dx = ev.clientX - startX;
             const dy = ev.clientY - startY;
 
-            if (!isDragging && Math.hypot(dx, dy) > 5) {
+            if (!isDragging && Math.hypot(dx, dy) > 4) {
               isDragging = true;
+              el.classList.add('is-dragging-ghost');
+              el.style.position = 'fixed';
+              el.style.zIndex = '999999';
+              el.style.pointerEvents = 'none';
+              el.style.width = `${Math.min(initRect.width, 320)}px`;
+              el.style.height = `${Math.min(initRect.height, 280)}px`;
               if (preview) preview.classList.remove('hidden');
             }
 
             if (isDragging) {
+              // Window follows mouse directly!
+              el.style.left = `${ev.clientX - grabOffsetX}px`;
+              el.style.top = `${ev.clientY - grabOffsetY}px`;
+
               const wsRect = ws.getBoundingClientRect();
-              const mx = ev.clientX - wsRect.left;
-              const my = ev.clientY - wsRect.top;
-              const W = wsRect.width;
-              const H = wsRect.height;
 
-              let target = 'float';
-              let prevRect = null;
-              let label = '창 띄우기 (Float)';
+              // Hit test other docked dockers for 50% side-by-side split docking
+              let dropTarget = null;
+              for (const other of Object.values(this.dockers)) {
+                if (other.id !== docker.id && other.state === 'docked' && !other.hidden && other.el) {
+                  const oRect = other.el.getBoundingClientRect();
+                  if (ev.clientX >= oRect.left && ev.clientX <= oRect.right &&
+                      ev.clientY >= oRect.top && ev.clientY <= oRect.bottom) {
+                    const isLeftHalf = ev.clientX < (oRect.left + oRect.width * 0.5);
+                    const halfW = Math.floor(oRect.width * 0.5);
+                    const snapLeft = isLeftHalf ? oRect.left : oRect.left + halfW;
 
-              // Right Dock Zones
-              if (mx > W - 280) {
-                if (my < H * 0.45) {
-                  target = 'right-top';
-                  prevRect = { left: W - 290, top: 4, width: 286, height: Math.floor(H * 0.48) };
-                  label = '우측 상단 도킹 (Dock Top)';
-                } else if (my < H - 80) {
-                  target = 'right-bottom';
-                  prevRect = { left: W - 290, top: Math.floor(H * 0.48) + 4, width: 286, height: Math.floor(H * 0.52) - 8 };
-                  label = '우측 하단 도킹 (Dock Bottom)';
+                    dropTarget = {
+                      type: 'split',
+                      area: other.dockArea,
+                      slot: other.dockSlot,
+                      side: isLeftHalf ? 'left' : 'right',
+                      targetId: other.id
+                    };
+
+                    if (preview) {
+                      preview.style.display = 'flex';
+                      preview.style.left = `${snapLeft - wsRect.left}px`;
+                      preview.style.top = `${oRect.top - wsRect.top}px`;
+                      preview.style.width = `${halfW}px`;
+                      preview.style.height = `${oRect.height}px`;
+                      preview.textContent = isLeftHalf ? '좌측 50% 분할 도킹 (Split Left)' : '우측 50% 분할 도킹 (Split Right)';
+                    }
+                    break;
+                  }
                 }
               }
-              // Bottom Dock Zone
-              else if (my > H - 180 && mx > 40 && mx < W - 280) {
-                target = 'bottom';
-                prevRect = { left: 40, top: H - 190, width: W - 330, height: 186 };
-                label = '하단 도킹 (Dock Bottom)';
-              }
 
-              this.activeDropTarget = target;
+              // Hit test dock areas if not hovering over another docker
+              if (!dropTarget) {
+                const W = wsRect.width;
+                const H = wsRect.height;
+                const mx = ev.clientX - wsRect.left;
+                const my = ev.clientY - wsRect.top;
 
-              if (preview) {
-                if (prevRect) {
-                  preview.style.display = 'flex';
-                  preview.style.left = `${prevRect.left}px`;
-                  preview.style.top = `${prevRect.top}px`;
-                  preview.style.width = `${prevRect.width}px`;
-                  preview.style.height = `${prevRect.height}px`;
-                  preview.textContent = label;
+                if (mx > W - 280 && mx <= W) {
+                  const isTop = my < H * 0.5;
+                  dropTarget = { type: 'dock', area: 'right', slot: isTop ? 'top' : 'bottom' };
+                  if (preview) {
+                    preview.style.display = 'flex';
+                    preview.style.left = `${W - 290}px`;
+                    preview.style.top = `${isTop ? 4 : Math.floor(H * 0.5)}px`;
+                    preview.style.width = '286px';
+                    preview.style.height = `${Math.floor(H * 0.48)}px`;
+                    preview.textContent = isTop ? '우측 상단 도킹 (Dock Top)' : '우측 하단 도킹 (Dock Bottom)';
+                  }
+                } else if (my > H - 190 && my <= H && mx > 40 && mx < W - 280) {
+                  dropTarget = { type: 'dock', area: 'bottom', slot: 'bottom' };
+                  if (preview) {
+                    preview.style.display = 'flex';
+                    preview.style.left = '40px';
+                    preview.style.top = `${H - 190}px`;
+                    preview.style.width = `${W - 330}px`;
+                    preview.style.height = '186px';
+                    preview.textContent = '하단 도킹 (Dock Bottom)';
+                  }
                 } else {
-                  preview.style.display = 'none';
+                  dropTarget = {
+                    type: 'float',
+                    x: Math.max(40, ev.clientX - grabOffsetX),
+                    y: Math.max(40, ev.clientY - grabOffsetY)
+                  };
+                  if (preview) preview.style.display = 'none';
                 }
               }
 
-              if (docker.state === 'floating') {
-                el.style.left = `${ev.clientX - grabOffsetX}px`;
-                el.style.top = `${ev.clientY - grabOffsetY}px`;
-              }
+              this.activeDropTarget = dropTarget;
             }
           };
 
@@ -4812,24 +5042,34 @@
             }
 
             if (isDragging) {
-              const target = this.activeDropTarget || 'float';
-              if (target === 'right-top') {
+              el.classList.remove('is-dragging-ghost');
+              el.style.position = '';
+              el.style.pointerEvents = '';
+              el.style.zIndex = '';
+              el.style.width = '';
+              el.style.height = '';
+
+              const target = this.activeDropTarget || { type: 'float', x: ev.clientX - grabOffsetX, y: ev.clientY - grabOffsetY };
+
+              if (target.type === 'split') {
                 docker.state = 'docked';
-                docker.dockArea = 'right';
-                docker.dockSlot = 'top';
-              } else if (target === 'right-bottom') {
+                docker.dockArea = target.area;
+                docker.dockSlot = target.slot;
+                docker.split = target.side;
+                const other = this.dockers[target.targetId];
+                if (other) other.split = (target.side === 'left' ? 'right' : 'left');
+              } else if (target.type === 'dock') {
                 docker.state = 'docked';
-                docker.dockArea = 'right';
-                docker.dockSlot = 'bottom';
-              } else if (target === 'bottom') {
-                docker.state = 'docked';
-                docker.dockArea = 'bottom';
-                docker.dockSlot = 'bottom';
+                docker.dockArea = target.area;
+                docker.dockSlot = target.slot;
+                docker.split = null;
               } else {
                 docker.state = 'floating';
-                docker.floatingRect.x = Math.max(40, ev.clientX - grabOffsetX);
-                docker.floatingRect.y = Math.max(40, ev.clientY - grabOffsetY);
+                docker.split = null;
+                docker.floatingRect.x = target.x;
+                docker.floatingRect.y = target.y;
               }
+
               this.renderDockers();
             }
           };
@@ -4870,29 +5110,6 @@
           this.toggleFloat(docker.id);
         });
       }
-    }
-
-    toggleFloat(dockerId) {
-      const d = this.dockers[dockerId];
-      if (!d) return;
-      if (d.state === 'docked') {
-        d.state = 'floating';
-        d.floatingRect.x = Math.max(80, window.innerWidth - 340);
-        d.floatingRect.y = dockerId === 'inspector' ? 70 : (dockerId === 'layers' ? 480 : 200);
-      } else {
-        d.state = 'docked';
-        if (dockerId === 'inspector') { d.dockArea = 'right'; d.dockSlot = 'top'; }
-        else if (dockerId === 'layers') { d.dockArea = 'right'; d.dockSlot = 'bottom'; }
-        else if (dockerId === 'timeline') { d.dockArea = 'bottom'; d.dockSlot = 'bottom'; }
-      }
-      this.renderDockers();
-    }
-
-    toggleCollapse(dockerId) {
-      const d = this.dockers[dockerId];
-      if (!d) return;
-      d.collapsed = !d.collapsed;
-      this.renderDockers();
     }
 
     bindSplitters() {
@@ -5067,6 +5284,12 @@
         onWebExport: () => this.exportWebsiteFiles(),
         onCanvasResize: () => { this.handleResize(); this.refreshUI(); },
         onUpdate: () => this.refreshUI(),
+        onToggleToolbox: () => this.toggleToolbox(),
+        onToggleOptionBar: () => this.toggleOptionBar(),
+        onToggleDocker: id => this.dockerManager.toggleVisibility(id),
+        isToolboxVisible: () => !document.getElementById('leftToolbox')?.classList.contains('hidden'),
+        isOptionBarVisible: () => !document.getElementById('toolOptionBar')?.classList.contains('hidden'),
+        isDockerVisible: id => this.dockerManager.isVisible(id),
         get isNodeMode() { return window.jspenApp?.isNodeMode; }
       });
 
@@ -5087,6 +5310,34 @@
       this.startLoop();
     }
 
+    toggleToolbox() {
+      const el = document.getElementById('leftToolbox');
+      if (el) el.classList.toggle('hidden');
+      this.handleResize();
+    }
+
+    toggleOptionBar() {
+      const el = document.getElementById('toolOptionBar');
+      if (el) el.classList.toggle('hidden');
+      this.handleResize();
+    }
+
+    loadProjectFromJSON(jsonObjOrString) {
+      try {
+        const data = typeof jsonObjOrString === 'string' ? JSON.parse(jsonObjOrString) : jsonObjOrString;
+        this.doc.loadFromData(data, true);
+        this.refreshUI();
+        if (this.isNodeMode) {
+          this.nodeEditor.syncFromDoc();
+          this.nodeEditor.render();
+        }
+        return true;
+      } catch (err) {
+        console.error("Failed to load project:", err);
+        return false;
+      }
+    }
+
     toggleNodeMode() {
       this.isNodeMode = !this.isNodeMode;
       const nodeCont = document.getElementById('nodeEditorContainer');
@@ -5104,6 +5355,8 @@
       Object.values(this.dockerManager.dockers).forEach(d => {
         d.state = 'docked';
         d.collapsed = false;
+        d.hidden = false;
+        d.split = null;
         if (d.id === 'inspector') { d.dockArea = 'right'; d.dockSlot = 'top'; }
         else if (d.id === 'layers') { d.dockArea = 'right'; d.dockSlot = 'bottom'; }
         else if (d.id === 'timeline') { d.dockArea = 'bottom'; d.dockSlot = 'bottom'; }
@@ -5113,9 +5366,15 @@
       const bottomRow = document.getElementById('kritaDockBottom');
       if (bottomRow) bottomRow.style.height = '195px';
 
+      const tb = document.getElementById('leftToolbox');
+      if (tb) tb.classList.remove('hidden');
+      const ob = document.getElementById('toolOptionBar');
+      if (ob) ob.classList.remove('hidden');
+
       this.dockerManager.renderDockers();
       this.handleResize();
       this.refreshUI();
+      this.menuBar.render();
     }
 
     openWebPreviewWindow() {
@@ -5365,6 +5624,27 @@
 
       window.addEventListener('resize', () => {
         this.handleResize();
+      });
+
+      // HTML5 Drag & Drop from Windows Explorer
+      window.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      });
+
+      window.addEventListener('drop', e => {
+        e.preventDefault();
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+          const file = files[0];
+          if (file.name.endsWith('.jspen') || file.name.endsWith('.json')) {
+            const reader = new FileReader();
+            reader.onload = ev => {
+              this.loadProjectFromJSON(ev.target.result);
+            };
+            reader.readAsText(file);
+          }
+        }
       });
 
       window.addEventListener('wheel', e => {
