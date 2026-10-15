@@ -3634,6 +3634,10 @@
     renderModuleInspector(mod, sprite) {
       const def = MODULE_REGISTRY[mod.type] || {};
       const params = mod.params || {};
+      const modIdx = sprite?.modules ? sprite.modules.findIndex(m => m.id === mod.id) : -1;
+      const totalMods = sprite?.modules ? sprite.modules.length : 1;
+      const isFirst = modIdx === 0;
+      const isLast = modIdx === totalMods - 1;
 
       const allSprites = [];
       const allLayers = [];
@@ -3655,97 +3659,138 @@
         }
       }
 
-      const renderParamInput = (key, val) => {
-        const kLow = key.toLowerCase();
-        if (kLow.includes('sprite') || (kLow.includes('target') && !kLow.includes('key') && !kLow.includes('layer') && !kLow.includes('mod'))) {
-          return `
-            <select class="ps-select" data-param-key="${key}">
-              <option value="">(선택 안 됨 - 대상 없음)</option>
-              ${allSprites.map(s => `
-                <option value="${s.id}" ${val === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
-              `).join('')}
+      // Render specific controls based on module type
+      let typeSpecificHtml = '';
+      if (mod.type === 'hyperlink') {
+        typeSpecificHtml = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">이동 링크 URL:</label>
+            <input type="text" class="ps-input" data-param-key="url" placeholder="https://... 또는 #section" value="${params.url || ''}">
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">열기 방식 (Target):</label>
+            <select class="ps-select" data-param-key="target">
+              <option value="_blank" ${(params.target || '_blank') === '_blank' ? 'selected' : ''}>새 탭에서 열기 (_blank)</option>
+              <option value="_self" ${params.target === '_self' ? 'selected' : ''}>현재 창에서 열기 (_self)</option>
             </select>
-          `;
-        }
-        if (kLow.includes('layer')) {
-          return `
-            <select class="ps-select" data-param-key="${key}">
-              <option value="">(선택 안 됨 - 대상 없음)</option>
-              ${allLayers.map(l => `
-                <option value="${l.id}" ${val === l.id ? 'selected' : ''}>${l.name}</option>
-              `).join('')}
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">발동 조건 (Trigger):</label>
+            <select class="ps-select" data-param-key="trigger">
+              <option value="click" ${(params.trigger || 'click') === 'click' ? 'selected' : ''}>🖱️ 클릭 시 이동 (Click)</option>
+              <option value="hover" ${params.trigger === 'hover' ? 'selected' : ''}>🎯 마우스 호버 시 이동 (Hover)</option>
+              <option value="signal" ${params.trigger === 'signal' ? 'selected' : ''}>📡 신호 수신 시 이동 (On Signal)</option>
+              <option value="viewport_enter" ${params.trigger === 'viewport_enter' ? 'selected' : ''}>👁️ 화면 진입 시 이동 (Viewport)</option>
             </select>
-          `;
-        }
-        if (kLow.includes('mod')) {
-          return `
-            <select class="ps-select" data-param-key="${key}">
-              <option value="">(선택 안 됨 - 대상 없음)</option>
-              ${allModules.map(m => `
-                <option value="${m.id}" ${val === m.id ? 'selected' : ''}>${m.name}</option>
-              `).join('')}
+          </div>
+          ${params.trigger === 'signal' ? `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">트리거 신호명:</label>
+            <input type="text" class="ps-input" data-param-key="signalName" placeholder="예: signal_1" value="${params.signalName || ''}">
+          </div>` : ''}
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">호버 효과:</label>
+            <select class="ps-select" data-param-key="hoverEffect">
+              <option value="none" ${params.hoverEffect === 'none' ? 'selected' : ''}>없음 (None)</option>
+              <option value="lift" ${(params.hoverEffect || 'lift') === 'lift' ? 'selected' : ''}>살짝 뜨기 (Lift Up -3px)</option>
+              <option value="zoom" ${params.hoverEffect === 'zoom' ? 'selected' : ''}>부드럽게 확대 (Zoom 1.05x)</option>
+              <option value="glow" ${params.hoverEffect === 'glow' ? 'selected' : ''}>화려한 발광 (Cyan Glow)</option>
+              <option value="fade" ${params.hoverEffect === 'fade' ? 'selected' : ''}>투명도 전환 (Fade 80%)</option>
+              <option value="bounce" ${params.hoverEffect === 'bounce' ? 'selected' : ''}>통통 튀기 (Bounce)</option>
             </select>
-          `;
-        }
-        if (kLow.includes('key')) {
-          const KEYS = ['Space', 'Enter', 'ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyZ', 'KeyX', 'Shift', 'Control', 'Alt'];
-          return `
-            <select class="ps-select" data-param-key="${key}">
-              ${KEYS.map(k => `
-                <option value="${k}" ${val === k ? 'selected' : ''}>${k}</option>
-              `).join('')}
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">인페이지 앵커 ID:</label>
+            <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${params.anchorId || ''}">
+          </div>
+          <div class="ps-prop-row" style="margin-top:6px;">
+            <button class="btn btn-secondary btn-sm" id="btnTestModDetailLink" style="width:100%;justify-content:center;color:#38bdf8;border-color:#38bdf8;gap:6px;" ${!params.url ? 'disabled' : ''}>
+              🔗 브라우저에서 링크 바로 열기 (테스트)
+            </button>
+          </div>
+        `;
+      } else if (mod.type === 'photoshop_filter') {
+        typeSpecificHtml = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">작동 모드:</label>
+            <select class="ps-select" data-param-key="mode">
+              <option value="static" ${(params.mode || 'static') === 'static' ? 'selected' : ''}>정적 필터 (Static)</option>
+              <option value="pulse" ${params.mode === 'pulse' ? 'selected' : ''}>박동 펄스 (Pulse Animation)</option>
+              <option value="reactive" ${params.mode === 'reactive' ? 'selected' : ''}>마우스 거리 반응 (Reactive)</option>
             </select>
-          `;
-        }
-        if (typeof val === 'number') {
-          return `
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">가우시안 블러:</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="${key}" value="${val}">
+              <input type="number" class="blender-scrub-input" data-param-key="blur" min="0" max="60" value="${params.blur || 0}">
             </div>
-          `;
-        }
-        if (typeof val === 'boolean') {
-          return `
-            <select class="ps-select" data-param-key="${key}">
-              <option value="true" ${val ? 'selected' : ''}>true (활성)</option>
-              <option value="false" ${!val ? 'selected' : ''}>false (비활성)</option>
-            </select>
-          `;
-        }
-        return `<input type="text" class="ps-input" data-param-key="${key}" value="${val}">`;
-      };
-
-      return `
-        <div class="ps-prop-section">
-          <div class="ps-prop-header" style="justify-content:space-between;">
-            <div style="display:flex;align-items:center;gap:6px;">
-              <span class="mod-badge" >${def.icon||'MOD'}</span>
-              <span style="font-weight:700;color:#fff;">${mod.name}</span>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">밝기 (Brightness):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="brightness" min="0" max="300" value="${params.brightness ?? 100}">
             </div>
-            <button class="btn btn-secondary btn-sm" id="btnBackToVisual">아트 속성 창</button>
           </div>
-          
-          <div class="ps-prop-row" style="margin-top:10px;">
-            <label class="ps-prop-label">작동 조건 (Condition):</label>
-            <select class="ps-select" id="modCond">
-              <option value="always" ${params.condition==='always'?'selected':''}>항상 작동 (Always)</option>
-              <option value="on_trigger" ${params.condition==='on_trigger'?'selected':''}>화면 트리거 감지 시 (On Trigger)</option>
-              <option value="on_signal" ${params.condition==='on_signal'?'selected':''}>신호 수신 시 (On Signal)</option>
-              <option value="on_toggle" ${params.condition==='on_toggle'?'selected':''}>토글 스위치 켜짐 시 (On Toggle)</option>
-              <option value="on_click" ${params.condition==='on_click'?'selected':''}>마우스 클릭 시 (On Click)</option>
-              <option value="on_hover" ${params.condition==='on_hover'?'selected':''}>마우스 호버 시 (On Hover)</option>
-              <option value="key_press" ${params.condition==='key_press'?'selected':''}>키보드 입력 시 (Key Press)</option>
-              <option value="timeline_active" ${params.condition==='timeline_active'?'selected':''}>특정 프레임 구간 (Timeline)</option>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">대비 (Contrast):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="contrast" min="0" max="300" value="${params.contrast ?? 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">채도 (Saturation):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="saturate" min="0" max="300" value="${params.saturate ?? 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">흑백 (Grayscale):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="grayscale" min="0" max="100" value="${params.grayscale || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">색조 회전 (Hue):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="hueRotate" min="0" max="360" value="${params.hueRotate || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">알파값 (Opacity):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="opacity" min="0" max="100" value="${params.opacity !== undefined ? params.opacity : 100}">
+            </div>
+          </div>
+        `;
+      } else if (mod.type === 'motion_wave') {
+        typeSpecificHtml = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">진동 축 (Axis):</label>
+            <select class="ps-select" data-param-key="axis">
+              <option value="y" ${(params.axis || 'y') === 'y' ? 'selected' : ''}>Y축 (상하 부유)</option>
+              <option value="x" ${params.axis === 'x' ? 'selected' : ''}>X축 (좌우 흔들림)</option>
+              <option value="both" ${params.axis === 'both' ? 'selected' : ''}>XY 복합 (원형)</option>
+              <option value="rotation" ${params.axis === 'rotation' ? 'selected' : ''}>회전 틸트 (Rotation)</option>
             </select>
           </div>
-
-          <div class="ps-prop-row" style="margin-top:8px;${params.condition==='on_signal'?'':'display:none;'}">
-            <label class="ps-prop-label">수신 신호명:</label>
-            <input type="text" class="ps-input" data-param-key="listenSignal" value="${params.listenSignal || params.inputSignal || 'signal_1'}" placeholder="예: signal_1">
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">진폭 (Amplitude):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="amplitude" min="1" max="100" value="${params.amplitude || 10}">
+            </div>
           </div>
-
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">주파수 (Hz):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="frequency" min="0.1" max="5" step="0.1" value="${params.frequency || 1}">
+            </div>
+          </div>
+        `;
+      } else {
+        // Generic properties
+        typeSpecificHtml = `
           <!-- Target Entity Selector (Sprite / Layer / Module) -->
-          <div class="ps-prop-row" style="margin-top:8px;">
+          <div class="ps-prop-row">
             <label class="ps-prop-label">타겟 스프라이트:</label>
             <select class="ps-select" data-param-key="targetSpriteId">
               <option value="">(선택 안 됨 - 대상 없음)</option>
@@ -3754,7 +3799,7 @@
               `).join('')}
             </select>
           </div>
-          <div class="ps-prop-row" style="margin-top:8px;">
+          <div class="ps-prop-row">
             <label class="ps-prop-label">타겟 모듈/레이어:</label>
             <select class="ps-select" data-param-key="targetModuleId">
               <option value="">(선택 안 됨 - 대상 없음)</option>
@@ -3763,259 +3808,114 @@
               `).join('')}
             </select>
           </div>
-
-          <div style="margin-top:12px;font-size:11px;font-weight:700;color:#a1a1aa;">모듈 파라미터 (사용자 수동 제어)</div>
+          <div style="margin-top:10px;font-size:11px;font-weight:700;color:#a1a1aa;">모듈 파라미터 수동 제어</div>
           ${Object.keys(params).filter(k => k !== 'condition' && k !== 'targetSpriteId' && k !== 'targetModuleId').map(key => `
-            <div class="ps-prop-row" style="margin-top:8px;">
+            <div class="ps-prop-row" style="margin-top:6px;">
               <label class="ps-prop-label">${key}:</label>
-              ${renderParamInput(key, params[key])}
+              ${typeof params[key] === 'boolean' ? `
+                <select class="ps-select" data-param-key="${key}">
+                  <option value="true" ${params[key] ? 'selected' : ''}>true</option>
+                  <option value="false" ${!params[key] ? 'selected' : ''}>false</option>
+                </select>
+              ` : `
+                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" class="ps-input" data-param-key="${key}" value="${params[key]}">
+              `}
             </div>
           `).join('')}
+        `;
+      }
+
+      return `
+        <div class="ps-prop-section" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.03);">
+          <!-- Module Header with Blender Modifier Tools -->
+          <div class="ps-prop-header" style="justify-content:space-between; align-items:center;">
+            <div style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;">
+              <span class="ps-mod-icon-tag" style="background:#0f172a;color:#38bdf8;padding:2px 6px;border-radius:3px;font-weight:bold;font-size:10px;">${def.icon || 'MOD'}</span>
+              <span style="font-weight:700;color:#f1f5f9;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${mod.name}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:3px;flex-shrink:0;">
+              <button class="ps-mod-tool-btn ${mod.enabled !== false ? 'active' : ''}" id="modDetailToggleViewport" title="뷰포트 시뮬레이션 토글">${mod.enabled !== false ? '👁️' : '🕶️'}</button>
+              <button class="ps-mod-tool-btn ${mod.showInRender !== false ? 'active' : ''}" id="modDetailToggleRender" title="웹사이트 내보내기/미리보기 반영 토글">🌐</button>
+              <button class="ps-mod-tool-btn" id="modDetailMoveUp" ${isFirst ? 'disabled' : ''} title="스택 위로 이동 (우선 평가)">▲</button>
+              <button class="ps-mod-tool-btn" id="modDetailMoveDown" ${isLast ? 'disabled' : ''} title="스택 아래로 이동 (후순위 평가)">▼</button>
+              <button class="ps-mod-tool-btn" id="modDetailDuplicate" title="모디파이어 복제 (Duplicate)">📄</button>
+              <button class="ps-mod-tool-btn" id="modDetailApply" title="스프라이트에 영구 적용 (Apply to Base)" style="color:#22c55e;">✓</button>
+              <button class="ps-mod-tool-btn" id="modDetailDelete" title="모듈 삭제 (Delete)" style="color:#ef4444;">✕</button>
+            </div>
+          </div>
+
+          <div style="margin-top:6px;display:flex;justify-content:flex-end;">
+            <button class="btn btn-secondary btn-sm" id="btnBackToVisual" style="font-size:11px;padding:2px 8px;color:#94a3b8;">
+              스프라이트 기본 속성 ➔
+            </button>
+          </div>
+
+          <!-- Execution Condition -->
+          <div class="ps-prop-row" style="margin-top:10px;">
+            <label class="ps-prop-label">작동 조건 (Condition):</label>
+            <select class="ps-select" id="modCond">
+              <option value="always" ${params.condition === 'always' ? 'selected' : ''}>항상 작동 (Always)</option>
+              <option value="on_trigger" ${params.condition === 'on_trigger' ? 'selected' : ''}>화면 트리거 감지 시 (On Trigger)</option>
+              <option value="on_signal" ${params.condition === 'on_signal' ? 'selected' : ''}>신호 수신 시 (On Signal)</option>
+              <option value="on_toggle" ${params.condition === 'on_toggle' ? 'selected' : ''}>토글 스위치 켜짐 시 (On Toggle)</option>
+              <option value="on_click" ${params.condition === 'on_click' ? 'selected' : ''}>마우스 클릭 시 (On Click)</option>
+              <option value="on_hover" ${params.condition === 'on_hover' ? 'selected' : ''}>마우스 호버 시 (On Hover)</option>
+              <option value="key_press" ${params.condition === 'key_press' ? 'selected' : ''}>키보드 입력 시 (Key Press)</option>
+              <option value="timeline_active" ${params.condition === 'timeline_active' ? 'selected' : ''}>특정 프레임 구간 (Timeline)</option>
+            </select>
+          </div>
+
+          <!-- Type-Specific Properties -->
+          ${typeSpecificHtml}
         </div>
       `;
     }
-
-
     renderModifierStack(sprite) {
-      if (!sprite) return '';
-      if (!sprite.modules) sprite.modules = [];
+      if (!sprite || !sprite.modules || sprite.modules.length === 0) {
+        // "속성창에는 속성만 뜨고": No add dropdown or empty state placeholder here!
+        return '';
+      }
 
       const modules = sprite.modules;
       const total = modules.length;
 
-      let cardsHtml = '';
-      if (total === 0) {
-        cardsHtml = `
-          <div style="background:#141418;border:1px dashed #3f3f46;border-radius:4px;padding:12px;text-align:center;color:#71717a;font-size:11px;">
-            적용된 모디파이어가 없습니다.<br>
-            상단 <b>[+ 모디파이어 추가]</b>를 눌러 하이퍼링크, 필터, 모션 모디파이어를 장착하세요.
-          </div>
-        `;
-      } else {
-        cardsHtml = modules.map((mod, idx) => {
-          const def = MODULE_REGISTRY[mod.type] || { name: mod.name, icon: 'MOD', category: 'logic' };
-          const p = mod.params || {};
-          const isFolded = mod.collapsed === true;
-          const isEnabled = mod.enabled !== false;
-          const isRender = mod.showInRender !== false;
-          const isFirst = idx === 0;
-          const isLast = idx === total - 1;
-
-          // Render specific body controls per modifier type
-          let bodyHtml = '';
-          if (mod.type === 'hyperlink') {
-            bodyHtml = `
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">이동 링크 URL:</label>
-                <input type="text" class="ps-input mod-param-input" data-mod-idx="${idx}" data-param-key="url" placeholder="https://... 또는 #section" value="${p.url || ''}">
-              </div>
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">열기 방식:</label>
-                <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="target">
-                  <option value="_blank" ${(p.target || '_blank') === '_blank' ? 'selected' : ''}>새 탭에서 열기 (_blank)</option>
-                  <option value="_self" ${p.target === '_self' ? 'selected' : ''}>현재 창에서 열기 (_self)</option>
-                </select>
-              </div>
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">발동 조건 (Trigger):</label>
-                <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="trigger">
-                  <option value="click" ${(p.trigger || 'click') === 'click' ? 'selected' : ''}>🖱️ 클릭 시 이동 (Click)</option>
-                  <option value="hover" ${p.trigger === 'hover' ? 'selected' : ''}>🎯 마우스 호버 시 이동 (Hover)</option>
-                  <option value="signal" ${p.trigger === 'signal' ? 'selected' : ''}>📡 신호 수신 시 이동 (On Signal)</option>
-                  <option value="viewport_enter" ${p.trigger === 'viewport_enter' ? 'selected' : ''}>👁️ 화면 진입 시 이동 (Viewport)</option>
-                </select>
-              </div>
-              ${p.trigger === 'signal' ? `
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">트리거 신호명:</label>
-                <input type="text" class="ps-input mod-param-input" data-mod-idx="${idx}" data-param-key="signalName" placeholder="예: signal_1" value="${p.signalName || ''}">
-              </div>` : ''}
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">호버 효과:</label>
-                <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="hoverEffect">
-                  <option value="none" ${p.hoverEffect === 'none' ? 'selected' : ''}>없음 (None)</option>
-                  <option value="lift" ${(p.hoverEffect || 'lift') === 'lift' ? 'selected' : ''}>살짝 뜨기 (Lift Up -3px)</option>
-                  <option value="zoom" ${p.hoverEffect === 'zoom' ? 'selected' : ''}>부드럽게 확대 (Zoom 1.05x)</option>
-                  <option value="glow" ${p.hoverEffect === 'glow' ? 'selected' : ''}>화려한 발광 (Cyan Glow)</option>
-                  <option value="fade" ${p.hoverEffect === 'fade' ? 'selected' : ''}>투명도 전환 (Fade 80%)</option>
-                  <option value="bounce" ${p.hoverEffect === 'bounce' ? 'selected' : ''}>통통 튀기 (Bounce)</option>
-                </select>
-              </div>
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">앵커 ID (#id):</label>
-                <input type="text" class="ps-input mod-param-input" data-mod-idx="${idx}" data-param-key="anchorId" placeholder="예: features, pricing" value="${p.anchorId || ''}">
-              </div>
-              <div class="ps-prop-row" style="margin-top:4px;">
-                <button class="btn btn-secondary btn-sm btn-test-mod-link" data-mod-idx="${idx}" style="width:100%;justify-content:center;color:#38bdf8;border-color:#38bdf8;gap:6px;" ${!p.url ? 'disabled' : ''}>
-                  🔗 브라우저에서 링크 바로 열기 (테스트)
-                </button>
-              </div>
-            `;
-          } else if (mod.type === 'photoshop_filter') {
-            bodyHtml = `
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">작동 모드:</label>
-                <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="mode">
-                  <option value="static" ${(p.mode || 'static') === 'static' ? 'selected' : ''}>정적 필터 (Static)</option>
-                  <option value="pulse" ${p.mode === 'pulse' ? 'selected' : ''}>박동 펄스 (Pulse Animation)</option>
-                  <option value="reactive" ${p.mode === 'reactive' ? 'selected' : ''}>마우스 거리 반응 (Reactive)</option>
-                </select>
-              </div>
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">가우시안 블러:</label>
-                <div class="blender-scrub-group">
-                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="blur" min="0" max="60" value="${p.blur || 0}">
-                </div>
-              </div>
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">밝기 (Brightness):</label>
-                <div class="blender-scrub-group">
-                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="brightness" min="0" max="300" value="${p.brightness ?? 100}">
-                </div>
-              </div>
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">색조 회전 (Hue):</label>
-                <div class="blender-scrub-group">
-                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="hueRotate" min="0" max="360" value="${p.hueRotate || 0}">
-                </div>
-              </div>
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">알파 투명도:</label>
-                <div class="blender-scrub-group">
-                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="opacity" min="0" max="100" value="${p.opacity !== undefined ? p.opacity : 100}">
-                </div>
-              </div>
-            `;
-          } else if (mod.type === 'motion_wave') {
-            bodyHtml = `
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">진동 축 (Axis):</label>
-                <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="axis">
-                  <option value="y" ${(p.axis || 'y') === 'y' ? 'selected' : ''}>Y축 (상하 부유)</option>
-                  <option value="x" ${p.axis === 'x' ? 'selected' : ''}>X축 (좌우 흔들림)</option>
-                  <option value="both" ${p.axis === 'both' ? 'selected' : ''}>XY 복합 (원형)</option>
-                  <option value="rotation" ${p.axis === 'rotation' ? 'selected' : ''}>회전 틸트 (Rotation)</option>
-                </select>
-              </div>
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">진폭 (Amplitude):</label>
-                <div class="blender-scrub-group">
-                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="amplitude" min="1" max="100" value="${p.amplitude || 10}">
-                </div>
-              </div>
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">주파수 (Hz):</label>
-                <div class="blender-scrub-group">
-                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="frequency" min="0.1" max="5" step="0.1" value="${p.frequency || 1}">
-                </div>
-              </div>
-            `;
-          } else {
-            // Generic parameters
-            bodyHtml = Object.keys(p).filter(k => k !== 'condition').slice(0, 5).map(k => `
-              <div class="ps-prop-row">
-                <label class="ps-prop-label">${k}:</label>
-                ${typeof p[k] === 'boolean' ? `
-                  <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="${k}">
-                    <option value="true" ${p[k] ? 'selected' : ''}>true</option>
-                    <option value="false" ${!p[k] ? 'selected' : ''}>false</option>
-                  </select>
-                ` : `
-                  <input type="${typeof p[k] === 'number' ? 'number' : 'text'}" class="ps-input mod-param-input" data-mod-idx="${idx}" data-param-key="${k}" value="${p[k]}">
-                `}
-              </div>
-            `).join('');
-          }
-
-          return `
-            <div class="ps-modifier-card ${!isEnabled ? 'disabled' : ''}" data-mod-id="${mod.id}" data-mod-idx="${idx}">
-              <div class="ps-mod-header">
-                <div class="ps-mod-header-left" data-act="toggle-mod-fold" data-mod-idx="${idx}">
-                  <span class="ps-mod-fold-arrow">${isFolded ? '▶' : '▼'}</span>
-                  <span class="ps-mod-icon-tag">${def.icon || 'MOD'}</span>
-                  <span class="ps-mod-title-text" title="${mod.name}">${mod.name}</span>
-                </div>
-                <div class="ps-mod-header-tools">
-                  <button class="ps-mod-tool-btn ${isEnabled ? 'active' : ''}" data-act="mod-toggle-viewport" data-mod-idx="${idx}" title="${isEnabled ? '뷰포트 실시간 시뮬레이션 끄기 (비활성화)' : '뷰포트 실시간 시뮬레이션 켜기 (활성화)'}">
-                    ${isEnabled ? '👁️' : '🕶️'}
-                  </button>
-                  <button class="ps-mod-tool-btn ${isRender ? 'active' : ''}" data-act="mod-toggle-render" data-mod-idx="${idx}" title="${isRender ? '웹사이트 내보내기/미리보기 반영 끄기' : '웹사이트 내보내기/미리보기 반영 켜기'}">
-                    🌐
-                  </button>
-                  <button class="ps-mod-tool-btn" data-act="mod-move-up" data-mod-idx="${idx}" ${isFirst ? 'disabled' : ''} title="스택 위로 이동 (우선 평가)">▲</button>
-                  <button class="ps-mod-tool-btn" data-act="mod-move-down" data-mod-idx="${idx}" ${isLast ? 'disabled' : ''} title="스택 아래로 이동 (후순위 평가)">▼</button>
-                  <button class="ps-mod-tool-btn" data-act="mod-duplicate" data-mod-idx="${idx}" title="모디파이어 복제 (Duplicate)">📄</button>
-                  <button class="ps-mod-tool-btn" data-act="mod-apply" data-mod-idx="${idx}" title="모디파이어 영구 적용 (Apply to Base)" style="color:#22c55e;">✓</button>
-                  <button class="ps-mod-tool-btn" data-act="mod-delete" data-mod-idx="${idx}" title="모디파이어 삭제 (Delete)" style="color:#ef4444;">✕</button>
-                </div>
-              </div>
-              ${!isFolded ? `
-                <div class="ps-mod-body">
-                  <div class="ps-prop-row">
-                    <label class="ps-prop-label">실행 조건:</label>
-                    <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="condition">
-                      <option value="always" ${(p.condition || 'always') === 'always' ? 'selected' : ''}>항상 작동 (Always)</option>
-                      <option value="on_trigger" ${p.condition === 'on_trigger' ? 'selected' : ''}>화면 트리거 감지 시 (On Trigger)</option>
-                      <option value="on_signal" ${p.condition === 'on_signal' ? 'selected' : ''}>신호 수신 시 (On Signal)</option>
-                      <option value="on_hover" ${p.condition === 'on_hover' ? 'selected' : ''}>마우스 호버 시 (On Hover)</option>
-                      <option value="on_click" ${p.condition === 'on_click' ? 'selected' : ''}>마우스 클릭 시 (On Click)</option>
-                    </select>
-                  </div>
-                  ${bodyHtml}
-                </div>
-              ` : ''}
-            </div>
-          `;
-        }).join('');
-      }
-
       return `
-        <!-- Blender-Style Modifier Stack Section -->
+        <!-- Attached Modules Properties Overview -->
         <div class="ps-prop-section" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.03);">
           <div class="ps-prop-header" style="justify-content:space-between; align-items:center;">
             <div style="display:flex;align-items:center;gap:6px;">
-              <span style="font-weight:700;color:#38bdf8;">🛠️ 모디파이어 스택 (Modifier Stack)</span>
-              <span class="ps-badge" style="background:#0284c7;color:#fff;font-size:9.5px;padding:1px 5px;border-radius:3px;">${total}개</span>
+              <span style="font-weight:700;color:#38bdf8;">📦 장착된 모듈 속성 (${total}개)</span>
             </div>
+            <span style="font-size:10px;color:#71717a;">레이어 창 +fx 로 추가됨</span>
           </div>
 
-          <div style="margin-top:6px;display:flex;gap:6px;">
-            <select class="ps-select" id="selAddModifier" style="flex:1;background:#18181b;color:#38bdf8;border-color:#38bdf8;font-weight:600;">
-              <option value="">+ 모디파이어 추가 (Add Modifier)...</option>
-              <optgroup label="🌐 웹 & 인터랙션 (Web & Interaction)">
-                <option value="hyperlink">🔗 하이퍼링크 (Hyperlink)</option>
-                <option value="screen_trigger">📡 화면 트리거 (Screen Trigger)</option>
-                <option value="draggable">✋ 자유 드래그 (Draggable)</option>
-                <option value="click_gesture">🖱️ 클릭 감지 (Click Gesture)</option>
-                <option value="hover_proximity">🎯 호버 및 근접 (Hover Zone)</option>
-              </optgroup>
-              <optgroup label="🎨 그래픽 & 필터 (Visual & Filter)">
-                <option value="photoshop_filter">🎨 포토샵 필터 FX (Filter FX)</option>
-                <option value="motion_wave">🌊 모션 파동 (Wave Motion)</option>
-                <option value="particle_emitter">✨ 파티클 방출 (Particle)</option>
-              </optgroup>
-              <optgroup label="⚡ 모션 & 트랜스폼 (Motion & Physics)">
-                <option value="follow_target">🎯 타겟 추적 (Follow Target)</option>
-                <option value="look_at">👁️ 타겟 조준 (Look-At)</option>
-                <option value="distance_rope">🪢 거리 제한 로프 (Rope)</option>
-              </optgroup>
-              <optgroup label="🧠 로직 & 제어 (Logic & Relay)">
-                <option value="signal_relay">🔀 신호 전달기 (Signal Relay)</option>
-                <option value="toggle_switch">🔘 토글 스위치 (Toggle)</option>
-                <option value="counter_accumulator">🔢 숫자 카운터 (Counter)</option>
-                <option value="math_calculate">📐 수학 계산 (Math Calc)</option>
-              </optgroup>
-              <option value="__open_library__">📚 전체 라이브러리 모달 열기...</option>
-            </select>
-          </div>
-
-          <div class="ps-modifier-stack" style="margin-top:8px;">
-            ${cardsHtml}
+          <div style="display:flex;flex-direction:column;gap:5px;margin-top:8px;">
+            ${modules.map((m, mIdx) => {
+              const def = MODULE_REGISTRY[m.type] || { name: m.name, icon: 'MOD' };
+              const isEnabled = m.enabled !== false;
+              const isFirst = mIdx === 0;
+              const isLast = mIdx === total - 1;
+              return `
+                <div style="display:flex;align-items:center;justify-content:space-between;background:#18181e;border:1px solid #2e2e38;padding:5px 8px;border-radius:4px;gap:6px;">
+                  <div style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0;overflow:hidden;" data-act="jump-to-mod" data-mod-id="${m.id}" title="클릭하여 모듈 상세 속성 편집">
+                    <span class="ps-mod-icon-tag">${def.icon || 'MOD'}</span>
+                    <span style="font-size:11.5px;font-weight:600;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.name}</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:3px;flex-shrink:0;">
+                    <button class="ps-mod-tool-btn ${isEnabled ? 'active' : ''}" data-act="mod-toggle-viewport" data-mod-idx="${mIdx}" title="뷰포트 시뮬레이션 토글">${isEnabled ? '👁️' : '🕶️'}</button>
+                    <button class="ps-mod-tool-btn" data-act="jump-to-mod" data-mod-id="${m.id}" title="속성 상세 편집" style="color:#38bdf8;font-size:10.5px;">✎</button>
+                    <button class="ps-mod-tool-btn" data-act="mod-move-up" data-mod-idx="${mIdx}" ${isFirst ? 'disabled' : ''} title="스택 위로 이동">▲</button>
+                    <button class="ps-mod-tool-btn" data-act="mod-move-down" data-mod-idx="${mIdx}" ${isLast ? 'disabled' : ''} title="스택 아래로 이동">▼</button>
+                    <button class="ps-mod-tool-btn" data-act="mod-apply" data-mod-idx="${mIdx}" title="스프라이트에 영구 적용 (Apply)" style="color:#22c55e;">✓</button>
+                    <button class="ps-mod-tool-btn" data-act="mod-delete" data-mod-idx="${mIdx}" title="삭제" style="color:#ef4444;">✕</button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
           </div>
         </div>
       `;
     }
-
     applyModifier(sprite, idx) {
       if (!sprite || !sprite.modules || !sprite.modules[idx]) return;
       const mod = sprite.modules[idx];
@@ -4496,25 +4396,114 @@
 
     bindInputs(sprite, mod) {
       if (mod) {
+        const modIdx = sprite?.modules ? sprite.modules.findIndex(m => m.id === mod.id) : -1;
+
+        // Back to sprite visual properties
         this.el.querySelector('#btnBackToVisual')?.addEventListener('click', () => {
           this.doc.selectedModuleId = null;
           this.render();
         });
 
+        // Viewport Toggle
+        this.el.querySelector('#modDetailToggleViewport')?.addEventListener('click', () => {
+          mod.enabled = !mod.enabled;
+          this.doc.saveState();
+          this.render();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+
+        // Render Toggle
+        this.el.querySelector('#modDetailToggleRender')?.addEventListener('click', () => {
+          mod.showInRender = (mod.showInRender === undefined) ? false : !mod.showInRender;
+          this.doc.saveState();
+          this.render();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+
+        // Move Up in Stack
+        this.el.querySelector('#modDetailMoveUp')?.addEventListener('click', () => {
+          if (sprite?.modules && modIdx > 0) {
+            const [item] = sprite.modules.splice(modIdx, 1);
+            sprite.modules.splice(modIdx - 1, 0, item);
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          }
+        });
+
+        // Move Down in Stack
+        this.el.querySelector('#modDetailMoveDown')?.addEventListener('click', () => {
+          if (sprite?.modules && modIdx < sprite.modules.length - 1) {
+            const [item] = sprite.modules.splice(modIdx, 1);
+            sprite.modules.splice(modIdx + 1, 0, item);
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          }
+        });
+
+        // Duplicate Modifier
+        this.el.querySelector('#modDetailDuplicate')?.addEventListener('click', () => {
+          if (sprite?.modules && modIdx >= 0) {
+            const copy = JSON.parse(JSON.stringify(mod));
+            copy.id = 'mod_' + Math.random().toString(36).substr(2, 9);
+            copy.name = copy.name + ' (복제본)';
+            sprite.modules.splice(modIdx + 1, 0, copy);
+            this.doc.selectedModuleId = copy.id;
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          }
+        });
+
+        // Apply Modifier (Bake into base)
+        this.el.querySelector('#modDetailApply')?.addEventListener('click', () => {
+          if (sprite && modIdx >= 0) {
+            this.applyModifier(sprite, modIdx);
+          }
+        });
+
+        // Delete Modifier
+        this.el.querySelector('#modDetailDelete')?.addEventListener('click', () => {
+          if (sprite?.modules && modIdx >= 0) {
+            sprite.modules.splice(modIdx, 1);
+            this.doc.selectedModuleId = null;
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          }
+        });
+
+        // Test Link button in detail view
+        this.el.querySelector('#btnTestModDetailLink')?.addEventListener('click', () => {
+          if (mod.params?.url) {
+            window.open(mod.params.url, mod.params.target || '_blank');
+          }
+        });
+
+        // Condition change
         this.el.querySelector('#modCond')?.addEventListener('change', e => {
           if (!mod.params) mod.params = {};
           mod.params.condition = e.target.value;
           this.doc.saveState();
-          this.cb.onUpdate();
+          this.render();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+          if (this.cb.onUpdate) this.cb.onUpdate();
         });
 
+        // Inputs with data-param-key
         this.el.querySelectorAll('[data-param-key]').forEach(input => {
           const key = input.dataset.paramKey;
-          input.addEventListener('change', e => {
+          const onValChange = () => {
             if (!mod.params) mod.params = {};
-            let val = e.target.value;
+            let val = input.value;
             if (input.type === 'number') {
-              val = parseFloat(val);
+              val = parseFloat(val) || 0;
             } else if (val === 'true') {
               val = true;
             } else if (val === 'false') {
@@ -4522,7 +4511,17 @@
             }
             mod.params[key] = val;
             this.doc.saveState();
-            this.cb.onUpdate();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (key === 'url') {
+              const btn = this.el.querySelector('#btnTestModDetailLink');
+              if (btn) btn.disabled = !val;
+            }
+          };
+
+          input.addEventListener('input', onValChange);
+          input.addEventListener('change', () => {
+            onValChange();
+            if (this.cb.onUpdate) this.cb.onUpdate();
           });
         });
         return;
@@ -4535,7 +4534,6 @@
         if (!el) return;
         el.addEventListener('input', () => {
           sprite[prop] = isNum ? (parseFloat(el.value) || 0) : el.value;
-          // Synchronize related bevel chamfer and corner radius
           if (prop === 'cornerRadius' && sprite.bevelChamfer !== undefined) {
             sprite.bevelChamfer = sprite.cornerRadius;
             const bEl = this.el.querySelector('#inpBevelChamfer');
@@ -4554,154 +4552,86 @@
         });
       };
 
-      // ==========================================================
-      // Blender Modifier Stack Event Bindings
-      // ==========================================================
-      this.el.querySelector('#selAddModifier')?.addEventListener('change', e => {
-        const val = e.target.value;
-        if (!val) return;
-        if (val === '__open_library__') {
-          if (this.cb.onOpenModuleModal) this.cb.onOpenModuleModal(sprite);
-          else if (window.jspenApp?.layersUI?.showModuleLibraryModal) window.jspenApp.layersUI.showModuleLibraryModal(sprite);
-        } else if (MODULE_REGISTRY[val]) {
-          const def = MODULE_REGISTRY[val];
-          const newMod = {
-            id: 'mod_' + Math.random().toString(36).substr(2, 9),
-            type: val,
-            name: def.name,
-            enabled: true,
-            showInRender: true,
-            collapsed: false,
-            params: JSON.parse(JSON.stringify(def.defaultParams || {}))
-          };
-          if (!sprite.modules) sprite.modules = [];
-          sprite.modules.push(newMod);
-          this.doc.saveState();
-          this.render();
-          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-          if (this.cb.onUpdate) this.cb.onUpdate();
-        }
-        e.target.value = '';
-      });
-
-      // Modifier Header Tool Buttons Delegation
-      this.el.querySelectorAll('[data-act]').forEach(el => {
-        const act = el.dataset.act;
-        const modIdx = parseInt(el.dataset.modIdx, 10);
-        if (isNaN(modIdx) || !sprite.modules || !sprite.modules[modIdx]) return;
-        const mod = sprite.modules[modIdx];
-
-        if (act === 'toggle-mod-fold') {
-          el.addEventListener('click', () => {
-            mod.collapsed = !mod.collapsed;
+      // Jump into module detail properties
+      this.el.querySelectorAll('[data-act="jump-to-mod"]').forEach(el => {
+        el.addEventListener('click', () => {
+          const mId = el.dataset.modId;
+          if (mId) {
+            this.doc.selectedModuleId = mId;
             this.render();
-          });
-        } else if (act === 'mod-toggle-viewport') {
-          el.addEventListener('click', e => {
-            e.stopPropagation();
-            mod.enabled = !mod.enabled;
-            this.doc.saveState();
-            this.render();
-            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-            if (this.cb.onUpdate) this.cb.onUpdate();
-          });
-        } else if (act === 'mod-toggle-render') {
-          el.addEventListener('click', e => {
-            e.stopPropagation();
-            mod.showInRender = (mod.showInRender === undefined) ? false : !mod.showInRender;
-            this.doc.saveState();
-            this.render();
-            if (this.cb.onUpdate) this.cb.onUpdate();
-          });
-        } else if (act === 'mod-move-up') {
-          el.addEventListener('click', e => {
-            e.stopPropagation();
-            if (modIdx > 0) {
-              const [item] = sprite.modules.splice(modIdx, 1);
-              sprite.modules.splice(modIdx - 1, 0, item);
-              this.doc.saveState();
-              this.render();
-              if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-              if (this.cb.onUpdate) this.cb.onUpdate();
-            }
-          });
-        } else if (act === 'mod-move-down') {
-          el.addEventListener('click', e => {
-            e.stopPropagation();
-            if (modIdx < sprite.modules.length - 1) {
-              const [item] = sprite.modules.splice(modIdx, 1);
-              sprite.modules.splice(modIdx + 1, 0, item);
-              this.doc.saveState();
-              this.render();
-              if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-              if (this.cb.onUpdate) this.cb.onUpdate();
-            }
-          });
-        } else if (act === 'mod-duplicate') {
-          el.addEventListener('click', e => {
-            e.stopPropagation();
-            const copy = JSON.parse(JSON.stringify(mod));
-            copy.id = 'mod_' + Math.random().toString(36).substr(2, 9);
-            copy.name = copy.name + ' (복제본)';
-            sprite.modules.splice(modIdx + 1, 0, copy);
-            this.doc.saveState();
-            this.render();
-            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-            if (this.cb.onUpdate) this.cb.onUpdate();
-          });
-        } else if (act === 'mod-apply') {
-          el.addEventListener('click', e => {
-            e.stopPropagation();
-            this.applyModifier(sprite, modIdx);
-          });
-        } else if (act === 'mod-delete') {
-          el.addEventListener('click', e => {
-            e.stopPropagation();
-            sprite.modules.splice(modIdx, 1);
-            this.doc.saveState();
-            this.render();
-            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-            if (this.cb.onUpdate) this.cb.onUpdate();
-          });
-        }
-      });
-
-      // Modifier Parameters Inputs
-      this.el.querySelectorAll('.mod-param-input, .mod-param-select').forEach(input => {
-        const modIdx = parseInt(input.dataset.modIdx, 10);
-        const key = input.dataset.paramKey;
-        if (isNaN(modIdx) || !key || !sprite.modules || !sprite.modules[modIdx]) return;
-        const mod = sprite.modules[modIdx];
-        if (!mod.params) mod.params = {};
-
-        const onValChange = () => {
-          let val = input.value;
-          if (input.type === 'number') val = parseFloat(val) || 0;
-          mod.params[key] = val;
-          this.doc.saveState();
-          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-          if (key === 'url') {
-            const btn = this.el.querySelector(`.btn-test-mod-link[data-mod-idx="${modIdx}"]`);
-            if (btn) btn.disabled = !val;
           }
-        };
-
-        input.addEventListener('input', onValChange);
-        input.addEventListener('change', () => {
-          onValChange();
-          if (this.cb.onUpdate) this.cb.onUpdate();
         });
       });
 
-      // Test Mod Link Button
-      this.el.querySelectorAll('.btn-test-mod-link').forEach(btn => {
-        const modIdx = parseInt(btn.dataset.modIdx, 10);
-        if (isNaN(modIdx) || !sprite.modules || !sprite.modules[modIdx]) return;
-        const mod = sprite.modules[modIdx];
+      // Viewport toggle from sprite properties overview
+      this.el.querySelectorAll('[data-act="mod-toggle-viewport"]').forEach(btn => {
         btn.addEventListener('click', e => {
           e.stopPropagation();
-          const u = mod.params?.url;
-          if (u) window.open(u, mod.params?.target || '_blank');
+          const idx = parseInt(btn.dataset.modIdx, 10);
+          if (sprite.modules && sprite.modules[idx]) {
+            sprite.modules[idx].enabled = !sprite.modules[idx].enabled;
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          }
+        });
+      });
+
+      // Move Up / Move Down from sprite properties overview
+      this.el.querySelectorAll('[data-act="mod-move-up"]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const idx = parseInt(btn.dataset.modIdx, 10);
+          if (sprite.modules && idx > 0) {
+            const [item] = sprite.modules.splice(idx, 1);
+            sprite.modules.splice(idx - 1, 0, item);
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          }
+        });
+      });
+
+      this.el.querySelectorAll('[data-act="mod-move-down"]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const idx = parseInt(btn.dataset.modIdx, 10);
+          if (sprite.modules && idx < sprite.modules.length - 1) {
+            const [item] = sprite.modules.splice(idx, 1);
+            sprite.modules.splice(idx + 1, 0, item);
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          }
+        });
+      });
+
+      // Apply from sprite properties overview
+      this.el.querySelectorAll('[data-act="mod-apply"]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const idx = parseInt(btn.dataset.modIdx, 10);
+          if (sprite.modules && sprite.modules[idx]) {
+            this.applyModifier(sprite, idx);
+          }
+        });
+      });
+
+      // Delete from sprite properties overview
+      this.el.querySelectorAll('[data-act="mod-delete"]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const idx = parseInt(btn.dataset.modIdx, 10);
+          if (sprite.modules && sprite.modules[idx]) {
+            sprite.modules.splice(idx, 1);
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          }
         });
       });
 
