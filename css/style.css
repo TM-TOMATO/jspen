@@ -3286,3 +3286,45 @@ button, .btn, .btn-sm, .ps-btn, .action-btn, .ps-layer-btn, .ps-mode-switch-btn 
 .ps-mod-body .ps-prop-row {
   margin-bottom: 2px;
 }
+
+/* Strictly enforce single-line layout without awkward line wrapping */
+.ps-dock-title,
+.ps-prop-label,
+.ps-prop-header,
+.ps-section-title,
+.ps-layer-row,
+.ps-sprite-sub-item,
+.ps-layer-module-row,
+.ps-layer-title,
+.ps-sprite-title,
+.mod-name,
+.mod-badge,
+.ps-btn-layer-add-sp,
+.ps-btn-add-module,
+.ps-dock-tool-btn,
+.ps-option-group,
+.ps-option-title,
+.ps-option-label,
+.btn,
+.ps-dropdown-item,
+.ne-title-group,
+.ne-actions,
+.ps-menu-item,
+.ps-val-tag,
+.ps-prop-row label,
+.mod-category-tab,
+.ps-module-name,
+.graph-node-title,
+.graph-port-label {
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+}
+
+.ps-layer-title,
+.ps-sprite-title,
+.mod-name,
+.ps-dock-title,
+.graph-node-title {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}

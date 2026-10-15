@@ -153,6 +153,18 @@
         pulseMax: 20
       }
     },
+    substance_mask: {
+      category: 'motion', name: '서브스턴스 마스크', icon: 'MASK',
+      description: '서브스턴스 페인터 스타일의 마스크: 화이트 마스크(전체 통과), 블랙 마스크(전체 가림), 클리핑 마스크, 반전 마스크를 적용합니다.',
+      defaultParams: {
+        condition: 'always',
+        maskType: 'white', // 'white', 'black', 'clip', 'invert'
+        intensity: 100, // 0 to 100
+        invert: false,
+        feather: 0,
+        targetSpriteId: ''
+      }
+    },
     look_at: {
       category: 'logic', name: '타겟 조준 (Look-At)', icon: 'AIM',
       description: '스프라이트가 항상 타겟 레이어나 마우스 방향을 바라보도록 자동 회전합니다.',
@@ -312,14 +324,14 @@
       this.type = options.type || 'rect'; // 'rect' | 'circle' | 'path' | 'brush' | 'text' | 'image' | 'empty'
       this.x = options.x !== undefined ? options.x : 400;
       this.y = options.y !== undefined ? options.y : 300;
-      this.width = options.width !== undefined ? options.width : 120;
-      this.height = options.height !== undefined ? options.height : 120;
+      this._width = Math.max(1, options.width !== undefined ? options.width : 120);
+      this._height = Math.max(1, options.height !== undefined ? options.height : 120);
       this.rotation = options.rotation || 0;
       this.scaleX = options.scaleX !== undefined ? options.scaleX : 1;
       this.scaleY = options.scaleY !== undefined ? options.scaleY : 1;
       this.lockAspectRatio = options.lockAspectRatio || false;
 
-      this.opacity = options.opacity !== undefined ? options.opacity : 1;
+      this._opacity = Math.max(0, Math.min(1, options.opacity !== undefined ? options.opacity : 1));
       this.blendMode = options.blendMode || 'source-over';
       this.fillType = options.fillType || 'solid';
       this.fill = options.fill || '#38bdf8';
@@ -329,20 +341,21 @@
       };
 
       this.stroke = options.stroke || '#0284c7';
-      this.strokeWidth = options.strokeWidth !== undefined ? options.strokeWidth : 0;
-      this.strokeOpacity = options.strokeOpacity !== undefined ? options.strokeOpacity : 1;
-      this.fillOpacity = options.fillOpacity !== undefined ? options.fillOpacity : 1;
-      this.bevel = options.bevel || 0;
-      this.cornerRadius = options.cornerRadius || 0;
+      this._strokeWidth = Math.max(0, options.strokeWidth !== undefined ? options.strokeWidth : 0);
+      this.strokeOpacity = Math.max(0, Math.min(1, options.strokeOpacity !== undefined ? options.strokeOpacity : 1));
+      this.fillOpacity = Math.max(0, Math.min(1, options.fillOpacity !== undefined ? options.fillOpacity : 1));
+      this.bevel = Math.max(0, options.bevel || 0);
+      this._cornerRadius = Math.max(0, options.cornerRadius || 0);
+      this._bevelChamfer = Math.max(0, options.bevelChamfer || options.cornerRadius || 0);
 
       this.pathPoints = options.pathPoints || [];
       this.isClosedPath = options.isClosedPath !== undefined ? options.isClosedPath : true;
       this.strokes = options.strokes || [];
       this.brushStrokePoints = options.brushStrokePoints || [];
-      this.brushSize = options.brushSize || 6;
+      this.brushSize = Math.max(1, options.brushSize || 6);
 
-      this.text = options.text || '텍스트';
-      this.fontSize = options.fontSize || 32;
+      this.text = options.text !== undefined ? options.text : (options.type === 'text' ? '텍스트' : '');
+      this._fontSize = Math.max(1, options.fontSize || 32);
       this.fontFamily = options.fontFamily || 'Pretendard, sans-serif';
       this.fontWeight = options.fontWeight || 'bold';
       this.textAlign = options.textAlign || 'center';
@@ -494,6 +507,21 @@
         filters: JSON.parse(JSON.stringify(this.filters || {}))
       };
     }
+
+    get width() { return Math.max(1, this._width !== undefined ? this._width : 120); }
+    set width(v) { this._width = Math.max(1, Number(v) || 1); }
+    get height() { return Math.max(1, this._height !== undefined ? this._height : 120); }
+    set height(v) { this._height = Math.max(1, Number(v) || 1); }
+    get opacity() { return Math.max(0, Math.min(1, this._opacity !== undefined ? this._opacity : 1)); }
+    set opacity(v) { this._opacity = Math.max(0, Math.min(1, Number(v) || 0)); }
+    get strokeWidth() { return Math.max(0, this._strokeWidth !== undefined ? this._strokeWidth : 0); }
+    set strokeWidth(v) { this._strokeWidth = Math.max(0, Number(v) || 0); }
+    get cornerRadius() { return Math.max(0, this._cornerRadius !== undefined ? this._cornerRadius : 0); }
+    set cornerRadius(v) { this._cornerRadius = Math.max(0, Number(v) || 0); }
+    get bevelChamfer() { return Math.max(0, this._bevelChamfer !== undefined ? this._bevelChamfer : 0); }
+    set bevelChamfer(v) { this._bevelChamfer = Math.max(0, Number(v) || 0); }
+    get fontSize() { return Math.max(1, this._fontSize !== undefined ? this._fontSize : 16); }
+    set fontSize(v) { this._fontSize = Math.max(1, Number(v) || 1); }
   }
 
   class Layer {
@@ -1404,9 +1432,72 @@
         const sprite = layer.sprites[sIdx];
         if (!sprite.visible) continue;
 
-        // True Photoshop Clipping Mask & Inverted Mask rendering
+        // Check for active Substance Painter style mask module
+        const subMask = (sprite.modules || []).find(m => m.enabled !== false && m.type === 'substance_mask');
         const isMask = sprite.isMask || (sprite.maskMode && sprite.maskMode !== 'none');
-        if (isMask) {
+
+        if (subMask) {
+          const p = subMask.params || {};
+          const maskType = p.maskType || 'white';
+          const intensity = Math.max(0, Math.min(100, p.intensity !== undefined ? p.intensity : 100)) / 100;
+          const invert = !!p.invert;
+          const feather = Math.max(0, p.feather || 0);
+
+          if (maskType === 'black') {
+            const effectiveAlpha = invert ? intensity : (1 - intensity);
+            ctx.save();
+            ctx.globalAlpha *= effectiveAlpha;
+            this.drawSprite(ctx, sprite);
+            ctx.restore();
+            continue;
+          } else if (maskType === 'white') {
+            const effectiveAlpha = invert ? (1 - intensity) : intensity;
+            ctx.save();
+            ctx.globalAlpha *= effectiveAlpha;
+            this.drawSprite(ctx, sprite);
+            ctx.restore();
+            continue;
+          } else if (maskType === 'clip' || maskType === 'invert') {
+            let maskBase = null;
+            if (p.targetSpriteId) {
+              maskBase = layer.sprites.find(s => s.id === p.targetSpriteId);
+            }
+            if (!maskBase && sIdx > 0) {
+              maskBase = layer.sprites[sIdx - 1];
+            }
+            if (maskBase && maskBase.visible) {
+              if (!this._maskCanvas) this._maskCanvas = document.createElement('canvas');
+              if (this._maskCanvas.width !== this.doc.width || this._maskCanvas.height !== this.doc.height) {
+                this._maskCanvas.width = this.doc.width;
+                this._maskCanvas.height = this.doc.height;
+              }
+              const mCtx = this._maskCanvas.getContext('2d');
+              mCtx.clearRect(0, 0, this.doc.width, this.doc.height);
+
+              // 1. Draw base mask silhouette
+              mCtx.save();
+              if (feather > 0) {
+                mCtx.filter = `blur(${feather}px)`;
+              }
+              this.drawSprite(mCtx, maskBase);
+              mCtx.restore();
+
+              // 2. Composite sprite into mask silhouette
+              mCtx.save();
+              const compOp = (maskType === 'invert' || invert) ? 'source-out' : 'source-in';
+              mCtx.globalCompositeOperation = compOp;
+              this.drawSprite(mCtx, sprite);
+              mCtx.restore();
+
+              // 3. Composite onto main canvas with intensity
+              ctx.save();
+              ctx.globalAlpha *= intensity;
+              ctx.drawImage(this._maskCanvas, 0, 0);
+              ctx.restore();
+              continue;
+            }
+          }
+        } else if (isMask) {
           let maskBase = null;
           if (sprite.maskTargetId) {
             maskBase = layer.sprites.find(s => s.id === sprite.maskTargetId);
@@ -1464,23 +1555,32 @@
 
       if (sprite.blendMode) ctx.globalCompositeOperation = sprite.blendMode;
 
-      // Apply Photoshop-style Graphic Filters (including Alpha Opacity)
-      if (sprite.filters) {
-        const f = sprite.filters;
-        const fltrs = [];
-        if (f.blur) fltrs.push(`blur(${f.blur}px)`);
-        if (f.brightness !== undefined && f.brightness !== 100) fltrs.push(`brightness(${f.brightness}%)`);
-        if (f.contrast !== undefined && f.contrast !== 100) fltrs.push(`contrast(${f.contrast}%)`);
-        if (f.saturate !== undefined && f.saturate !== 100) fltrs.push(`saturate(${f.saturate}%)`);
-        if (f.grayscale) fltrs.push(`grayscale(${f.grayscale}%)`);
-        if (f.sepia) fltrs.push(`sepia(${f.sepia}%)`);
-        if (f.hueRotate) fltrs.push(`hue-rotate(${f.hueRotate}deg)`);
-        if (f.invert) fltrs.push(`invert(${f.invert}%)`);
-        if (f.opacity !== undefined && f.opacity !== 100) {
-          fltrs.push(`opacity(${f.opacity}%)`);
-          ctx.globalAlpha *= Math.max(0, Math.min(1, f.opacity / 100));
+      // Apply Photoshop-style Graphic Filters (from sprite.filters and any active photoshop_filter module)
+      const filterSources = [];
+      if (sprite.filters) filterSources.push(sprite.filters);
+      for (const m of (sprite.modules || [])) {
+        if (m.enabled !== false && m.type === 'photoshop_filter' && m.params) {
+          filterSources.push(m.params);
         }
-        if (f.dropShadow) fltrs.push(`drop-shadow(0px 8px 16px rgba(0,0,0,0.5))`);
+      }
+      if (filterSources.length > 0) {
+        const fltrs = [];
+        for (const f of filterSources) {
+          if (f.blur) fltrs.push(`blur(${Math.max(0, f.blur)}px)`);
+          if (f.brightness !== undefined && f.brightness !== 100) fltrs.push(`brightness(${Math.max(0, f.brightness)}%)`);
+          if (f.contrast !== undefined && f.contrast !== 100) fltrs.push(`contrast(${Math.max(0, f.contrast)}%)`);
+          if (f.saturate !== undefined && f.saturate !== 100) fltrs.push(`saturate(${Math.max(0, f.saturate)}%)`);
+          if (f.grayscale) fltrs.push(`grayscale(${Math.max(0, Math.min(100, f.grayscale))}%)`);
+          if (f.sepia) fltrs.push(`sepia(${Math.max(0, Math.min(100, f.sepia))}%)`);
+          if (f.hueRotate) fltrs.push(`hue-rotate(${f.hueRotate}deg)`);
+          if (f.invert) fltrs.push(`invert(${Math.max(0, Math.min(100, f.invert))}%)`);
+          if (f.opacity !== undefined && f.opacity !== 100) {
+            const clOp = Math.max(0, Math.min(100, f.opacity));
+            fltrs.push(`opacity(${clOp}%)`);
+            ctx.globalAlpha *= (clOp / 100);
+          }
+          if (f.dropShadow) fltrs.push(`drop-shadow(0px 8px 16px rgba(0,0,0,0.5))`);
+        }
         if (fltrs.length > 0) ctx.filter = fltrs.join(' ');
       }
 
@@ -3103,7 +3203,7 @@
             ${window.jspenApp?.isNodeMode ? '스튜디오로 복귀 (Shift+Tab)' : '모듈 노드 모드 (Shift+Tab)'}
           </button>
           <button class="btn btn-secondary btn-sm" id="btnOptWebPreview" style="height:24px;font-size:11px;padding:2px 8px;color:#38bdf8;border-color:#38bdf8;display:flex;align-items:center;gap:4px;" title="새 창에서 실시간 웹 미리보기 (Alt+W / Ctrl+Space)">
-            🌐 웹 미리보기
+            웹 미리보기
           </button>
         </div>
       `;
@@ -3269,7 +3369,7 @@
                         `}
 
                         <button class="ps-sp-link-btn ${s.linkGroup ? 'active' : ''}" data-act="toggle-link" title="${s.linkGroup ? '스프라이트 링크 해제 (현재 그룹: ' + s.linkGroup + ')' : '다른 스프라이트와 링크하기'}">
-                          ${s.linkGroup ? `🔗${s.linkGroup}` : '🔗'}
+                          ${s.linkGroup ? `[LINK]${s.linkGroup}` : '[LINK]'}
                         </button>
 
                         <button class="ps-btn-add-module ${hasMods ? 'has-modules' : ''}" data-act="add-sprite-mod" title="모듈 추가">
@@ -3615,11 +3715,13 @@
           </div>
           <div class="mod-category-tabs">
             <button class="mod-category-tab ${this.activeCategory==='all'?'active':''}" data-cat="all">전체</button>
+            <button class="mod-category-tab ${this.activeCategory==='mask'?'active':''}" data-cat="mask">마스크</button>
+            <button class="mod-category-tab ${this.activeCategory==='filter'?'active':''}" data-cat="filter">필터</button>
             <button class="mod-category-tab ${this.activeCategory==='web'?'active':''}" data-cat="web">웹 & 인터랙션</button>
-            <button class="mod-category-tab ${this.activeCategory==='sensor'?'active':''}" data-cat="sensor">감지 & 제스처</button>
             <button class="mod-category-tab ${this.activeCategory==='motion'?'active':''}" data-cat="motion">모션 & FX</button>
+            <button class="mod-category-tab ${this.activeCategory==='sensor'?'active':''}" data-cat="sensor">감지 & 제스처</button>
             <button class="mod-category-tab ${this.activeCategory==='logic'?'active':''}" data-cat="logic">연결 & 로직</button>
-            <button class="mod-category-tab ${this.activeCategory==='timing'?'active':''}" data-cat="timing">타이밍 & 사운드</button>
+            <button class="mod-category-tab ${this.activeCategory==='timing'?'active':''}" data-cat="timing">타이밍</button>
           </div>
           <div class="ps-module-grid" id="modalModGrid"></div>
         </div>
@@ -3630,7 +3732,8 @@
         const grid = modal.querySelector('#modalModGrid');
         const keys = Object.keys(MODULE_REGISTRY).filter(k => {
           if (this.activeCategory === 'all') return true;
-          if (this.activeCategory === 'timing') return MODULE_REGISTRY[k].category === 'timing';
+          if (this.activeCategory === 'mask') return k === 'substance_mask' || MODULE_REGISTRY[k].category === 'mask';
+          if (this.activeCategory === 'filter') return k === 'photoshop_filter' || MODULE_REGISTRY[k].category === 'filter';
           return MODULE_REGISTRY[k].category === this.activeCategory;
         });
 
@@ -3687,7 +3790,7 @@
     }
   }
   // ==========================================================================
-  // 14. InspectorPanelUI (Non-Destructive Live Scrubbing & Module Inspector)
+  // 14. InspectorPanelUI (Strictly Separated Layer, Sprite & Module Inspectors)
   // ==========================================================================
   class InspectorPanelUI {
     constructor(el, doc, callbacks) {
@@ -3698,9 +3801,20 @@
     }
 
     render() {
-      const selectedSprite = this.doc.getSelectedSprite();
+      const selectedSprite = this.doc.getSelectedSprite(false);
       const selectedLayer = this.doc.getSelectedLayer();
       const selectedMod = this.getSelectedModule(selectedSprite);
+
+      let contentHtml = '';
+      if (selectedMod && selectedSprite) {
+        contentHtml = this.renderModuleInspector(selectedMod, selectedSprite);
+      } else if (selectedSprite) {
+        contentHtml = this.renderSpriteInspector(selectedSprite);
+      } else if (selectedLayer) {
+        contentHtml = this.renderLayerInspector(selectedLayer);
+      } else {
+        contentHtml = '<div class="ps-empty-layers">선택된 레이어나 스프라이트가 없습니다.</div>';
+      }
 
       this.el.innerHTML = `
         <div class="ps-dock-header krita-docker-titlebar">
@@ -3712,14 +3826,12 @@
         </div>
 
         <div class="ps-insp-scroll-area">
-          ${selectedMod ? this.renderModuleInspector(selectedMod, selectedSprite) : this.renderVisualInspector(selectedSprite, selectedLayer)}
+          ${contentHtml}
         </div>
       `;
 
       this.bindScrubbing();
-      this.bindInputs(selectedSprite, selectedMod);
-
-      
+      this.bindInputs(selectedSprite, selectedMod, selectedLayer);
     }
 
     getSelectedModule(sprite) {
@@ -3727,599 +3839,69 @@
       return sprite.modules.find(m => m.id === this.doc.selectedModuleId) || null;
     }
 
-    renderModuleInspector(mod, sprite) {
-      const def = MODULE_REGISTRY[mod.type] || {};
-      const params = mod.params || {};
-      const modIdx = sprite?.modules ? sprite.modules.findIndex(m => m.id === mod.id) : -1;
-      const totalMods = sprite?.modules ? sprite.modules.length : 1;
-      const isFirst = modIdx === 0;
-      const isLast = modIdx === totalMods - 1;
-
-      const allSprites = [];
-      const allLayers = [];
-      const allModules = [];
-      for (const ly of this.doc.layers) {
-        allLayers.push({ id: ly.id, name: ly.name });
-        if (ly.modules) {
-          for (const m of ly.modules) {
-            allModules.push({ id: m.id, name: `[레이어] ${m.name} (${ly.name})` });
-          }
-        }
-        for (const sp of ly.sprites) {
-          allSprites.push({ id: sp.id, name: `${sp.name} (${ly.name})`, type: sp.type });
-          if (sp.modules) {
-            for (const m of sp.modules) {
-              allModules.push({ id: m.id, name: `[스프라이트] ${m.name} (${sp.name})` });
-            }
-          }
-        }
-      }
-
-      // Render specific controls based on module type
-      let typeSpecificHtml = '';
-      if (mod.type === 'hyperlink') {
-        typeSpecificHtml = `
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">이동 링크 URL:</label>
-            <input type="text" class="ps-input" data-param-key="url" placeholder="https://... 또는 #section" value="${params.url || ''}">
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">열기 방식 (Target):</label>
-            <select class="ps-select" data-param-key="target">
-              <option value="_blank" ${(params.target || '_blank') === '_blank' ? 'selected' : ''}>새 탭에서 열기 (_blank)</option>
-              <option value="_self" ${params.target === '_self' ? 'selected' : ''}>현재 창에서 열기 (_self)</option>
-            </select>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">발동 조건 (Trigger):</label>
-            <select class="ps-select" data-param-key="trigger">
-              <option value="click" ${(params.trigger || 'click') === 'click' ? 'selected' : ''}>🖱️ 클릭 시 이동 (Click)</option>
-              <option value="hover" ${params.trigger === 'hover' ? 'selected' : ''}>🎯 마우스 호버 시 이동 (Hover)</option>
-              <option value="signal" ${params.trigger === 'signal' ? 'selected' : ''}>📡 신호 수신 시 이동 (On Signal)</option>
-              <option value="viewport_enter" ${params.trigger === 'viewport_enter' ? 'selected' : ''}>👁️ 화면 진입 시 이동 (Viewport)</option>
-            </select>
-          </div>
-          ${params.trigger === 'signal' ? `
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">트리거 신호명:</label>
-            <input type="text" class="ps-input" data-param-key="signalName" placeholder="예: signal_1" value="${params.signalName || ''}">
-          </div>` : ''}
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">호버 효과:</label>
-            <select class="ps-select" data-param-key="hoverEffect">
-              <option value="none" ${params.hoverEffect === 'none' ? 'selected' : ''}>없음 (None)</option>
-              <option value="lift" ${(params.hoverEffect || 'lift') === 'lift' ? 'selected' : ''}>살짝 뜨기 (Lift Up -3px)</option>
-              <option value="zoom" ${params.hoverEffect === 'zoom' ? 'selected' : ''}>부드럽게 확대 (Zoom 1.05x)</option>
-              <option value="glow" ${params.hoverEffect === 'glow' ? 'selected' : ''}>화려한 발광 (Cyan Glow)</option>
-              <option value="fade" ${params.hoverEffect === 'fade' ? 'selected' : ''}>투명도 전환 (Fade 80%)</option>
-              <option value="bounce" ${params.hoverEffect === 'bounce' ? 'selected' : ''}>통통 튀기 (Bounce)</option>
-            </select>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">인페이지 앵커 ID:</label>
-            <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${params.anchorId || ''}">
-          </div>
-          <div class="ps-prop-row" style="margin-top:6px;">
-            <button class="btn btn-secondary btn-sm" id="btnTestModDetailLink" style="width:100%;justify-content:center;color:#38bdf8;border-color:#38bdf8;gap:6px;" ${!params.url ? 'disabled' : ''}>
-              🔗 브라우저에서 링크 바로 열기 (테스트)
-            </button>
-          </div>
-        `;
-      } else if (mod.type === 'photoshop_filter') {
-        typeSpecificHtml = `
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">작동 모드:</label>
-            <select class="ps-select" data-param-key="mode">
-              <option value="static" ${(params.mode || 'static') === 'static' ? 'selected' : ''}>정적 필터 (Static)</option>
-              <option value="pulse" ${params.mode === 'pulse' ? 'selected' : ''}>박동 펄스 (Pulse Animation)</option>
-              <option value="reactive" ${params.mode === 'reactive' ? 'selected' : ''}>마우스 거리 반응 (Reactive)</option>
-            </select>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">가우시안 블러:</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="blur" min="0" max="60" value="${params.blur || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">밝기 (Brightness):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="brightness" min="0" max="300" value="${params.brightness ?? 100}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">대비 (Contrast):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="contrast" min="0" max="300" value="${params.contrast ?? 100}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">채도 (Saturation):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="saturate" min="0" max="300" value="${params.saturate ?? 100}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">흑백 (Grayscale):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="grayscale" min="0" max="100" value="${params.grayscale || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">색조 회전 (Hue):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="hueRotate" min="0" max="360" value="${params.hueRotate || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">알파값 (Opacity):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="opacity" min="0" max="100" value="${params.opacity !== undefined ? params.opacity : 100}">
-            </div>
-          </div>
-        `;
-      } else if (mod.type === 'motion_wave') {
-        typeSpecificHtml = `
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">진동 축 (Axis):</label>
-            <select class="ps-select" data-param-key="axis">
-              <option value="y" ${(params.axis || 'y') === 'y' ? 'selected' : ''}>Y축 (상하 부유)</option>
-              <option value="x" ${params.axis === 'x' ? 'selected' : ''}>X축 (좌우 흔들림)</option>
-              <option value="both" ${params.axis === 'both' ? 'selected' : ''}>XY 복합 (원형)</option>
-              <option value="rotation" ${params.axis === 'rotation' ? 'selected' : ''}>회전 틸트 (Rotation)</option>
-            </select>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">진폭 (Amplitude):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="amplitude" min="1" max="100" value="${params.amplitude || 10}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">주파수 (Hz):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="frequency" min="0.1" max="5" step="0.1" value="${params.frequency || 1}">
-            </div>
-          </div>
-        `;
-      } else {
-        // Generic properties
-        typeSpecificHtml = `
-          <!-- Target Entity Selector (Sprite / Layer / Module) -->
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">타겟 스프라이트:</label>
-            <select class="ps-select" data-param-key="targetSpriteId">
-              <option value="">(선택 안 됨 - 대상 없음)</option>
-              ${allSprites.map(s => `
-                <option value="${s.id}" ${params.targetSpriteId === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
-              `).join('')}
-            </select>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">타겟 모듈/레이어:</label>
-            <select class="ps-select" data-param-key="targetModuleId">
-              <option value="">(선택 안 됨 - 대상 없음)</option>
-              ${allModules.map(m => `
-                <option value="${m.id}" ${params.targetModuleId === m.id ? 'selected' : ''}>${m.name}</option>
-              `).join('')}
-            </select>
-          </div>
-          <div style="margin-top:10px;font-size:11px;font-weight:700;color:#a1a1aa;">모듈 파라미터 수동 제어</div>
-          ${Object.keys(params).filter(k => k !== 'condition' && k !== 'targetSpriteId' && k !== 'targetModuleId').map(key => `
-            <div class="ps-prop-row" style="margin-top:6px;">
-              <label class="ps-prop-label">${key}:</label>
-              ${typeof params[key] === 'boolean' ? `
-                <select class="ps-select" data-param-key="${key}">
-                  <option value="true" ${params[key] ? 'selected' : ''}>true</option>
-                  <option value="false" ${!params[key] ? 'selected' : ''}>false</option>
-                </select>
-              ` : `
-                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" class="ps-input" data-param-key="${key}" value="${params[key]}">
-              `}
-            </div>
-          `).join('')}
-        `;
-      }
-
+    // 1. Layer Inspector (Pure layer properties only - No sprite or module properties)
+    renderLayerInspector(layer) {
+      if (!layer) return '<div class="ps-empty-layers">선택된 레이어가 없습니다.</div>';
       return `
-        <div class="ps-prop-section" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.03);">
-          <!-- Module Header with Blender Modifier Tools -->
-          <div class="ps-prop-header" style="justify-content:space-between; align-items:center;">
-            <div style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;">
-              <span class="ps-mod-icon-tag" style="background:#0f172a;color:#38bdf8;padding:2px 6px;border-radius:3px;font-weight:bold;font-size:10px;">${def.icon || 'MOD'}</span>
-              <span style="font-weight:700;color:#f1f5f9;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${mod.name}</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:3px;flex-shrink:0;">
-              <button class="ps-mod-tool-btn ${mod.enabled !== false ? 'active' : ''}" id="modDetailToggleViewport" title="뷰포트 시뮬레이션 토글">${mod.enabled !== false ? '👁️' : '🕶️'}</button>
-              <button class="ps-mod-tool-btn ${mod.showInRender !== false ? 'active' : ''}" id="modDetailToggleRender" title="웹사이트 내보내기/미리보기 반영 토글">🌐</button>
-              <button class="ps-mod-tool-btn" id="modDetailMoveUp" ${isFirst ? 'disabled' : ''} title="스택 위로 이동 (우선 평가)">▲</button>
-              <button class="ps-mod-tool-btn" id="modDetailMoveDown" ${isLast ? 'disabled' : ''} title="스택 아래로 이동 (후순위 평가)">▼</button>
-              <button class="ps-mod-tool-btn" id="modDetailDuplicate" title="모디파이어 복제 (Duplicate)">📄</button>
-              <button class="ps-mod-tool-btn" id="modDetailApply" title="스프라이트에 영구 적용 (Apply to Base)" style="color:#22c55e;">✓</button>
-              <button class="ps-mod-tool-btn" id="modDetailDelete" title="모듈 삭제 (Delete)" style="color:#ef4444;">✕</button>
-            </div>
-          </div>
-
-          <div style="margin-top:6px;display:flex;justify-content:flex-end;">
-            <button class="btn btn-secondary btn-sm" id="btnBackToVisual" style="font-size:11px;padding:2px 8px;color:#94a3b8;">
-              스프라이트 기본 속성 ➔
-            </button>
-          </div>
-
-          <!-- Execution Condition -->
-          <div class="ps-prop-row" style="margin-top:10px;">
-            <label class="ps-prop-label">작동 조건 (Condition):</label>
-            <select class="ps-select" id="modCond">
-              <option value="always" ${params.condition === 'always' ? 'selected' : ''}>항상 작동 (Always)</option>
-              <option value="on_trigger" ${params.condition === 'on_trigger' ? 'selected' : ''}>화면 트리거 감지 시 (On Trigger)</option>
-              <option value="on_signal" ${params.condition === 'on_signal' ? 'selected' : ''}>신호 수신 시 (On Signal)</option>
-              <option value="on_toggle" ${params.condition === 'on_toggle' ? 'selected' : ''}>토글 스위치 켜짐 시 (On Toggle)</option>
-              <option value="on_click" ${params.condition === 'on_click' ? 'selected' : ''}>마우스 클릭 시 (On Click)</option>
-              <option value="on_hover" ${params.condition === 'on_hover' ? 'selected' : ''}>마우스 호버 시 (On Hover)</option>
-              <option value="key_press" ${params.condition === 'key_press' ? 'selected' : ''}>키보드 입력 시 (Key Press)</option>
-              <option value="timeline_active" ${params.condition === 'timeline_active' ? 'selected' : ''}>특정 프레임 구간 (Timeline)</option>
-            </select>
-          </div>
-
-          <!-- Type-Specific Properties -->
-          ${typeSpecificHtml}
-        </div>
-      `;
-    }
-    renderModifierStack(sprite) {
-      if (!sprite || !sprite.modules || sprite.modules.length === 0) {
-        // "속성창에는 속성만 뜨고": No add dropdown or empty state placeholder here!
-        return '';
-      }
-
-      const modules = sprite.modules;
-      const total = modules.length;
-
-      return `
-        <!-- Attached Modules Properties Overview -->
-        <div class="ps-prop-section" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.03);">
-          <div class="ps-prop-header" style="justify-content:space-between; align-items:center;">
-            <div style="display:flex;align-items:center;gap:6px;">
-              <span style="font-weight:700;color:#38bdf8;">📦 장착된 모듈 속성 (${total}개)</span>
-            </div>
-            <span style="font-size:10px;color:#71717a;">레이어 창 +fx 로 추가됨</span>
-          </div>
-
-          <div style="display:flex;flex-direction:column;gap:5px;margin-top:8px;">
-            ${modules.map((m, mIdx) => {
-              const def = MODULE_REGISTRY[m.type] || { name: m.name, icon: 'MOD' };
-              const isEnabled = m.enabled !== false;
-              const isFirst = mIdx === 0;
-              const isLast = mIdx === total - 1;
-              return `
-                <div style="display:flex;align-items:center;justify-content:space-between;background:#18181e;border:1px solid #2e2e38;padding:5px 8px;border-radius:4px;gap:6px;">
-                  <div style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0;overflow:hidden;" data-act="jump-to-mod" data-mod-id="${m.id}" title="클릭하여 모듈 상세 속성 편집">
-                    <span class="ps-mod-icon-tag">${def.icon || 'MOD'}</span>
-                    <span style="font-size:11.5px;font-weight:600;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.name}</span>
-                  </div>
-                  <div style="display:flex;align-items:center;gap:3px;flex-shrink:0;">
-                    <button class="ps-mod-tool-btn ${isEnabled ? 'active' : ''}" data-act="mod-toggle-viewport" data-mod-idx="${mIdx}" title="뷰포트 시뮬레이션 토글">${isEnabled ? '👁️' : '🕶️'}</button>
-                    <button class="ps-mod-tool-btn" data-act="jump-to-mod" data-mod-id="${m.id}" title="속성 상세 편집" style="color:#38bdf8;font-size:10.5px;">✎</button>
-                    <button class="ps-mod-tool-btn" data-act="mod-move-up" data-mod-idx="${mIdx}" ${isFirst ? 'disabled' : ''} title="스택 위로 이동">▲</button>
-                    <button class="ps-mod-tool-btn" data-act="mod-move-down" data-mod-idx="${mIdx}" ${isLast ? 'disabled' : ''} title="스택 아래로 이동">▼</button>
-                    <button class="ps-mod-tool-btn" data-act="mod-apply" data-mod-idx="${mIdx}" title="스프라이트에 영구 적용 (Apply)" style="color:#22c55e;">✓</button>
-                    <button class="ps-mod-tool-btn" data-act="mod-delete" data-mod-idx="${mIdx}" title="삭제" style="color:#ef4444;">✕</button>
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-      `;
-    }
-    applyModifier(sprite, idx) {
-      if (!sprite || !sprite.modules || !sprite.modules[idx]) return;
-      const mod = sprite.modules[idx];
-      const p = mod.params || {};
-
-      if (mod.type === 'hyperlink') {
-        if (p.url) sprite.linkUrl = p.url;
-        if (p.target) sprite.linkTarget = p.target;
-        if (p.hoverEffect) sprite.hoverEffect = p.hoverEffect;
-        if (p.anchorId) sprite.anchorId = p.anchorId;
-        if (p.customClass) sprite.cssClass = (sprite.cssClass ? sprite.cssClass + ' ' : '') + p.customClass;
-      } else if (mod.type === 'photoshop_filter') {
-        if (!sprite.filters) sprite.filters = {};
-        ['blur', 'brightness', 'contrast', 'saturate', 'grayscale', 'sepia', 'hueRotate', 'invert', 'opacity', 'dropShadow'].forEach(k => {
-          if (p[k] !== undefined) sprite.filters[k] = p[k];
-        });
-      } else if (sprite.runtime) {
-        sprite.x = Math.round(sprite.runtime.x);
-        sprite.y = Math.round(sprite.runtime.y);
-        sprite.rotation = Math.round(sprite.runtime.rotation);
-        sprite.scaleX = sprite.runtime.scaleX;
-        sprite.scaleY = sprite.runtime.scaleY;
-        sprite.opacity = sprite.runtime.opacity;
-      }
-
-      sprite.modules.splice(idx, 1);
-      this.doc.saveState();
-      this.render();
-      if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-      if (this.cb.onUpdate) this.cb.onUpdate();
-    }
-
-    renderVisualInspector(sprite, layer) {
-      const target = sprite || layer;
-      if (!target) {
-        return '<div class="ps-empty-layers">선택된 레이어나 스프라이트가 없습니다. 레이어 창에서 항목을 선택하세요.</div>';
-      }
-
-      const isLayer = !sprite && !!layer;
-      const targetName = isLayer ? `[레이어] ${layer.name}` : `[스프라이트] ${sprite.name}`;
-      const filters = target.filters || { blur: 0, brightness: 100, contrast: 100, saturate: 100, grayscale: 0, sepia: 0, hueRotate: 0, invert: 0, opacity: 100, dropShadow: false };
-
-      const renderFiltersSection = () => `
         <div class="ps-prop-section">
           <div class="ps-prop-header" style="justify-content:space-between;">
-            <span>포토샵 그래픽 필터 (${isLayer ? '레이어 전체' : '스프라이트'})</span>
-            <button class="btn btn-secondary btn-sm" id="btnResetFilters" style="font-size:10px;padding:2px 6px;">⟲ 초기화</button>
+            <span style="font-weight:700;color:#38bdf8;">레이어: ${layer.name}</span>
+            <span class="ps-val-tag">레이어</span>
           </div>
-          ${isLayer ? '<div style="font-size:10.5px;color:#71717a;margin-bottom:8px;">이 레이어에 속한 모든 요소에 필터 효과가 일괄 적용됩니다.</div>' : ''}
+          <div class="ps-prop-row" style="margin-top:8px;">
+            <label class="ps-prop-label">레이어 이름:</label>
+            <input type="text" class="ps-input" id="inpLayerName" value="${layer.name}">
+          </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">가우시안 블러:</label>
+            <label class="ps-prop-label">투명도 (Opacity):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrBlur" min="0" max="60" value="${filters.blur || 0}">
+              <input type="number" class="blender-scrub-input" id="inpLayerOpacity" step="0.05" min="0" max="1" value="${layer.opacity !== undefined ? layer.opacity : 1}">
             </div>
           </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">밝기 (Brightness):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrBrightness" min="0" max="300" value="${filters.brightness ?? 100}">
-            </div>
+            <label class="ps-prop-label">블렌드 모드:</label>
+            <select class="ps-select" id="inpLayerBlend">
+              <option value="source-over" ${layer.blendMode === 'source-over' ? 'selected' : ''}>표준 (Normal)</option>
+              <option value="multiply" ${layer.blendMode === 'multiply' ? 'selected' : ''}>곱하기 (Multiply)</option>
+              <option value="screen" ${layer.blendMode === 'screen' ? 'selected' : ''}>스크린 (Screen)</option>
+              <option value="overlay" ${layer.blendMode === 'overlay' ? 'selected' : ''}>오버레이 (Overlay)</option>
+              <option value="darken" ${layer.blendMode === 'darken' ? 'selected' : ''}>어둡게 (Darken)</option>
+              <option value="lighten" ${layer.blendMode === 'lighten' ? 'selected' : ''}>밝게 (Lighten)</option>
+              <option value="color-dodge" ${layer.blendMode === 'color-dodge' ? 'selected' : ''}>색상 닷지 (Color Dodge)</option>
+              <option value="color-burn" ${layer.blendMode === 'color-burn' ? 'selected' : ''}>색상 번 (Color Burn)</option>
+            </select>
           </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">대비 (Contrast):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrContrast" min="0" max="300" value="${filters.contrast ?? 100}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">채도 (Saturation):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrSaturate" min="0" max="300" value="${filters.saturate ?? 100}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">흑백 (Grayscale):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrGrayscale" min="0" max="100" value="${filters.grayscale || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">세피아 (Sepia):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrSepia" min="0" max="100" value="${filters.sepia || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">색조 회전 (Hue):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrHue" min="0" max="360" value="${filters.hueRotate || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">반전 (Invert):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrInvert" min="0" max="100" value="${filters.invert || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">알파값 (Alpha Opacity):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrOpacity" min="0" max="100" value="${filters.opacity !== undefined ? filters.opacity : 100}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">드롭 섀도우:</label>
-            <select class="ps-select" id="fltrDropShadow">
-              <option value="false" ${!filters.dropShadow ? 'selected' : ''}>없음 (None)</option>
-              <option value="true" ${filters.dropShadow ? 'selected' : ''}>소프트 그림자 (Drop Shadow)</option>
+            <label class="ps-prop-label">표시 여부 (가시성):</label>
+            <select class="ps-select" id="inpLayerVis">
+              <option value="true" ${layer.visible !== false ? 'selected' : ''}>표시 (Visible)</option>
+              <option value="false" ${layer.visible === false ? 'selected' : ''}>숨김 (Hidden)</option>
             </select>
           </div>
         </div>
       `;
+    }
 
-      if (isLayer) {
-        return `
-          <div class="ps-prop-section">
-            <div class="ps-prop-header" style="justify-content:space-between;">
-              <span style="font-weight:700;color:#38bdf8;">📂 ${layer.name}</span>
-              <span style="font-size:10px;color:#71717a;">선택된 레이어</span>
-            </div>
-            <div class="ps-prop-row" style="margin-top:8px;">
-              <label class="ps-prop-label">투명도 (Opacity):</label>
-              <div class="blender-scrub-group">
-                <input type="number" class="blender-scrub-input" id="inpLayerOpacity" step="0.05" min="0" max="1" value="${layer.opacity}">
-              </div>
-            </div>
-            <div class="ps-prop-row">
-              <label class="ps-prop-label">블렌드 모드:</label>
-              <select class="ps-select" id="inpLayerBlend">
-                <option value="source-over" ${layer.blendMode === 'source-over' ? 'selected' : ''}>표준 (Normal)</option>
-                <option value="multiply" ${layer.blendMode === 'multiply' ? 'selected' : ''}>곱하기 (Multiply)</option>
-                <option value="screen" ${layer.blendMode === 'screen' ? 'selected' : ''}>스크린 (Screen)</option>
-                <option value="overlay" ${layer.blendMode === 'overlay' ? 'selected' : ''}>오버레이 (Overlay)</option>
-              </select>
-            </div>
-          </div>
-
-          ${renderFiltersSection()}
-        `;
-      }
+    // 2. Sprite Inspector (Pure sprite intrinsic properties only - No modifier stack, no modules)
+    renderSpriteInspector(sprite) {
+      if (!sprite) return '<div class="ps-empty-layers">선택된 스프라이트가 없습니다.</div>';
+      const ownerLayer = this.doc.layers.find(l => l.sprites.some(s => s.id === sprite.id));
+      const layerName = ownerLayer ? ownerLayer.name : '';
 
       return `
-        ${this.renderModifierStack(sprite)}
-
-
-
-        <!-- Sprite Link Group & Hierarchy Section -->
+        <!-- Sprite Header -->
         <div class="ps-prop-section">
-          <div class="ps-prop-header">스프라이트 링크 & 그룹</div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">링크 그룹:</label>
-            <select class="ps-select" id="inpLinkGroup">
-              <option value="">링크 없음 (None)</option>
-              <option value="1" ${sprite.linkGroup === '1' ? 'selected' : ''}>🔗 그룹 1</option>
-              <option value="2" ${sprite.linkGroup === '2' ? 'selected' : ''}>🔗 그룹 2</option>
-              <option value="3" ${sprite.linkGroup === '3' ? 'selected' : ''}>🔗 그룹 3</option>
-              <option value="4" ${sprite.linkGroup === '4' ? 'selected' : ''}>🔗 그룹 4</option>
-              <option value="5" ${sprite.linkGroup === '5' ? 'selected' : ''}>🔗 그룹 5</option>
-            </select>
+          <div class="ps-prop-header" style="justify-content:space-between;">
+            <span style="font-weight:700;color:#38bdf8;">스프라이트: ${sprite.name}</span>
+            <span class="ps-val-tag">${layerName ? layerName : sprite.type}</span>
           </div>
-        </div>
-
-        ${sprite.type === 'screen_trigger' ? `
-        <!-- Screen Trigger Properties -->
-        <div class="ps-prop-section">
-          <div class="ps-prop-header">화면 트리거 설정 (Screen Trigger)</div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">발동 조건:</label>
-            <select class="ps-select" id="inpTriggerEvent">
-              <option value="viewport_enter" ${sprite.triggerEvent === 'viewport_enter' ? 'selected' : ''}>화면 진입 시 (Viewport Enter)</option>
-              <option value="viewport_exit" ${sprite.triggerEvent === 'viewport_exit' ? 'selected' : ''}>화면 이탈 시 (Viewport Exit)</option>
-              <option value="mouse_enter" ${sprite.triggerEvent === 'mouse_enter' ? 'selected' : ''}>마우스 진입 시 (Mouse Enter)</option>
-              <option value="mouse_move" ${sprite.triggerEvent === 'mouse_move' ? 'selected' : ''}>마우스 이동 시 (Mouse Move)</option>
-              <option value="scroll_reach" ${sprite.triggerEvent === 'scroll_reach' ? 'selected' : ''}>스크롤 도달 시 (Scroll Reach)</option>
-              <option value="click" ${sprite.triggerEvent === 'click' ? 'selected' : ''}>클릭 시 (Click)</option>
-            </select>
+          <div class="ps-prop-row" style="margin-top:6px;">
+            <label class="ps-prop-label">이름:</label>
+            <input type="text" class="ps-input" id="inpSpriteName" value="${sprite.name}">
           </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">신호 이름:</label>
-            <input type="text" class="ps-input" id="inpTriggerSignalName" value="${sprite.signalName || 'signal_1'}" placeholder="예: signal_1">
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">발동 액션:</label>
-            <select class="ps-select" id="inpTriggerAction">
-              <option value="emit_signal" ${sprite.triggerAction === 'emit_signal' ? 'selected' : ''}>신호 방출 (Emit Signal)</option>
-              <option value="animate_filter" ${sprite.triggerAction === 'animate_filter' ? 'selected' : ''}>필터 애니메이션 효과 (Filter FX)</option>
-              <option value="set_filter" ${sprite.triggerAction === 'set_filter' ? 'selected' : ''}>필터 값 즉시 설정</option>
-              <option value="trigger_module" ${sprite.triggerAction === 'trigger_module' ? 'selected' : ''}>연결 모듈 실행</option>
-              <option value="show_sprite" ${sprite.triggerAction === 'show_sprite' ? 'selected' : ''}>스프라이트 표시</option>
-              <option value="hide_sprite" ${sprite.triggerAction === 'hide_sprite' ? 'selected' : ''}>스프라이트 숨김</option>
-              <option value="pulse" ${sprite.triggerAction === 'pulse' ? 'selected' : ''}>펄스 박동 확대</option>
-              <option value="animate_in" ${sprite.triggerAction === 'animate_in' ? 'selected' : ''}>페이드인 모션</option>
-            </select>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">대상 스프라이트:</label>
-            <select class="ps-select" id="inpTriggerTargetSprite">
-              <option value="">(대상 없음)</option>
-              ${this.doc.layers.flatMap(l => l.sprites).filter(s => s.id !== sprite.id).map(s => `
-                <option value="${s.id}" ${sprite.targetSpriteId === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
-              `).join('')}
-            </select>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">필터 FX 종류:</label>
-            <select class="ps-select" id="inpTriggerFilterEffect">
-              <option value="blur" ${sprite.filterEffect === 'blur' ? 'selected' : ''}>가우시안 블러 (Blur)</option>
-              <option value="grayscale" ${sprite.filterEffect === 'grayscale' ? 'selected' : ''}>흑백 전환 (Grayscale)</option>
-              <option value="invert" ${sprite.filterEffect === 'invert' ? 'selected' : ''}>색상 반전 (Invert)</option>
-              <option value="brightness" ${sprite.filterEffect === 'brightness' ? 'selected' : ''}>밝기 (Brightness)</option>
-              <option value="contrast" ${sprite.filterEffect === 'contrast' ? 'selected' : ''}>대비 (Contrast)</option>
-              <option value="opacity" ${sprite.filterEffect === 'opacity' ? 'selected' : ''}>알파값/투명도 (Opacity)</option>
-            </select>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">필터 목표치:</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpTriggerFilterValue" value="${sprite.filterValue !== undefined ? sprite.filterValue : 20}">
-            </div>
-          </div>
-        </div>
-        ` : ''}
-
-        <!-- Photoshop-Style Mask & Clipping Mask Section -->
-        <div class="ps-prop-section">
-          <div class="ps-prop-header">마스크 설정 (Mask & Clipping)</div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">마스크 모드:</label>
-            <select class="ps-select" id="inpMaskMode">
-              <option value="none" ${(!sprite.maskMode || sprite.maskMode === 'none') ? 'selected' : ''}>없음 (None)</option>
-              <option value="clip_mask" ${sprite.maskMode === 'clip_mask' ? 'selected' : ''}>클리핑 마스크 (Clipping Mask)</option>
-              <option value="inverted_mask" ${sprite.maskMode === 'inverted_mask' ? 'selected' : ''}>반전 마스크 (Inverted Mask)</option>
-            </select>
-          </div>
-          <div class="ps-prop-row" id="rowMaskTarget" style="${(!sprite.maskMode || sprite.maskMode === 'none') ? 'display:none;' : ''}">
-            <label class="ps-prop-label">클리핑 대상:</label>
-            <select class="ps-select" id="inpMaskTarget">
-              <option value="">(아래 스프라이트에 클리핑)</option>
-              ${(this.doc.layers.find(l => l.sprites.some(s => s.id === sprite.id))?.sprites || []).filter(s => s.id !== sprite.id).map(s => `
-                <option value="${s.id}" ${sprite.maskTargetId === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
-              `).join('')}
-            </select>
-          </div>
-        </div>
-
-        <!-- Photoshop-Style Graphics Filters -->
-        <div class="ps-prop-section">
-          <div class="ps-prop-header">포토샵 그래픽 필터 (Filters)</div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">가우시안 블러:</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrBlur" min="0" max="60" value="${sprite.filters?.blur || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">밝기 (Brightness):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrBrightness" min="0" max="300" value="${sprite.filters?.brightness ?? 100}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">대비 (Contrast):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrContrast" min="0" max="300" value="${sprite.filters?.contrast ?? 100}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">채도 (Saturation):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrSaturate" min="0" max="300" value="${sprite.filters?.saturate ?? 100}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">흑백 (Grayscale):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrGrayscale" min="0" max="100" value="${sprite.filters?.grayscale || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">세피아 (Sepia):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrSepia" min="0" max="100" value="${sprite.filters?.sepia || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">색조 회전 (Hue):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrHue" min="0" max="360" value="${sprite.filters?.hueRotate || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">반전 (Invert):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrInvert" min="0" max="100" value="${sprite.filters?.invert || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">알파값 (Alpha Opacity):</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="fltrOpacity" min="0" max="100" value="${sprite.filters?.opacity !== undefined ? sprite.filters.opacity : 100}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">드롭 섀도우:</label>
-            <select class="ps-select" id="fltrDropShadow">
-              <option value="false" ${!sprite.filters?.dropShadow ? 'selected' : ''}>없음 (None)</option>
-              <option value="true" ${sprite.filters?.dropShadow ? 'selected' : ''}>소프트 그림자 (Drop Shadow)</option>
-            </select>
+            <label class="ps-prop-label">유형 (Type):</label>
+            <span class="ps-val-tag" style="padding:2px 6px;">${sprite.type}</span>
           </div>
         </div>
 
@@ -4337,11 +3919,11 @@
             </div>
             <div class="blender-scrub-group">
               <span class="blender-scrub-label">W</span>
-              <input type="number" class="blender-scrub-input" id="inpW" value="${Math.round(sprite.width)}">
+              <input type="number" class="blender-scrub-input" id="inpW" min="1" value="${Math.round(sprite.width)}">
             </div>
             <div class="blender-scrub-group">
               <span class="blender-scrub-label">H</span>
-              <input type="number" class="blender-scrub-input" id="inpH" value="${Math.round(sprite.height)}">
+              <input type="number" class="blender-scrub-input" id="inpH" min="1" value="${Math.round(sprite.height)}">
             </div>
             <div class="blender-scrub-group">
               <span class="blender-scrub-label">Rot</span>
@@ -4356,38 +3938,359 @@
 
         <!-- Appearance Section -->
         <div class="ps-prop-section">
-          <div class="ps-prop-header">모양 및 곡률 (Bevel & Style)</div>
+          <div class="ps-prop-header">모양 및 스타일 (Appearance)</div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">채우기 색상:</label>
             <div class="ps-color-picker-wrap">
-              <input type="color" class="ps-color-picker" id="inpFill" value="${sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#d4d4d8'}">
-              <span class="ps-val-tag">${sprite.fill}</span>
+              <input type="color" class="ps-color-picker" id="inpFill" value="${sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#38bdf8'}">
+              <span class="ps-val-tag">${sprite.fill || '#38bdf8'}</span>
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">테두리 색상:</label>
             <div class="ps-color-picker-wrap">
-              <input type="color" class="ps-color-picker" id="inpStroke" value="${sprite.stroke && sprite.stroke.startsWith('#') ? sprite.stroke : '#ffffff'}">
-              <span class="ps-val-tag">${sprite.stroke}</span>
+              <input type="color" class="ps-color-picker" id="inpStroke" value="${sprite.stroke && sprite.stroke.startsWith('#') ? sprite.stroke : '#0284c7'}">
+              <span class="ps-val-tag">${sprite.stroke || 'none'}</span>
             </div>
           </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">선 두께:</label>
+            <label class="ps-prop-label">선 두께 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpStrokeWidth" min="0" max="50" value="${sprite.strokeWidth || 0}">
+              <input type="number" class="blender-scrub-input" id="inpStrokeWidth" min="0" max="100" value="${sprite.strokeWidth || 0}">
             </div>
           </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">코너 라운딩:</label>
+            <label class="ps-prop-label">코너 라운딩 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpCornerRadius" min="0" max="100" value="${sprite.cornerRadius || 0}">
+              <input type="number" class="blender-scrub-input" id="inpCornerRadius" min="0" max="500" value="${sprite.cornerRadius || 0}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">베벨 수치:</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpBevelChamfer" min="0" max="100" value="${sprite.bevelChamfer || 0}">
+              <input type="number" class="blender-scrub-input" id="inpBevelChamfer" min="0" max="500" value="${sprite.bevelChamfer || 0}">
             </div>
+          </div>
+        </div>
+
+        ${sprite.type === 'text' ? `
+        <!-- Text Specific Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">텍스트 속성 (Typography)</div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">텍스트 내용:</label>
+            <input type="text" class="ps-input" id="inpText" value="${sprite.text || ''}">
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">글자 크기 (px):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="inpFontSize" min="1" max="200" value="${sprite.fontSize || 32}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">정렬:</label>
+            <select class="ps-select" id="inpTextAlign">
+              <option value="left" ${sprite.textAlign === 'left' ? 'selected' : ''}>왼쪽 정렬</option>
+              <option value="center" ${sprite.textAlign === 'center' ? 'selected' : ''}>가운데 정렬</option>
+              <option value="right" ${sprite.textAlign === 'right' ? 'selected' : ''}>오른쪽 정렬</option>
+            </select>
+          </div>
+        </div>
+        ` : ''}
+
+        ${sprite.type === 'screen_trigger' ? `
+        <!-- Screen Trigger Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">화면 트리거 설정 (Screen Trigger)</div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">발동 조건:</label>
+            <select class="ps-select" id="inpTriggerEvent">
+              <option value="viewport_enter" ${sprite.triggerEvent === 'viewport_enter' ? 'selected' : ''}>화면 진입 시 (Viewport Enter)</option>
+              <option value="viewport_exit" ${sprite.triggerEvent === 'viewport_exit' ? 'selected' : ''}>화면 이탈 시 (Viewport Exit)</option>
+              <option value="mouse_enter" ${sprite.triggerEvent === 'mouse_enter' ? 'selected' : ''}>마우스 진입 시 (Mouse Enter)</option>
+              <option value="scroll_reach" ${sprite.triggerEvent === 'scroll_reach' ? 'selected' : ''}>스크롤 도달 시 (Scroll Reach)</option>
+              <option value="click" ${sprite.triggerEvent === 'click' ? 'selected' : ''}>클릭 시 (Click)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">신호 이름:</label>
+            <input type="text" class="ps-input" id="inpTriggerSignalName" value="${sprite.signalName || 'signal_1'}">
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">발동 액션:</label>
+            <select class="ps-select" id="inpTriggerAction">
+              <option value="emit_signal" ${sprite.triggerAction === 'emit_signal' ? 'selected' : ''}>신호 방출 (Emit Signal)</option>
+              <option value="trigger_module" ${sprite.triggerAction === 'trigger_module' ? 'selected' : ''}>연결 모듈 실행</option>
+              <option value="show_sprite" ${sprite.triggerAction === 'show_sprite' ? 'selected' : ''}>스프라이트 표시</option>
+              <option value="hide_sprite" ${sprite.triggerAction === 'hide_sprite' ? 'selected' : ''}>스프라이트 숨김</option>
+            </select>
+          </div>
+        </div>
+        ` : ''}
+      `;
+    }
+
+    // 3. Module Inspector (Matches Sprite Inspector layout exactly, without Blender modifier card clutter)
+    renderModuleInspector(mod, sprite) {
+      const def = MODULE_REGISTRY[mod.type] || { name: mod.name, icon: 'MOD' };
+      const params = mod.params || {};
+      const modIdx = sprite?.modules ? sprite.modules.findIndex(m => m.id === mod.id) : -1;
+      const totalMods = sprite?.modules ? sprite.modules.length : 1;
+      const isFirst = modIdx === 0;
+      const isLast = modIdx === totalMods - 1;
+
+      const allSprites = [];
+      for (const ly of this.doc.layers) {
+        for (const sp of ly.sprites) {
+          if (sp.id !== sprite.id) {
+            allSprites.push({ id: sp.id, name: `${sp.name} (${ly.name})`, type: sp.type });
+          }
+        }
+      }
+
+      let typeSpecificHtml = '';
+
+      if (mod.type === 'substance_mask') {
+        typeSpecificHtml = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">마스크 종류:</label>
+            <select class="ps-select" data-param-key="maskType">
+              <option value="white" ${(params.maskType || 'white') === 'white' ? 'selected' : ''}>화이트 마스크 (전체 통과 - Reveal All)</option>
+              <option value="black" ${params.maskType === 'black' ? 'selected' : ''}>블랙 마스크 (전체 가림 - Conceal All)</option>
+              <option value="clip" ${params.maskType === 'clip' ? 'selected' : ''}>클리핑 마스크 (타겟 형태 투과 - Clip)</option>
+              <option value="invert" ${params.maskType === 'invert' ? 'selected' : ''}>반전 마스크 (Invert Mask)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">마스크 강도 (%):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="intensity" min="0" max="100" value="${params.intensity !== undefined ? params.intensity : 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">마스크 반전 (Invert):</label>
+            <select class="ps-select" data-param-key="invert">
+              <option value="false" ${!params.invert ? 'selected' : ''}>정방향 (Normal)</option>
+              <option value="true" ${params.invert ? 'selected' : ''}>반전 (Inverted)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">페더 / 흐림 (px):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="feather" min="0" max="50" value="${params.feather || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row" id="rowSubMaskTarget" style="${(params.maskType === 'clip' || params.maskType === 'invert') ? '' : 'display:none;'}">
+            <label class="ps-prop-label">클리핑 대상:</label>
+            <select class="ps-select" data-param-key="targetSpriteId">
+              <option value="">(바로 아래 스프라이트에 클리핑)</option>
+              ${allSprites.map(s => `
+                <option value="${s.id}" ${params.targetSpriteId === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
+              `).join('')}
+            </select>
+          </div>
+        `;
+      } else if (mod.type === 'photoshop_filter') {
+        typeSpecificHtml = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">작동 모드:</label>
+            <select class="ps-select" data-param-key="mode">
+              <option value="static" ${(params.mode || 'static') === 'static' ? 'selected' : ''}>정적 필터 (Static)</option>
+              <option value="pulse" ${params.mode === 'pulse' ? 'selected' : ''}>박동 펄스 (Pulse Animation)</option>
+              <option value="reactive" ${params.mode === 'reactive' ? 'selected' : ''}>마우스 거리 반응 (Reactive)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">가우시안 블러 (px):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="blur" min="0" max="60" value="${params.blur || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">밝기 (Brightness %):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="brightness" min="0" max="300" value="${params.brightness !== undefined ? params.brightness : 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">대비 (Contrast %):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="contrast" min="0" max="300" value="${params.contrast !== undefined ? params.contrast : 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">채도 (Saturation %):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="saturate" min="0" max="300" value="${params.saturate !== undefined ? params.saturate : 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">흑백 (Grayscale %):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="grayscale" min="0" max="100" value="${params.grayscale || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">세피아 (Sepia %):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="sepia" min="0" max="100" value="${params.sepia || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">색조 회전 (Hue deg):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="hueRotate" min="0" max="360" value="${params.hueRotate || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">색상 반전 (Invert %):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="invert" min="0" max="100" value="${params.invert || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">알파 투명도 (Opacity %):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="opacity" min="0" max="100" value="${params.opacity !== undefined ? params.opacity : 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">소프트 그림자:</label>
+            <select class="ps-select" data-param-key="dropShadow">
+              <option value="false" ${!params.dropShadow ? 'selected' : ''}>없음 (None)</option>
+              <option value="true" ${params.dropShadow ? 'selected' : ''}>적용 (Drop Shadow)</option>
+            </select>
+          </div>
+        `;
+      } else if (mod.type === 'hyperlink') {
+        typeSpecificHtml = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">이동 링크 URL:</label>
+            <input type="text" class="ps-input" data-param-key="url" placeholder="https://... 또는 #section" value="${params.url || ''}">
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">열기 방식 (Target):</label>
+            <select class="ps-select" data-param-key="target">
+              <option value="_blank" ${(params.target || '_blank') === '_blank' ? 'selected' : ''}>새 탭에서 열기 (_blank)</option>
+              <option value="_self" ${params.target === '_self' ? 'selected' : ''}>현재 창에서 열기 (_self)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">호버 효과:</label>
+            <select class="ps-select" data-param-key="hoverEffect">
+              <option value="none" ${params.hoverEffect === 'none' ? 'selected' : ''}>없음 (None)</option>
+              <option value="lift" ${(params.hoverEffect || 'lift') === 'lift' ? 'selected' : ''}>살짝 뜨기 (Lift Up -3px)</option>
+              <option value="zoom" ${params.hoverEffect === 'zoom' ? 'selected' : ''}>부드럽게 확대 (Zoom 1.05x)</option>
+              <option value="glow" ${params.hoverEffect === 'glow' ? 'selected' : ''}>화려한 발광 (Cyan Glow)</option>
+              <option value="fade" ${params.hoverEffect === 'fade' ? 'selected' : ''}>투명도 전환 (Fade 80%)</option>
+              <option value="bounce" ${params.hoverEffect === 'bounce' ? 'selected' : ''}>통통 튀기 (Bounce)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">인페이지 앵커 ID:</label>
+            <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${params.anchorId || ''}">
+          </div>
+          <div class="ps-prop-row" style="margin-top:6px;">
+            <button class="btn btn-secondary btn-sm" id="btnTestModDetailLink" style="width:100%;justify-content:center;color:#38bdf8;border-color:#38bdf8;gap:6px;" ${!params.url ? 'disabled' : ''}>
+              브라우저에서 링크 바로 열기 (테스트)
+            </button>
+          </div>
+        `;
+      } else if (mod.type === 'motion_wave') {
+        typeSpecificHtml = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">진동 축 (Axis):</label>
+            <select class="ps-select" data-param-key="axis">
+              <option value="y" ${(params.axis || 'y') === 'y' ? 'selected' : ''}>Y축 (상하 부유)</option>
+              <option value="x" ${params.axis === 'x' ? 'selected' : ''}>X축 (좌우 흔들림)</option>
+              <option value="both" ${params.axis === 'both' ? 'selected' : ''}>XY 복합 (원형)</option>
+              <option value="rotation" ${params.axis === 'rotation' ? 'selected' : ''}>회전 틸트 (Rotation)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">진폭 (Amplitude px):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="amplitude" min="1" max="100" value="${params.amplitude || 10}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">주파수 (Hz):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="frequency" min="0.1" max="5" step="0.1" value="${params.frequency || 1}">
+            </div>
+          </div>
+        `;
+      } else {
+        typeSpecificHtml = `
+          ${Object.keys(params).filter(k => k !== 'condition' && k !== 'targetSpriteId' && k !== 'targetModuleId').map(key => `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${key}:</label>
+              ${typeof params[key] === 'boolean' ? `
+                <select class="ps-select" data-param-key="${key}">
+                  <option value="true" ${params[key] ? 'selected' : ''}>true</option>
+                  <option value="false" ${!params[key] ? 'selected' : ''}>false</option>
+                </select>
+              ` : `
+                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" class="ps-input" data-param-key="${key}" value="${params[key]}">
+              `}
+            </div>
+          `).join('')}
+        `;
+      }
+
+      return `
+        <!-- Module Header -->
+        <div class="ps-prop-section" style="border-left: 3px solid #38bdf8;">
+          <div class="ps-prop-header" style="justify-content:space-between; align-items:center;">
+            <div style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;">
+              <span class="ps-val-tag" style="background:#0f172a;color:#38bdf8;padding:2px 6px;font-weight:bold;">${def.icon || 'MOD'}</span>
+              <span style="font-weight:700;color:#f1f5f9;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${mod.name}</span>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btnBackToVisual" style="font-size:10px;padding:2px 8px;color:#94a3b8;" title="스프라이트 기본 속성으로 이동">
+              스프라이트 ➔
+            </button>
+          </div>
+
+          <div class="ps-prop-row" style="margin-top:8px;">
+            <label class="ps-prop-label">소속 스프라이트:</label>
+            <span class="ps-val-tag">${sprite ? sprite.name : '없음'}</span>
+          </div>
+
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">모듈 활성화 (ON/OFF):</label>
+            <select class="ps-select" id="modEnabledSelect">
+              <option value="true" ${mod.enabled !== false ? 'selected' : ''}>활성화 (ON)</option>
+              <option value="false" ${mod.enabled === false ? 'selected' : ''}>비활성화 (OFF)</option>
+            </select>
+          </div>
+
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">발동 조건 (Trigger):</label>
+            <select class="ps-select" id="modCond">
+              <option value="always" ${params.condition === 'always' ? 'selected' : ''}>항상 작동 (Always)</option>
+              <option value="on_click" ${params.condition === 'on_click' ? 'selected' : ''}>클릭 시 (Click)</option>
+              <option value="on_hover" ${params.condition === 'on_hover' ? 'selected' : ''}>호버 시 (Hover)</option>
+              <option value="on_trigger" ${params.condition === 'on_trigger' ? 'selected' : ''}>화면 트리거 감지 시 (On Trigger)</option>
+              <option value="on_signal" ${params.condition === 'on_signal' ? 'selected' : ''}>신호 수신 시 (On Signal)</option>
+              <option value="key_press" ${params.condition === 'key_press' ? 'selected' : ''}>키보드 입력 시 (Key Press)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Parameter Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">모듈 상세 설정</div>
+          ${typeSpecificHtml}
+        </div>
+
+        <!-- Action Tools Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">모듈 순서 및 관리</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:6px;">
+            <button class="btn btn-secondary btn-sm" id="modDetailMoveUp" ${isFirst ? 'disabled' : ''}>▲ 위로 이동</button>
+            <button class="btn btn-secondary btn-sm" id="modDetailMoveDown" ${isLast ? 'disabled' : ''}>▼ 아래로 이동</button>
+            <button class="btn btn-secondary btn-sm" id="modDetailDuplicate">복제 (Duplicate)</button>
+            <button class="btn btn-secondary btn-sm" id="modDetailDelete" style="color:#ef4444;border-color:#ef4444;">✕ 삭제</button>
           </div>
         </div>
       `;
@@ -4410,7 +4313,13 @@
               isDragging = true;
               inp.blur();
               const step = inp.step ? parseFloat(inp.step) : 1;
-              const nVal = Math.round((startVal + dx * step) * 10) / 10;
+              let nVal = Math.round((startVal + dx * step) * 10) / 10;
+              if (inp.min !== '' && !isNaN(inp.min)) {
+                nVal = Math.max(parseFloat(inp.min), nVal);
+              }
+              if (inp.max !== '' && !isNaN(inp.max)) {
+                nVal = Math.min(parseFloat(inp.max), nVal);
+              }
               inp.value = nVal;
               inp.dispatchEvent(new Event('input', { bubbles: true }));
             }
@@ -4433,34 +4342,35 @@
       });
     }
 
-    bindInputs(sprite, mod) {
+    bindInputs(sprite, mod, layer) {
       if (mod) {
         const modIdx = sprite?.modules ? sprite.modules.findIndex(m => m.id === mod.id) : -1;
 
-        // Back to sprite visual properties
+        // Back to sprite properties
         this.el.querySelector('#btnBackToVisual')?.addEventListener('click', () => {
           this.doc.selectedModuleId = null;
           this.render();
+          if (this.cb.onUpdate) this.cb.onUpdate();
         });
 
-        // Viewport Toggle
-        this.el.querySelector('#modDetailToggleViewport')?.addEventListener('click', () => {
-          mod.enabled = !mod.enabled;
+        // Module Enabled
+        this.el.querySelector('#modEnabledSelect')?.addEventListener('change', e => {
+          mod.enabled = (e.target.value === 'true');
           this.doc.saveState();
           this.render();
           if (this.cb.onCanvasRender) this.cb.onCanvasRender();
           if (this.cb.onUpdate) this.cb.onUpdate();
         });
 
-        // Render Toggle
-        this.el.querySelector('#modDetailToggleRender')?.addEventListener('click', () => {
-          mod.showInRender = (mod.showInRender === undefined) ? false : !mod.showInRender;
+        // Condition
+        this.el.querySelector('#modCond')?.addEventListener('change', e => {
+          if (!mod.params) mod.params = {};
+          mod.params.condition = e.target.value;
           this.doc.saveState();
-          this.render();
           if (this.cb.onUpdate) this.cb.onUpdate();
         });
 
-        // Move Up in Stack
+        // Move Up
         this.el.querySelector('#modDetailMoveUp')?.addEventListener('click', () => {
           if (sprite?.modules && modIdx > 0) {
             const [item] = sprite.modules.splice(modIdx, 1);
@@ -4472,7 +4382,7 @@
           }
         });
 
-        // Move Down in Stack
+        // Move Down
         this.el.querySelector('#modDetailMoveDown')?.addEventListener('click', () => {
           if (sprite?.modules && modIdx < sprite.modules.length - 1) {
             const [item] = sprite.modules.splice(modIdx, 1);
@@ -4484,7 +4394,7 @@
           }
         });
 
-        // Duplicate Modifier
+        // Duplicate
         this.el.querySelector('#modDetailDuplicate')?.addEventListener('click', () => {
           if (sprite?.modules && modIdx >= 0) {
             const copy = JSON.parse(JSON.stringify(mod));
@@ -4499,14 +4409,7 @@
           }
         });
 
-        // Apply Modifier (Bake into base)
-        this.el.querySelector('#modDetailApply')?.addEventListener('click', () => {
-          if (sprite && modIdx >= 0) {
-            this.applyModifier(sprite, modIdx);
-          }
-        });
-
-        // Delete Modifier
+        // Delete
         this.el.querySelector('#modDetailDelete')?.addEventListener('click', () => {
           if (sprite?.modules && modIdx >= 0) {
             sprite.modules.splice(modIdx, 1);
@@ -4518,24 +4421,14 @@
           }
         });
 
-        // Test Link button in detail view
+        // Test Link button
         this.el.querySelector('#btnTestModDetailLink')?.addEventListener('click', () => {
           if (mod.params?.url) {
             window.open(mod.params.url, mod.params.target || '_blank');
           }
         });
 
-        // Condition change
-        this.el.querySelector('#modCond')?.addEventListener('change', e => {
-          if (!mod.params) mod.params = {};
-          mod.params.condition = e.target.value;
-          this.doc.saveState();
-          this.render();
-          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-          if (this.cb.onUpdate) this.cb.onUpdate();
-        });
-
-        // Inputs with data-param-key
+        // Parameters with data-param-key
         this.el.querySelectorAll('[data-param-key]').forEach(input => {
           const key = input.dataset.paramKey;
           const onValChange = () => {
@@ -4543,18 +4436,24 @@
             let val = input.value;
             if (input.type === 'number') {
               val = parseFloat(val) || 0;
+              if (input.min !== '' && !isNaN(input.min)) val = Math.max(parseFloat(input.min), val);
+              if (input.max !== '' && !isNaN(input.max)) val = Math.min(parseFloat(input.max), val);
             } else if (val === 'true') {
               val = true;
             } else if (val === 'false') {
               val = false;
             }
             mod.params[key] = val;
+
+            if (key === 'maskType') {
+              const rowTarget = this.el.querySelector('#rowSubMaskTarget');
+              if (rowTarget) {
+                rowTarget.style.display = (val === 'clip' || val === 'invert') ? '' : 'none';
+              }
+            }
+
             this.doc.saveState();
             if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-            if (key === 'url') {
-              const btn = this.el.querySelector('#btnTestModDetailLink');
-              if (btn) btn.disabled = !val;
-            }
           };
 
           input.addEventListener('input', onValChange);
@@ -4563,206 +4462,113 @@
             if (this.cb.onUpdate) this.cb.onUpdate();
           });
         });
+
         return;
       }
 
-      if (!sprite) return;
-
-      const bindProp = (id, prop, isNum = true) => {
-        const el = this.el.querySelector('#' + id);
-        if (!el) return;
-        el.addEventListener('input', () => {
-          sprite[prop] = isNum ? (parseFloat(el.value) || 0) : el.value;
-          if (prop === 'cornerRadius' && sprite.bevelChamfer !== undefined) {
-            sprite.bevelChamfer = sprite.cornerRadius;
-            const bEl = this.el.querySelector('#inpBevelChamfer');
-            if (bEl) bEl.value = sprite.cornerRadius;
-          } else if (prop === 'bevelChamfer' && sprite.cornerRadius !== undefined) {
-            sprite.cornerRadius = sprite.bevelChamfer;
-            const cEl = this.el.querySelector('#inpCornerRadius');
-            if (cEl) cEl.value = sprite.bevelChamfer;
-          }
-          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-        });
-
-        el.addEventListener('change', () => {
-          this.doc.saveState();
-          if (this.cb.onUpdate) this.cb.onUpdate();
-        });
-      };
-
-      // Jump into module detail properties
-      this.el.querySelectorAll('[data-act="jump-to-mod"]').forEach(el => {
-        el.addEventListener('click', () => {
-          const mId = el.dataset.modId;
-          if (mId) {
-            this.doc.selectedModuleId = mId;
-            this.render();
-          }
-        });
-      });
-
-      // Viewport toggle from sprite properties overview
-      this.el.querySelectorAll('[data-act="mod-toggle-viewport"]').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          const idx = parseInt(btn.dataset.modIdx, 10);
-          if (sprite.modules && sprite.modules[idx]) {
-            sprite.modules[idx].enabled = !sprite.modules[idx].enabled;
-            this.doc.saveState();
-            this.render();
-            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-            if (this.cb.onUpdate) this.cb.onUpdate();
-          }
-        });
-      });
-
-      // Move Up / Move Down from sprite properties overview
-      this.el.querySelectorAll('[data-act="mod-move-up"]').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          const idx = parseInt(btn.dataset.modIdx, 10);
-          if (sprite.modules && idx > 0) {
-            const [item] = sprite.modules.splice(idx, 1);
-            sprite.modules.splice(idx - 1, 0, item);
-            this.doc.saveState();
-            this.render();
-            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-            if (this.cb.onUpdate) this.cb.onUpdate();
-          }
-        });
-      });
-
-      this.el.querySelectorAll('[data-act="mod-move-down"]').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          const idx = parseInt(btn.dataset.modIdx, 10);
-          if (sprite.modules && idx < sprite.modules.length - 1) {
-            const [item] = sprite.modules.splice(idx, 1);
-            sprite.modules.splice(idx + 1, 0, item);
-            this.doc.saveState();
-            this.render();
-            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-            if (this.cb.onUpdate) this.cb.onUpdate();
-          }
-        });
-      });
-
-      // Apply from sprite properties overview
-      this.el.querySelectorAll('[data-act="mod-apply"]').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          const idx = parseInt(btn.dataset.modIdx, 10);
-          if (sprite.modules && sprite.modules[idx]) {
-            this.applyModifier(sprite, idx);
-          }
-        });
-      });
-
-      // Delete from sprite properties overview
-      this.el.querySelectorAll('[data-act="mod-delete"]').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          const idx = parseInt(btn.dataset.modIdx, 10);
-          if (sprite.modules && sprite.modules[idx]) {
-            sprite.modules.splice(idx, 1);
-            this.doc.saveState();
-            this.render();
-            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
-            if (this.cb.onUpdate) this.cb.onUpdate();
-          }
-        });
-      });
-
-      // Link Group
-      this.el.querySelector('#inpLinkGroup')?.addEventListener('change', e => {
-        sprite.linkGroup = e.target.value || null;
-        this.doc.saveState();
-        this.cb.onUpdate();
-      });
-
-      // Screen Trigger
-      this.el.querySelector('#inpTriggerEvent')?.addEventListener('change', e => {
-        sprite.triggerEvent = e.target.value;
-        this.doc.saveState();
-        this.cb.onUpdate();
-      });
-      this.el.querySelector('#inpTriggerAction')?.addEventListener('change', e => {
-        sprite.triggerAction = e.target.value;
-        this.doc.saveState();
-        this.cb.onUpdate();
-      });
-
-      // Filter Inputs
-      const bindFilter = (id, key, isBool = false) => {
-        const inp = this.el.querySelector('#' + id);
-        if (!inp) return;
-        inp.addEventListener('input', () => {
-          if (!sprite.filters) sprite.filters = {};
-          sprite.filters[key] = isBool ? (inp.value === 'true') : (parseFloat(inp.value) || 0);
-          this.cb.onCanvasRender();
-        });
-        inp.addEventListener('change', () => {
-          if (!sprite.filters) sprite.filters = {};
-          sprite.filters[key] = isBool ? (inp.value === 'true') : (parseFloat(inp.value) || 0);
+      if (sprite) {
+        // Sprite Name
+        this.el.querySelector('#inpSpriteName')?.addEventListener('change', e => {
+          sprite.name = e.target.value.trim() || sprite.name;
           this.doc.saveState();
           this.cb.onUpdate();
         });
-      };
-      bindFilter('fltrBlur', 'blur');
-      bindFilter('fltrBrightness', 'brightness');
-      bindFilter('fltrContrast', 'contrast');
-      bindFilter('fltrSaturate', 'saturate');
-      bindFilter('fltrGrayscale', 'grayscale');
-      bindFilter('fltrSepia', 'sepia');
-      bindFilter('fltrHue', 'hueRotate');
-      bindFilter('fltrInvert', 'invert');
-      bindFilter('fltrOpacity', 'opacity');
-      bindFilter('fltrDropShadow', 'dropShadow', true);
 
-      // Mask & Clipping Mask Bindings
-      this.el.querySelector('#inpMaskMode')?.addEventListener('change', e => {
-        if (sprite) {
-          sprite.maskMode = e.target.value;
-          sprite.isMask = (e.target.value !== 'none');
+        const bindProp = (id, prop, isNum = true, minVal = null) => {
+          const el = this.el.querySelector('#' + id);
+          if (!el) return;
+          el.addEventListener('input', () => {
+            let val = isNum ? (parseFloat(el.value) || 0) : el.value;
+            if (isNum && minVal !== null) {
+              val = Math.max(minVal, val);
+            }
+            sprite[prop] = val;
+            if (prop === 'cornerRadius') {
+              sprite.bevelChamfer = sprite.cornerRadius;
+              const bEl = this.el.querySelector('#inpBevelChamfer');
+              if (bEl) bEl.value = sprite.cornerRadius;
+            } else if (prop === 'bevelChamfer') {
+              sprite.cornerRadius = sprite.bevelChamfer;
+              const cEl = this.el.querySelector('#inpCornerRadius');
+              if (cEl) cEl.value = sprite.bevelChamfer;
+            }
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+          });
+
+          el.addEventListener('change', () => {
+            this.doc.saveState();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          });
+        };
+
+        bindProp('inpX', 'x', true, null);
+        bindProp('inpY', 'y', true, null);
+        bindProp('inpW', 'width', true, 1);
+        bindProp('inpH', 'height', true, 1);
+        bindProp('inpRot', 'rotation', true, null);
+        bindProp('inpOpacity', 'opacity', true, 0);
+        bindProp('inpCornerRadius', 'cornerRadius', true, 0);
+        bindProp('inpBevelChamfer', 'bevelChamfer', true, 0);
+        bindProp('inpFill', 'fill', false);
+        bindProp('inpStroke', 'stroke', false);
+        bindProp('inpStrokeWidth', 'strokeWidth', true, 0);
+        bindProp('inpText', 'text', false);
+        bindProp('inpFontSize', 'fontSize', true, 1);
+
+        this.el.querySelector('#inpTextAlign')?.addEventListener('change', e => {
+          sprite.textAlign = e.target.value;
           this.doc.saveState();
-          this.cb.onCanvasRender();
-          this.render();
-        }
-      });
-      this.el.querySelector('#inpMaskTarget')?.addEventListener('change', e => {
-        if (sprite) {
-          sprite.maskTargetId = e.target.value || null;
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+
+        this.el.querySelector('#inpTriggerEvent')?.addEventListener('change', e => {
+          sprite.triggerEvent = e.target.value;
           this.doc.saveState();
-          this.cb.onCanvasRender();
-        }
-      });
+        });
 
-      // Screen Trigger Bindings
-      this.el.querySelector('#inpTriggerSignalName')?.addEventListener('input', e => {
-        if (sprite) { sprite.signalName = e.target.value; this.doc.saveState(); }
-      });
-      this.el.querySelector('#inpTriggerTargetSprite')?.addEventListener('change', e => {
-        if (sprite) { sprite.targetSpriteId = e.target.value; this.doc.saveState(); this.cb.onCanvasRender(); }
-      });
-      this.el.querySelector('#inpTriggerFilterEffect')?.addEventListener('change', e => {
-        if (sprite) { sprite.filterEffect = e.target.value; this.doc.saveState(); }
-      });
-      this.el.querySelector('#inpTriggerFilterValue')?.addEventListener('input', e => {
-        if (sprite) { sprite.filterValue = parseFloat(e.target.value) || 0; this.doc.saveState(); }
-      });
+        this.el.querySelector('#inpTriggerSignalName')?.addEventListener('input', e => {
+          sprite.signalName = e.target.value;
+          this.doc.saveState();
+        });
 
-      bindProp('inpX', 'x');
-      bindProp('inpY', 'y');
-      bindProp('inpW', 'width');
-      bindProp('inpH', 'height');
-      bindProp('inpRot', 'rotation');
-      bindProp('inpOpacity', 'opacity');
-      bindProp('inpCornerRadius', 'cornerRadius');
-      bindProp('inpBevelChamfer', 'bevelChamfer');
-      bindProp('inpFill', 'fill', false);
-      bindProp('inpStroke', 'stroke', false);
-      bindProp('inpStrokeWidth', 'strokeWidth');
+        this.el.querySelector('#inpTriggerAction')?.addEventListener('change', e => {
+          sprite.triggerAction = e.target.value;
+          this.doc.saveState();
+        });
+
+        return;
+      }
+
+      if (layer) {
+        this.el.querySelector('#inpLayerName')?.addEventListener('change', e => {
+          layer.name = e.target.value.trim() || layer.name;
+          this.doc.saveState();
+          this.cb.onUpdate();
+        });
+
+        this.el.querySelector('#inpLayerOpacity')?.addEventListener('input', e => {
+          layer.opacity = Math.max(0, Math.min(1, parseFloat(e.target.value) || 0));
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+
+        this.el.querySelector('#inpLayerOpacity')?.addEventListener('change', () => {
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+
+        this.el.querySelector('#inpLayerBlend')?.addEventListener('change', e => {
+          layer.blendMode = e.target.value;
+          this.doc.saveState();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+
+        this.el.querySelector('#inpLayerVis')?.addEventListener('change', e => {
+          layer.visible = (e.target.value === 'true');
+          this.doc.saveState();
+          this.cb.onUpdate();
+        });
+      }
     }
 
     updateInputs(sprite) {
@@ -5230,16 +5036,16 @@
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mSettings">환경 설정... <span class="shortcut">Ctrl+,</span></button>
                 <div class="ps-dropdown-sep"></div>
-                <button class="ps-dropdown-item" id="mWebPreview">🌐 새 창에서 웹 미리보기 <span class="shortcut">Alt+W</span></button>
-                <button class="ps-dropdown-item" id="mWebExport">📦 웹사이트 (HTML/CSS/JS) 내보내기...</button>
+                <button class="ps-dropdown-item" id="mWebPreview">새 창에서 웹 미리보기 <span class="shortcut">Alt+W</span></button>
+                <button class="ps-dropdown-item" id="mWebExport">웹사이트 (HTML/CSS/JS) 내보내기...</button>
                 <div class="ps-dropdown-sep"></div>
                 <div style="padding:4px 8px;font-size:10px;color:#a1a1aa;font-weight:600;">웹 템플릿 삽입</div>
-                <button class="ps-dropdown-item" data-web-tpl="full_landing">🚀 [풀 패키지] 전체 사이트</button>
-                <button class="ps-dropdown-item" data-web-tpl="navbar">📌 상단 네비게이션 헤더</button>
-                <button class="ps-dropdown-item" data-web-tpl="hero">✨ 메인 히어로 섹션</button>
-                <button class="ps-dropdown-item" data-web-tpl="feature_grid">🗂️ 3열 기능 카드 그리드</button>
-                <button class="ps-dropdown-item" data-web-tpl="cta_banner">🎯 전환 유도 CTA 배너</button>
-                <button class="ps-dropdown-item" data-web-tpl="footer">📄 하단 푸터</button>
+                <button class="ps-dropdown-item" data-web-tpl="full_landing">[풀 패키지] 전체 사이트</button>
+                <button class="ps-dropdown-item" data-web-tpl="navbar">상단 네비게이션 헤더 (Navbar)</button>
+                <button class="ps-dropdown-item" data-web-tpl="hero">메인 히어로 섹션 (Hero)</button>
+                <button class="ps-dropdown-item" data-web-tpl="feature_grid">3열 기능 카드 그리드 (Features)</button>
+                <button class="ps-dropdown-item" data-web-tpl="cta_banner">전환 유도 CTA 배너 (CTA)</button>
+                <button class="ps-dropdown-item" data-web-tpl="footer">하단 푸터 (Footer)</button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mExp">자바스크립트 내보내기... <span class="shortcut">Ctrl+E</span></button>
               </div>
@@ -5254,41 +5060,41 @@
             </div>
             <div class="ps-menu-item"><span>필터(T)</span>
               <div class="ps-dropdown-menu">
-                <button class="ps-dropdown-item" data-filter-act="blur">🌫️ 가우시안 블러 (Gaussian Blur)...</button>
-                <button class="ps-dropdown-item" data-filter-act="brightness">☀️ 밝기 / 대비 (Brightness & Contrast)...</button>
-                <button class="ps-dropdown-item" data-filter-act="saturate">🎨 색조 / 채도 (Hue & Saturation)...</button>
-                <button class="ps-dropdown-item" data-filter-act="grayscale">🖤 흑백 필터 (Grayscale)</button>
-                <button class="ps-dropdown-item" data-filter-act="sepia">📜 세피아 빈티지 (Sepia)</button>
-                <button class="ps-dropdown-item" data-filter-act="invert">🔄 색상 반전 (Invert)</button>
-                <button class="ps-dropdown-item" data-filter-act="opacity">👁️ 알파값 / 투명도 조절 (Alpha Opacity)...</button>
-                <button class="ps-dropdown-item" data-filter-act="shadow">🌑 드롭 섀도우 (Drop Shadow)</button>
+                <button class="ps-dropdown-item" data-filter-act="blur">가우시안 블러 (Gaussian Blur)...</button>
+                <button class="ps-dropdown-item" data-filter-act="brightness">밝기 / 대비 (Brightness & Contrast)...</button>
+                <button class="ps-dropdown-item" data-filter-act="saturate">색조 / 채도 (Hue & Saturation)...</button>
+                <button class="ps-dropdown-item" data-filter-act="grayscale">흑백 필터 (Grayscale)</button>
+                <button class="ps-dropdown-item" data-filter-act="sepia">세피아 빈티지 (Sepia)</button>
+                <button class="ps-dropdown-item" data-filter-act="invert">색상 반전 (Invert)</button>
+                <button class="ps-dropdown-item" data-filter-act="opacity">알파값 / 투명도 조절 (Alpha Opacity)...</button>
+                <button class="ps-dropdown-item" data-filter-act="shadow">드롭 섀도우 (Drop Shadow)</button>
                 <div class="ps-dropdown-sep"></div>
-                <button class="ps-dropdown-item" data-filter-act="mask">🎭 클리핑 마스크 만들기 (Create Clipping Mask)</button>
-                <button class="ps-dropdown-item" data-filter-act="unmask">🔓 클리핑 마스크 해제 (Release Clipping Mask)</button>
+                <button class="ps-dropdown-item" data-filter-act="mask">클리핑 마스크 만들기 (Create Clipping Mask)</button>
+                <button class="ps-dropdown-item" data-filter-act="unmask">클리핑 마스크 해제 (Release Clipping Mask)</button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" data-filter-act="reset">⟲ 선택 대상 필터 초기화</button>
               </div>
             </div>
             <div class="ps-menu-item"><span>웹(W)</span>
               <div class="ps-dropdown-menu">
-                <button class="ps-dropdown-item" id="mWPreview">🌐 실시간 웹 미리보기 <span class="shortcut">Ctrl+Space</span></button>
-                <button class="ps-dropdown-item" id="mWExport">💾 완성 웹사이트 (HTML 파일) 다운로드...</button>
-                <button class="ps-dropdown-item" id="mWCopy">📋 HTML/CSS 소스 코드 복사</button>
+                <button class="ps-dropdown-item" id="mWPreview">실시간 웹 미리보기 <span class="shortcut">Ctrl+Space</span></button>
+                <button class="ps-dropdown-item" id="mWExport">완성 웹사이트 (HTML 파일) 다운로드...</button>
+                <button class="ps-dropdown-item" id="mWCopy">HTML/CSS 소스 코드 복사</button>
                 <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#38bdf8;">⚡ 웹 컴포넌트 템플릿 원클릭 삽입</div>
-                <button class="ps-dropdown-item" data-web-tpl="full_landing">🚀 [풀 패키지] 완성형 랜딩페이지 전체 삽입</button>
-                <button class="ps-dropdown-item" data-web-tpl="navbar">📌 상단 네비게이션 헤더 (Navbar)</button>
-                <button class="ps-dropdown-item" data-web-tpl="hero">✨ 메인 히어로 섹션 (Hero Section)</button>
-                <button class="ps-dropdown-item" data-web-tpl="feature_grid">🗂️ 3열 기능 소개 카드 그리드 (Features)</button>
-                <button class="ps-dropdown-item" data-web-tpl="cta_banner">🎯 전환 유도 CTA 배너 (CTA Banner)</button>
-                <button class="ps-dropdown-item" data-web-tpl="footer">📄 하단 푸터 (Footer Section)</button>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#38bdf8;">웹 컴포넌트 템플릿 원클릭 삽입</div>
+                <button class="ps-dropdown-item" data-web-tpl="full_landing">[풀 패키지] 완성형 랜딩페이지 전체 삽입</button>
+                <button class="ps-dropdown-item" data-web-tpl="navbar">상단 네비게이션 헤더 (Navbar)</button>
+                <button class="ps-dropdown-item" data-web-tpl="hero">메인 히어로 섹션 (Hero)</button>
+                <button class="ps-dropdown-item" data-web-tpl="feature_grid">3열 기능 소개 카드 그리드 (Features)</button>
+                <button class="ps-dropdown-item" data-web-tpl="cta_banner">전환 유도 CTA 배너 (CTA)</button>
+                <button class="ps-dropdown-item" data-web-tpl="footer">하단 푸터 (Footer)</button>
                 <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">📐 반응형 캔버스 규격 전환</div>
-                <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="1080">🖥️ 데스크톱 Full HD (1920 × 1080)</button>
-                <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="900">💻 맥북 / 노트북 (1440 × 900)</button>
-                <button class="ps-dropdown-item" data-preset-w="768" data-preset-h="1024">📱 태블릿 iPad (768 × 1024)</button>
-                <button class="ps-dropdown-item" data-preset-w="390" data-preset-h="844">📱 모바일 스마트폰 (390 × 844)</button>
-                <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="3600">📜 세로 롱페이지 웹 (1440 × 3600)</button>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">반응형 캔버스 규격 전환</div>
+                <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="1080">데스크톱 Full HD (1920 × 1080)</button>
+                <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="900">맥북 / 노트북 (1440 × 900)</button>
+                <button class="ps-dropdown-item" data-preset-w="768" data-preset-h="1024">태블릿 iPad (768 × 1024)</button>
+                <button class="ps-dropdown-item" data-preset-w="390" data-preset-h="844">모바일 스마트폰 (390 × 844)</button>
+                <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="3600">세로 롱페이지 웹 (1440 × 3600)</button>
               </div>
             </div>
             <div class="ps-menu-item"><span>창(V)</span>
@@ -5301,22 +5107,22 @@
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="wResetLayout">기본 작업영역 재설정 (Reset Layout)</button>
                 <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">🖥️ 데스크톱 웹 규격 (Desktop)</div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">데스크톱 웹 규격 (Desktop)</div>
                 <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="1080">Full HD 표준 (1920 × 1080)</button>
                 <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="900">맥북 / 노트북 (1440 × 900)</button>
                 <button class="ps-dropdown-item" data-preset-w="1280" data-preset-h="800">소형 랩탑 (1280 × 800)</button>
                 <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">📱 모바일 & 태블릿 (Mobile & Tablet)</div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">모바일 & 태블릿 (Mobile & Tablet)</div>
                 <button class="ps-dropdown-item" data-preset-w="390" data-preset-h="844">iPhone 14/15/16 (390 × 844)</button>
                 <button class="ps-dropdown-item" data-preset-w="412" data-preset-h="915">Galaxy S / Android (412 × 915)</button>
                 <button class="ps-dropdown-item" data-preset-w="768" data-preset-h="1024">iPad / 태블릿 (768 × 1024)</button>
                 <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">📜 세로 스크롤 롱페이지 웹 (Vertical Long-page)</div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">세로 스크롤 롱페이지 웹 (Vertical Long-page)</div>
                 <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="3200">데스크톱 랜딩페이지 (1920 × 3200)</button>
                 <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="4800">포트폴리오 / 쇼핑몰 (1440 × 4800)</button>
                 <button class="ps-dropdown-item" data-preset-w="390" data-preset-h="2500">모바일 세로 웹사이트 (390 × 2500)</button>
                 <div class="ps-dropdown-sep"></div>
-                <button class="ps-dropdown-item" id="mCustomCanvasSize">📐 사용자 정의 크기 직접 입력...</button>
+                <button class="ps-dropdown-item" id="mCustomCanvasSize">사용자 정의 크기 직접 입력...</button>
               </div>
             </div>
           </div>
@@ -5673,7 +5479,7 @@
           category: 'output',
           type: 'output_sprite',
           spriteId: sprite.id,
-          title: sprite.name + (sprite.linkGroup ? ` (🔗그룹${sprite.linkGroup})` : ''),
+          title: sprite.name + (sprite.linkGroup ? ` ([링크그룹${sprite.linkGroup})` : ''),
           badge: sprite.type === 'screen_trigger' ? 'TRIG' : 'SPRITE',
           x: spPos.x, y: spPos.y,
           inputs: [],
@@ -5784,7 +5590,7 @@
       for (const ly of this.doc.layers) {
         for (const sp of ly.sprites) {
           const isSelected = curSel && curSel.id === sp.id;
-          const linkStr = sp.linkGroup ? ` (🔗그룹${sp.linkGroup})` : '';
+          const linkStr = sp.linkGroup ? ` ([링크그룹${sp.linkGroup})` : '';
           options += `<option value="${sp.id}" ${isSelected ? 'selected' : ''}>${sp.name}${linkStr}</option>`;
         }
       }
@@ -6520,9 +6326,9 @@
           logic: '🧮 계산 & 수학 (Math & Logic)',
           input: '📥 입력 & 센서 (Input & Sensor)',
           motion: '🏃 모션 & 물리 (Motion & Physics)',
-          color: '🎨 필터 & 시각 (Filter & Visual)',
+          color: '필터 & 시각 (Filter & Visual)',
           combine: '🔀 합성 & 블렌드 (Mix & Combine)',
-          output: '📤 출력 (Output)'
+          output: '출력 (Output)'
         };
 
         let html = '';
@@ -7617,7 +7423,7 @@
           splitRight.classList.add('dragging');
 
           const onMove = ev => {
-            const newW = Math.max(200, Math.min(600, startW - (ev.clientX - startX)));
+            const newW = Math.max(160, Math.min(window.innerWidth - 150, startW - (ev.clientX - startX)));
             rightCol.style.width = `${newW}px`;
             this.app.handleResize();
           };
@@ -7642,7 +7448,7 @@
           splitBottom.classList.add('dragging');
 
           const onMove = ev => {
-            const newH = Math.max(100, Math.min(500, startH - (ev.clientY - startY)));
+            const newH = Math.max(40, Math.min(window.innerHeight - 150, startH - (ev.clientY - startY)));
             bottomRow.style.height = `${newH}px`;
             this.app.handleResize();
           };
@@ -7671,7 +7477,7 @@
 
           const onMove = ev => {
             const dy = ev.clientY - startY;
-            const newInspH = Math.max(80, Math.min(rightColH - 100, startInspH + dy));
+            const newInspH = Math.max(60, Math.min(rightColH - 60, startInspH + dy));
             this.inspectorHeight = newInspH;
             inspEl.style.height = `${newInspH}px`;
             inspEl.style.flex = 'none';
@@ -7987,7 +7793,7 @@
         const card = layer.addSprite({
           name: '히어로 인터랙티브 카드',
           type: 'rect',
-          text: '⚡ Live Interactive Canvas',
+          text: 'Live Interactive Canvas',
           fontSize: 18, fontWeight: 'bold',
           x: Math.round(W / 2), y: 580,
           width: 680, height: 240, cornerRadius: 14,
@@ -8023,7 +7829,7 @@
         const c3 = layer.addSprite({
           name: '기능 카드 3',
           type: 'rect',
-          text: '🔗 실시간 하이퍼링크\n\n버튼과 배너, 텍스트에 클릭 링크를 삽입하여 바로 실전 웹사이트로 활용하세요.',
+          text: '[LINK] 실시간 하이퍼링크\n\n버튼과 배너, 텍스트에 클릭 링크를 삽입하여 바로 실전 웹사이트로 활용하세요.',
           fontSize: 14, fill: '#18181b', stroke: '#27272a', strokeWidth: 1, cornerRadius: 12,
           x: Math.round(W / 2) + 380, y: 900, width: 340, height: 200,
           tag: 'article', hoverEffect: 'lift'
@@ -8257,29 +8063,49 @@
         const borderRadius = sprite.type === 'circle' ? '50%' : `${sprite.cornerRadius || 0}px`;
         const stroke = (sprite.strokeWidth && sprite.strokeWidth > 0 && sprite.stroke) ? `${sprite.strokeWidth}px solid ${sprite.stroke}` : 'none';
 
-        // Filters
+        // Filters (sprite.filters and active photoshop_filter module)
         const fltrs = [];
-        if (sprite.filters) {
-          const f = sprite.filters;
-          if (f.blur) fltrs.push(`blur(${f.blur}px)`);
-          if (f.brightness !== undefined && f.brightness !== 100) fltrs.push(`brightness(${f.brightness}%)`);
-          if (f.contrast !== undefined && f.contrast !== 100) fltrs.push(`contrast(${f.contrast}%)`);
-          if (f.saturate !== undefined && f.saturate !== 100) fltrs.push(`saturate(${f.saturate}%)`);
-          if (f.grayscale) fltrs.push(`grayscale(${f.grayscale}%)`);
-          if (f.sepia) fltrs.push(`sepia(${f.sepia}%)`);
+        const filterSources = [];
+        if (sprite.filters) filterSources.push(sprite.filters);
+        for (const m of (sprite.modules || [])) {
+          if (m.enabled !== false && m.showInRender !== false && m.type === 'photoshop_filter' && m.params) {
+            filterSources.push(m.params);
+          }
+        }
+        for (const f of filterSources) {
+          if (f.blur) fltrs.push(`blur(${Math.max(0, f.blur)}px)`);
+          if (f.brightness !== undefined && f.brightness !== 100) fltrs.push(`brightness(${Math.max(0, f.brightness)}%)`);
+          if (f.contrast !== undefined && f.contrast !== 100) fltrs.push(`contrast(${Math.max(0, f.contrast)}%)`);
+          if (f.saturate !== undefined && f.saturate !== 100) fltrs.push(`saturate(${Math.max(0, f.saturate)}%)`);
+          if (f.grayscale) fltrs.push(`grayscale(${Math.max(0, Math.min(100, f.grayscale))}%)`);
+          if (f.sepia) fltrs.push(`sepia(${Math.max(0, Math.min(100, f.sepia))}%)`);
           if (f.hueRotate) fltrs.push(`hue-rotate(${f.hueRotate}deg)`);
-          if (f.invert) fltrs.push(`invert(${f.invert}%)`);
-          if (f.opacity !== undefined && f.opacity !== 100) fltrs.push(`opacity(${f.opacity}%)`);
+          if (f.invert) fltrs.push(`invert(${Math.max(0, Math.min(100, f.invert))}%)`);
+          if (f.opacity !== undefined && f.opacity !== 100) fltrs.push(`opacity(${Math.max(0, Math.min(100, f.opacity))}%)`);
           if (f.dropShadow) fltrs.push(`drop-shadow(0px 8px 16px rgba(0,0,0,0.4))`);
         }
-        const filterStyle = fltrs.length > 0 ? `filter: ${fltrs.join(' ')};` : '';
 
-        // Clipping Mask in Web Preview
+        // Substance Mask in Web Preview
         let clipStyle = '';
-        if (sprite.maskMode === 'clip_mask') {
+        const subMaskMod = (sprite.modules || []).find(m => m.enabled !== false && m.showInRender !== false && m.type === 'substance_mask');
+        if (subMaskMod && subMaskMod.params) {
+          const mp = subMaskMod.params;
+          const intens = Math.max(0, Math.min(100, mp.intensity !== undefined ? mp.intensity : 100)) / 100;
+          if (mp.maskType === 'black') {
+            const effAlpha = mp.invert ? intens : (1 - intens);
+            fltrs.push(`opacity(${Math.round(effAlpha * 100)}%)`);
+          } else if (mp.maskType === 'white') {
+            const effAlpha = mp.invert ? (1 - intens) : intens;
+            fltrs.push(`opacity(${Math.round(effAlpha * 100)}%)`);
+          } else if (mp.maskType === 'clip') {
+            if (sprite.type === 'circle') clipStyle = 'clip-path: circle(50% at 50% 50%); -webkit-clip-path: circle(50% at 50% 50%);';
+            else if (sprite.cornerRadius) clipStyle = `clip-path: inset(0 round ${sprite.cornerRadius}px); -webkit-clip-path: inset(0 round ${sprite.cornerRadius}px);`;
+          }
+        } else if (sprite.maskMode === 'clip_mask') {
           if (sprite.type === 'circle') clipStyle = 'clip-path: circle(50% at 50% 50%); -webkit-clip-path: circle(50% at 50% 50%);';
           else if (sprite.cornerRadius) clipStyle = `clip-path: inset(0 round ${sprite.cornerRadius}px); -webkit-clip-path: inset(0 round ${sprite.cornerRadius}px);`;
         }
+        const filterStyle = fltrs.length > 0 ? `filter: ${fltrs.join(' ')};` : '';
 
         // Coordinates: Center (x, y) translated to CSS Top-Left (x - w/2, y - h/2)
         const leftPos = Math.round(sprite.x - sprite.width / 2);
@@ -8486,6 +8312,10 @@
       this.timeline.renderCanvases();
       this.optionBar.render();
       this.toolbox.render();
+      if (this.nodeEditor && this.isNodeMode) {
+        this.nodeEditor.syncFromDoc();
+        this.nodeEditor.render();
+      }
     }
 
     handleResize() {
