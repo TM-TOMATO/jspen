@@ -1521,6 +1521,9 @@
           ctx.stroke();
           ctx.restore();
         }
+        if (sprite.text) {
+          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop);
+        }
       } else if (sprite.type === 'circle') {
         // True Ellipse supporting independent non-uniform scaling
         ctx.beginPath();
@@ -1540,6 +1543,9 @@
           if (sprite.strokeOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.strokeOpacity));
           ctx.stroke();
           ctx.restore();
+        }
+        if (sprite.text) {
+          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop);
         }
       } else if (sprite.type === 'brush') {
         const pts = sprite.brushStrokePoints || [];
@@ -1593,6 +1599,10 @@
           }
         }
       } else if (sprite.type === 'screen_trigger') {
+        if (this.mode === 'preview') {
+          ctx.restore();
+          return;
+        }
         // Screen Trigger Area (Dotted Cyan Border + Label)
         ctx.save();
         ctx.setLineDash([6, 4]);
@@ -1608,13 +1618,69 @@
         ctx.textBaseline = 'top';
         ctx.fillText(`⚡ ${sprite.name} (${sprite.triggerEvent || '진입 감지'})`, -hw + 8, -hh + 8);
         ctx.restore();
+      } else if (sprite.type === 'image') {
+        if (sprite.imageUrl) {
+          if (!sprite._imgObj) {
+            sprite._imgObj = new Image();
+            sprite._imgObj.src = sprite.imageUrl;
+            sprite._imgObj.onload = () => { if (window.jspenApp?.renderCanvas) window.jspenApp.renderCanvas(); };
+          }
+          if (sprite._imgObj.complete && sprite._imgObj.naturalWidth) {
+            ctx.drawImage(sprite._imgObj, -hw, -hh, sprite.width, sprite.height);
+          } else {
+            ctx.fillStyle = '#27272a';
+            ctx.fillRect(-hw, -hh, sprite.width, sprite.height);
+            ctx.fillStyle = '#71717a';
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🖼️ 이미지 로딩 중...', 0, 0);
+          }
+        }
       } else if (sprite.type === 'text') {
-        ctx.font = `${sprite.fontWeight} ${sprite.fontSize}px ${sprite.fontFamily}`;
-        ctx.textAlign = sprite.textAlign || 'center';
+        ctx.save();
+        ctx.font = `${sprite.fontWeight || 'normal'} ${sprite.fontSize || 16}px ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'}`;
+        ctx.fillStyle = sprite.fill || '#ffffff';
+        if (sprite.fillOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.fillOpacity));
+        const textAlign = sprite.textAlign || 'center';
+        ctx.textAlign = textAlign;
         ctx.textBaseline = 'middle';
-        ctx.fillText(sprite.text, 0, 0);
+        const lines = String(sprite.text || '').split('\n');
+        const lh = (sprite.fontSize || 16) * 1.35;
+        const startY = -(lines.length - 1) * lh / 2;
+        const textX = textAlign === 'left' ? -hw : (textAlign === 'right' ? hw : 0);
+        for (let i = 0; i < lines.length; i++) {
+          ctx.fillText(lines[i], textX, startY + i * lh);
+        }
+        ctx.restore();
       }
 
+      ctx.restore();
+    }
+
+    drawSpriteLabelText(ctx, sprite, hw, hh, lop) {
+      ctx.save();
+      const isLight = (hex) => {
+        if (!hex || hex === 'transparent') return false;
+        let c = String(hex).replace('#', '');
+        if (c.length === 3) c = c.split('').map(x => x + x).join('');
+        if (c.length !== 6) return false;
+        const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
+        return (0.299 * r + 0.587 * g + 0.114 * b) > 160;
+      };
+      ctx.fillStyle = sprite.textColor || (isLight(sprite.fill) ? '#09090b' : '#ffffff');
+      ctx.font = `${sprite.fontWeight || 'bold'} ${sprite.fontSize || 14}px ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'}`;
+      const textAlign = sprite.textAlign || 'center';
+      ctx.textAlign = textAlign;
+      ctx.textBaseline = 'middle';
+      const lines = String(sprite.text || '').split('\n');
+      const lh = (sprite.fontSize || 14) * 1.35;
+      const startY = -(lines.length - 1) * lh / 2;
+      const pad = 14;
+      const textX = textAlign === 'left' ? (-hw + pad) : (textAlign === 'right' ? (hw - pad) : 0);
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], textX, startY + i * lh);
+      }
       ctx.restore();
     }
 
@@ -7774,6 +7840,9 @@
       const layer = this.doc.getSelectedLayer() || this.doc.layers[0];
       if (!layer) return;
 
+      this.doc.transparentBackground = false;
+      this.doc.backgroundColor = '#0b0f17';
+
       if (type === 'navbar') {
         const bg = layer.addSprite({
           name: '네비게이션 헤더 배경',
@@ -8041,7 +8110,10 @@
       const doc = this.doc;
       const W = doc.width || 1440;
       const H = doc.height || 900;
-      const bg = doc.transparentBackground ? '#ffffff' : (doc.backgroundColor || '#ffffff');
+      // Artboard background matches the Studio Document background exactly
+      const artboardBg = doc.backgroundColor || '#18181b';
+      // Empty surrounding space is clean white as requested ("빈 공간은 흰색으로 채우기")
+      const pageBg = '#ffffff';
 
       let elementsHtml = '';
       const allSprites = [];
@@ -8053,6 +8125,18 @@
         });
       });
       allSprites.sort((a, b) => a.z - b.z);
+
+      const isLightColor = (hex) => {
+        if (!hex || hex === 'transparent') return false;
+        if (hex.startsWith('rgba') || hex.startsWith('rgb')) return false;
+        let c = String(hex).replace('#', '');
+        if (c.length === 3) c = c.split('').map(x => x + x).join('');
+        if (c.length !== 6) return false;
+        const r = parseInt(c.substr(0, 2), 16);
+        const g = parseInt(c.substr(2, 2), 16);
+        const b = parseInt(c.substr(4, 2), 16);
+        return (0.299 * r + 0.587 * g + 0.114 * b) > 145;
+      };
 
       allSprites.forEach(({ sprite, z }) => {
         if (sprite.type === 'screen_trigger') return; // Sensor trigger only
@@ -8077,10 +8161,16 @@
         const cursorStyle = (isBtn || isLink) ? 'cursor:pointer;' : '';
 
         let innerContent = '';
+        let bgStyle = 'transparent';
+        let textColor = '#ffffff';
+
         if (sprite.type === 'text') {
           innerContent = sprite.text || '';
+          bgStyle = 'transparent';
+          textColor = sprite.fill || '#ffffff';
         } else if (sprite.type === 'image' && sprite.imageUrl) {
-          innerContent = `<img src="${sprite.imageUrl}" style="width:100%;height:100%;object-fit:cover;display:block;" />`;
+          innerContent = `<img src="${sprite.imageUrl}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;" />`;
+          bgStyle = 'transparent';
         } else if (sprite.type === 'brush') {
           const pts = sprite.brushStrokePoints || [];
           if (pts.length > 0) {
@@ -8090,11 +8180,38 @@
             }
             innerContent = `<svg viewBox="-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}" style="width:100%;height:100%;overflow:visible;"><path d="${pathD}" stroke="${sprite.stroke || '#ffffff'}" stroke-width="${sprite.brushSize || 6}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
           }
+          bgStyle = 'transparent';
+        } else if (sprite.type === 'path') {
+          bgStyle = 'transparent';
+          if (sprite.pathPoints && sprite.pathPoints.length > 0) {
+            let d = `M ${sprite.pathPoints[0].x} ${sprite.pathPoints[0].y}`;
+            for (let i = 1; i < sprite.pathPoints.length; i++) {
+              const prev = sprite.pathPoints[i - 1], cur = sprite.pathPoints[i];
+              const cp1x = prev.cp2x !== undefined ? prev.cp2x : prev.x;
+              const cp1y = prev.cp2y !== undefined ? prev.cp2y : prev.y;
+              const cp2x = cur.cp1x !== undefined ? cur.cp1x : cur.x;
+              const cp2y = cur.cp1y !== undefined ? cur.cp1y : cur.y;
+              d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${cur.x} ${cur.y}`;
+            }
+            if (sprite.isClosedPath || sprite.pathClosed) d += ' Z';
+            innerContent = `<svg viewBox="-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}" style="width:100%;height:100%;overflow:visible;"><path d="${d}" stroke="${sprite.stroke || '#ffffff'}" stroke-width="${sprite.strokeWidth || 2}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+          }
+        } else {
+          // rect, circle, bevel_rect
+          if (sprite.fillType === 'linear-gradient' && sprite.gradient?.stops) {
+            const stops = sprite.gradient.stops.map(s => `${s.color} ${Math.round((s.offset || 0) * 100)}%`).join(', ');
+            bgStyle = `linear-gradient(135deg, ${stops})`;
+          } else if (sprite.fillType !== 'none') {
+            bgStyle = sprite.fill || '#38bdf8';
+          }
+          if (sprite.text) {
+            innerContent = sprite.text;
+          }
+          textColor = sprite.textColor || (isLightColor(sprite.fill) ? '#09090b' : '#ffffff');
         }
 
         const borderRadius = sprite.type === 'circle' ? '50%' : `${sprite.cornerRadius || 0}px`;
-        const fill = (sprite.type === 'path' || sprite.type === 'brush') ? 'transparent' : (sprite.fill || '#38bdf8');
-        const stroke = (sprite.strokeWidth && sprite.strokeWidth > 0) ? `${sprite.strokeWidth}px solid ${sprite.stroke}` : 'none';
+        const stroke = (sprite.strokeWidth && sprite.strokeWidth > 0 && sprite.stroke) ? `${sprite.strokeWidth}px solid ${sprite.stroke}` : 'none';
 
         // Filters
         const fltrs = [];
@@ -8120,9 +8237,13 @@
           else if (sprite.cornerRadius) clipStyle = `clip-path: inset(0 round ${sprite.cornerRadius}px); -webkit-clip-path: inset(0 round ${sprite.cornerRadius}px);`;
         }
 
-        // Exact match with studio coordinates: Center (x, y) translated to CSS Top-Left (x - w/2, y - h/2)
+        // Coordinates: Center (x, y) translated to CSS Top-Left (x - w/2, y - h/2)
         const leftPos = Math.round(sprite.x - sprite.width / 2);
         const topPos = Math.round(sprite.y - sprite.height / 2);
+
+        const textAlign = sprite.textAlign || 'center';
+        const justify = textAlign === 'left' ? 'flex-start' : (textAlign === 'right' ? 'flex-end' : 'center');
+        const padding = sprite.type === 'text' ? '0' : '8px 16px';
 
         elementsHtml += `
           <${tag} class="${classAttr}" ${anchorAttr} ${hrefAttr} style="
@@ -8134,7 +8255,7 @@
             transform: rotate(${sprite.rotation || 0}deg) scale(${sprite.scaleX || 1}, ${sprite.scaleY || 1});
             transform-origin: center center;
             opacity: ${sprite.opacity !== undefined ? sprite.opacity : 1};
-            background: ${fill};
+            background: ${bgStyle};
             border: ${stroke};
             border-radius: ${borderRadius};
             z-index: ${z};
@@ -8143,86 +8264,22 @@
             ${clipStyle}
             display: flex;
             align-items: center;
-            justify-content: center;
-            color: #ffffff;
-            font-family: ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'};
+            justify-content: ${justify};
+            padding: ${padding};
+            color: ${textColor};
+            font-family: ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'};
             font-size: ${sprite.fontSize || 16}px;
             font-weight: ${sprite.fontWeight || 'normal'};
-            text-align: ${sprite.textAlign || 'center'};
+            text-align: ${textAlign};
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.35;
             user-select: none;
             text-decoration: none;
             transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
           ">${innerContent}</${tag}>
         `;
       });
-
-      const previewHtml = `<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${doc.name}</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
-      background: ${bg};
-      color: #18181b;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      min-height: 100vh;
-      width: 100%;
-      overflow-x: hidden;
-      overflow-y: auto;
-    }
-    #webArtboard {
-      position: relative;
-      width: ${W}px;
-      min-height: ${H}px;
-      margin: 0 auto;
-      background: ${bg};
-      overflow: visible;
-    }
-    .hover-lift:hover {
-      transform: translateY(-6px) scale(1.02) !important;
-      box-shadow: 0 12px 28px rgba(0,0,0,0.25);
-    }
-    .hover-zoom:hover {
-      transform: scale(1.06) !important;
-    }
-    .hover-glow:hover {
-      box-shadow: 0 0 24px rgba(56, 189, 248, 0.45);
-    }
-    .hover-fade:hover {
-      opacity: 0.75 !important;
-    }
-  </style>
-</head>
-<body>
-  <div id="webArtboard">
-    ${elementsHtml}
-  </div>
-</body>
-</html>`;
-
-      const previewToolbar = forExport ? '' : `
-  <header id="previewToolbar" style="position:fixed;top:0;left:0;right:0;height:46px;background:#18181b;border-bottom:1px solid #27272a;display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:999999;font-family:-apple-system,BlinkMacSystemFont,'Pretendard',sans-serif;color:#f4f4f5;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.5);">
-    <div style="display:flex;align-items:center;gap:12px;">
-      <span style="font-weight:700;color:#38bdf8;font-size:13px;">🌐 JSPen 웹사이트 실시간 미리보기</span>
-      <span style="color:#3f3f46;">|</span>
-      <div style="display:flex;align-items:center;gap:4px;background:#27272a;padding:2px 4px;border-radius:4px;">
-        <button onclick="setArtboardWidth(1920)" style="background:transparent;border:none;color:#d4d4d8;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:11px;">🖥️ 1920</button>
-        <button onclick="setArtboardWidth(1440)" style="background:transparent;border:none;color:#d4d4d8;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:11px;">💻 1440</button>
-        <button onclick="setArtboardWidth(768)" style="background:transparent;border:none;color:#d4d4d8;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:11px;">📱 768</button>
-        <button onclick="setArtboardWidth(390)" style="background:transparent;border:none;color:#d4d4d8;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:11px;">📱 390</button>
-        <button onclick="setArtboardWidth('100%')" style="background:transparent;border:none;color:#38bdf8;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:11px;font-weight:bold;">100% 전체</button>
-      </div>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <button onclick="copyCode()" style="background:#27272a;border:1px solid #3f3f46;color:#ffffff;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:11.5px;font-weight:600;">📋 HTML 코드 복사</button>
-      <button onclick="downloadHtml()" style="background:#0284c7;border:none;color:#ffffff;padding:5px 14px;border-radius:4px;cursor:pointer;font-size:11.5px;font-weight:700;box-shadow:0 2px 8px rgba(2,132,199,0.4);">💾 index.html 다운로드</button>
-    </div>
-  </header>
-  <div style="height:46px;"></div>
-      `;
 
       return `<!DOCTYPE html>
 <html lang="ko">
@@ -8234,21 +8291,28 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
     body {
-      background: ${bg};
+      background: ${pageBg};
       color: #ffffff;
       font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif;
       min-height: 100vh;
       width: 100%;
+      margin: 0;
+      padding: 0;
       overflow-x: hidden;
       overflow-y: auto;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
     }
     #webArtboard {
       position: relative;
       width: ${W}px;
       min-height: ${H}px;
       margin: 0 auto;
-      background: ${bg};
+      background: ${artboardBg};
+      box-shadow: 0 4px 24px rgba(0,0,0,0.12);
       overflow: visible;
+      flex-shrink: 0;
       transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .web-sprite {
@@ -8271,7 +8335,6 @@
   </style>
 </head>
 <body>
-  ${previewToolbar}
   <div id="webArtboard">
     ${elementsHtml}
   </div>
@@ -8281,6 +8344,7 @@
     document.querySelectorAll('a[href^="#"]').forEach(a => {
       a.addEventListener('click', e => {
         const targetId = a.getAttribute('href').slice(1);
+        if (!targetId) return;
         const targetEl = document.getElementById(targetId);
         if (targetEl) {
           e.preventDefault();
@@ -8298,11 +8362,8 @@
 
     function downloadHtml() {
       const clone = document.documentElement.cloneNode(true);
-      const toolbar = clone.querySelector('#previewToolbar');
-      if (toolbar) toolbar.remove();
-      const spacer = clone.querySelector('body > div[style*="height:46px"]');
-      if (spacer) spacer.remove();
-      const htmlContent = '<!DOCTYPE html>\n' + clone.outerHTML;
+      const htmlContent = '<!DOCTYPE html>
+' + clone.outerHTML;
       const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -8312,11 +8373,8 @@
 
     function copyCode() {
       const clone = document.documentElement.cloneNode(true);
-      const toolbar = clone.querySelector('#previewToolbar');
-      if (toolbar) toolbar.remove();
-      const spacer = clone.querySelector('body > div[style*="height:46px"]');
-      if (spacer) spacer.remove();
-      navigator.clipboard.writeText('<!DOCTYPE html>\n' + clone.outerHTML).then(() => {
+      navigator.clipboard.writeText('<!DOCTYPE html>
+' + clone.outerHTML).then(() => {
         alert('HTML 코드가 클립보드에 복사되었습니다! 실제 웹 프로젝트에 붙여넣기 하세요.');
       });
     }
