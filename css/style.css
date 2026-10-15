@@ -74,11 +74,19 @@ body.ps-theme {
   font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif;
   background-color: var(--ps-bg-darkest);
   color: var(--ps-text);
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: -0.2px;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+input, select, textarea, button {
+  font-family: inherit;
+  font-size: 10.5px;
 }
 
 /* ==========================================================================
@@ -94,7 +102,7 @@ body.ps-theme {
   justify-content: space-between;
   padding: 0 10px;
   z-index: 50;
-  font-size: 12.5px;
+  font-size: 11px;
 }
 
 .ps-menubar-left, .ps-menubar-center, .ps-menubar-right {
@@ -800,27 +808,72 @@ body.ps-theme {
   background: #e4e4e7;
 }
 
-#rightDock {
-  width: var(--rightdock-width);
-  background-color: var(--ps-bg-surface);
-  border-left: 1px solid var(--ps-border);
+/* ==========================================================================
+   Workstation Movable & Edge-Resizable Windows (.ps-window)
+   ========================================================================== */
+.ps-window {
+  position: absolute;
+  background-color: #141416;
+  border: 1px solid #28282c;
+  border-radius: 2px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.7);
   display: flex;
   flex-direction: column;
-  z-index: 20;
+  z-index: 30;
+  overflow: visible;
 }
-
-.ps-dock-section {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+.ps-window:focus-within {
+  border-color: #38383e;
+  z-index: 40;
 }
 
 #inspectorContainer {
-  flex: 1.2;
+  min-width: 200px;
+  min-height: 140px;
 }
 
 #layersContainer {
-  flex: 1;
+  min-width: 200px;
+  min-height: 140px;
+}
+
+#bottomTimeline {
+  min-width: 240px;
+  min-height: 80px;
+}
+
+/* 8-Directional Window Resize Handles */
+.win-resize-handle {
+  position: absolute;
+  z-index: 100;
+  background: transparent;
+}
+.win-resize-handle.handle-n { top: -4px; left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
+.win-resize-handle.handle-s { bottom: -4px; left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
+.win-resize-handle.handle-e { right: -4px; top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
+.win-resize-handle.handle-w { left: -4px; top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
+.win-resize-handle.handle-nw { top: -4px; left: -4px; width: 12px; height: 12px; cursor: nwse-resize; }
+.win-resize-handle.handle-ne { top: -4px; right: -4px; width: 12px; height: 12px; cursor: nesw-resize; }
+.win-resize-handle.handle-sw { bottom: -4px; left: -4px; width: 12px; height: 12px; cursor: nesw-resize; }
+.win-resize-handle.handle-se { bottom: -4px; right: -4px; width: 12px; height: 12px; cursor: nwse-resize; }
+
+/* Magnetic Snap Guidelines */
+.snap-guide-line {
+  position: absolute;
+  background: #e4e4e7;
+  z-index: 999;
+  pointer-events: none;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+}
+.snap-guide-h {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+.snap-guide-v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
 }
 
 .ps-panel-header {
@@ -2335,14 +2388,62 @@ input:focus, select:focus, textarea:focus {
 }
 
 .ps-sprite-sub-item {
+  height: 24px;
   display: flex;
-  flex-direction: column;
-  background-color: #18181b;
-  border: 1px solid #222225;
+  align-items: center;
+  padding: 0 6px;
+  gap: 6px;
+  background-color: #17171a;
+  border: 1px solid #242427;
   border-radius: 2px;
-  padding: 3px 6px;
+  margin-bottom: 2px;
+  font-size: 11px;
   cursor: pointer;
-  us/* ==========================================================================
+  white-space: nowrap;
+  transition: all 0.08s ease;
+}
+.ps-sprite-sub-item:hover {
+  background-color: #1e1e22;
+  border-color: #38383e;
+}
+.ps-sprite-sub-item.selected {
+  background-color: #25252a;
+  border-color: #66666e;
+  border-left: 2px solid #e4e4e7;
+}
+.ps-sp-icon {
+  font-size: 10px;
+  color: #a1a1aa;
+}
+.ps-sprite-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: #e4e4e7;
+}
+.ps-sp-link-btn {
+  background: transparent;
+  border: 1px solid #333338;
+  border-radius: 2px;
+  font-size: 9.5px;
+  color: #71717a;
+  cursor: pointer;
+  padding: 1px 4px;
+  transition: all 0.1s ease;
+}
+.ps-sp-link-btn:hover {
+  color: #ffffff;
+  border-color: #52525b;
+}
+.ps-sp-link-btn.active {
+  color: #ffffff;
+  background: #28282e;
+  border-color: #e4e4e7;
+  font-weight: 700;
+}
+
+/* ==========================================================================
    30. Module Library Modal Styling (Achromatic & Sharp)
    ========================================================================== */
 .modal-overlay {

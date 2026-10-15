@@ -53,32 +53,16 @@
         </div>
       </section>
 
-      <!-- Blender Style Bottom Timeline (Dope Sheet) -->
-      <section id="bottomTimeline"></section>
     </div>
 
-    <!-- Horizontal Resize Splitter for Right Dock -->
-    <div id="dockSplitterH" class="ps-splitter-h" title="드래그하여 패널 너비 조절"></div>
+    <!-- Floating, Edge/Corner Resizable & Snapping Workstation Panels -->
+    <section id="inspectorContainer" class="ps-window"></section>
+    <section id="layersContainer" class="ps-window"></section>
+    <section id="bottomTimeline" class="ps-window"></section>
 
-    <!-- Right: Docked Panels (Inspector & Layers) -->
-    <aside id="rightDock">
-      <!-- Upper Section: Inspector (Visual Properties & Attached Modules) -->
-      <section id="inspectorContainer" class="ps-dock-section"></section>
-
-      <!-- Vertical Resize Splitter between Inspector and Layers -->
-      <div id="dockSplitterV" class="ps-splitter-v" title="드래그하여 높이 비율 조절"></div>
-      
-      <!-- Lower Section: Photoshop Layers Panel -->
-      <section id="layersContainer" class="ps-dock-section"></section>
-    </aside>
-
-    <!-- Panel Snapping Overlay Indicators -->
-    <div id="snapZoneOverlay" class="snap-zone-overlay hidden">
-      <div class="snap-indicator snap-left" data-zone="left">도구함 도킹</div>
-      <div class="snap-indicator snap-bottom" data-zone="bottom">타임라인 도킹</div>
-      <div class="snap-indicator snap-right-top" data-zone="right-top">속성 도킹</div>
-      <div class="snap-indicator snap-right-bottom" data-zone="right-bottom">레이어 도킹</div>
-    </div>
+    <!-- Magnetic Snap Guidelines -->
+    <div id="snapGuideH" class="snap-guide-line snap-guide-h hidden"></div>
+    <div id="snapGuideV" class="snap-guide-line snap-guide-v hidden"></div>
   </div>
 
   <!-- Floating Eyedropper Loupe Swatch -->

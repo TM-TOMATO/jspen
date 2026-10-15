@@ -312,6 +312,10 @@
       this.locked = options.locked || false;
       this.modules = options.modules || [];
       this.keyframes = options.keyframes || {};
+      this.linkGroup = options.linkGroup || null;
+      this.tag = options.tag || 'div';
+      this.linkUrl = options.linkUrl || '';
+      this.hoverEffect = options.hoverEffect || 'none';
 
       this.runtime = {
         x: this.x, y: this.y, rotation: this.rotation,
@@ -396,7 +400,11 @@
         fontWeight: this.fontWeight, textAlign: this.textAlign,
         imageUrl: this.imageUrl, visible: this.visible, locked: this.locked,
         modules: JSON.parse(JSON.stringify(this.modules)),
-        keyframes: JSON.parse(JSON.stringify(this.keyframes))
+        keyframes: JSON.parse(JSON.stringify(this.keyframes)),
+        linkGroup: this.linkGroup,
+        tag: this.tag,
+        linkUrl: this.linkUrl,
+        hoverEffect: this.hoverEffect
       };
     }
   }
@@ -518,9 +526,9 @@
   // ==========================================================================
   class DocumentModel {
     constructor(options = {}) {
-      this.name = options.name || '인터랙티브 배너';
-      this.width = options.width || 800;
-      this.height = options.height || 600;
+      this.name = options.name || '인터랙티브 웹 프로젝트';
+      this.width = options.width || 1440;
+      this.height = options.height || 900;
       this.backgroundColor = options.backgroundColor || '#18181b';
       this.transparentBackground = options.transparentBackground !== undefined ? options.transparentBackground : true;
       this.foregroundColor = options.foregroundColor || '#38bdf8';
@@ -2181,7 +2189,7 @@
           <span class="ps-dock-title">레이어 (Layers)</span>
           <div class="ps-dock-tools">
             <button class="ps-dock-tool-btn" id="btnNewLayer" title="새 레이어 생성">+ 레이어</button>
-            <button class="ps-dock-tool-btn" id="btnFloatLayers" title="패널 팝업 띄우기">⧉</button>
+            
           </div>
         </div>
 
@@ -2209,38 +2217,25 @@
               <!-- Child Sprites (Clearly Nested in Fabric Tree Structure) -->
               ${l.expanded ? `
                 <div class="ps-layer-sub-sprites">
-                  ${l.sprites.length === 0 ? '<div style="font-size:10.5px;color:#71717a;padding:4px 2px;">스프라이트가 없습니다 (+스프라이트 클릭)</div>' : l.sprites.map(s => `
+                  ${l.sprites.length === 0 ? '<div style="font-size:10px;color:#71717a;padding:2px 4px;">스프라이트 없음</div>' : l.sprites.map(s => `
                     <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : ''}" data-act="select-sprite" data-sprite-id="${s.id}" data-layer-id="${l.id}" draggable="true">
-                      <div class="ps-sprite-header">
-                        <button class="ps-layer-vis-btn ${s.visible ? '' : 'muted'}" data-act="vis-sprite" title="스프라이트 가시성">${s.visible ? '●' : '○'}</button>
-                        <span class="ps-layer-type-icon">${s.type === 'rect' ? '▭' : (s.type === 'circle' ? '○' : (s.type === 'path' ? '⟿' : '✎'))}</span>
-                        
-                        ${this.renamingId === s.id ? `
-                          <input type="text" class="ps-layer-title-input" value="${s.name}" autofocus>
-                        ` : `
-                          <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${s.name}</span>
-                        `}
+                      <button class="ps-layer-vis-btn ${s.visible ? '' : 'muted'}" data-act="vis-sprite" title="스프라이트 가시성">${s.visible ? '●' : '○'}</button>
+                      <span class="ps-sp-icon">${s.type === 'rect' ? '▭' : (s.type === 'circle' ? '○' : (s.type === 'text' ? 'T' : (s.type === 'path' ? '⟿' : '✎')))}</span>
+                      
+                      ${this.renamingId === s.id ? `
+                        <input type="text" class="ps-layer-title-input" value="${s.name}" autofocus>
+                      ` : `
+                        <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${s.name}</span>
+                      `}
 
-                        <button class="ps-btn-add-module ${(s.modules && s.modules.length > 0) ? 'has-modules' : ''}" data-act="add-sprite-mod" title="스프라이트 모듈 추가">
-                          +fx ${(s.modules && s.modules.length > 0) ? `<span class="mod-count">${s.modules.length}</span>` : ''}
-                        </button>
-                        <button class="ps-btn-del-item" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
-                      </div>
+                      <button class="ps-sp-link-btn ${s.linkGroup ? 'active' : ''}" data-act="toggle-link" title="${s.linkGroup ? '스프라이트 링크 해제 (현재 그룹: ' + s.linkGroup + ')' : '다른 스프라이트와 링크하기'}">
+                        ${s.linkGroup ? `🔗${s.linkGroup}` : '🔗'}
+                      </button>
 
-                      <!-- Sub-Modules under Sprite -->
-                      ${(s.modules && s.modules.length > 0) ? `
-                        <div class="ps-layer-sub-modules">
-                          ${s.modules.map((m, mIdx) => `
-                            <div class="ps-layer-module-row ${m.id === this.doc.selectedModuleId ? 'selected-mod' : ''}" data-mod-id="${m.id}" data-mod-idx="${mIdx}" draggable="true">
-                              <span class="mod-indent">↳</span>
-                              <span class="mod-badge">${MODULE_REGISTRY[m.type]?.icon || 'MOD'}</span>
-                              <span class="mod-name" data-act="select-mod">${m.name}</span>
-                              <button class="mod-toggle ${m.enabled ? 'active' : ''}" data-act="toggle-mod">${m.enabled ? 'ON' : 'OFF'}</button>
-                              <button class="mod-del" data-act="del-mod" title="모듈 삭제">×</button>
-                            </div>
-                          `).join('')}
-                        </div>
-                      ` : ''}
+                      <button class="ps-btn-add-module ${(s.modules && s.modules.length > 0) ? 'has-modules' : ''}" data-act="add-sprite-mod" title="모듈 추가">
+                        +fx ${(s.modules && s.modules.length > 0) ? `<span class="mod-count">${s.modules.length}</span>` : ''}
+                      </button>
+                      <button class="ps-btn-del-item" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
                     </div>
                   `).join('')}
                 </div>
@@ -2278,10 +2273,7 @@
     initEventsOnce() {
       // 1. Single click delegation on persistent container
       this.el.addEventListener('click', e => {
-        if (e.target.closest('#btnFloatLayers')) {
-          this.cb.onToggleFloat('layers');
-          return;
-        }
+
 
         if (e.target.closest('#btnNewLayer')) {
           const l = new Layer({ name: `레이어 ${this.doc.layers.length + 1}` });
@@ -2359,6 +2351,31 @@
         } else if (act === 'del-mod' && sprite && modRow) {
           sprite.modules = sprite.modules?.filter(m => m.id !== modId);
           if (this.doc.selectedModuleId === modId) this.doc.selectedModuleId = null;
+          this.cb.onUpdate();
+                } else if (act === 'toggle-link' && sprite) {
+          if (sprite.linkGroup) {
+            sprite.linkGroup = null;
+          } else {
+            const existingGroups = new Set();
+            for (const ly of this.doc.layers) {
+              for (const sp of ly.sprites) {
+                if (sp.linkGroup) existingGroups.add(sp.linkGroup);
+              }
+            }
+            let targetGroup = '1';
+            let gNum = 1;
+            while (existingGroups.has(String(gNum))) { gNum++; }
+            targetGroup = String(gNum);
+
+            // Find other unlinked sprite to join or link together
+            const allSprites = this.doc.layers.flatMap(ly => ly.sprites);
+            const otherSprite = allSprites.find(sp => sp.id !== sprite.id);
+            if (otherSprite && !otherSprite.linkGroup) {
+              otherSprite.linkGroup = targetGroup;
+            }
+            sprite.linkGroup = otherSprite?.linkGroup || targetGroup;
+          }
+          this.doc.saveState();
           this.cb.onUpdate();
         } else if (act === 'add-sprite-mod' && sprite) {
           this.showModuleLibraryModal(sprite, false);
@@ -2566,7 +2583,7 @@
         <div class="ps-dock-header">
           <span class="ps-dock-title">속성 (Inspector)</span>
           <div class="ps-dock-tools">
-            <button class="ps-dock-tool-btn" id="btnFloatInspector" title="패널 팝업 띄우기">⧉</button>
+            
           </div>
         </div>
 
@@ -2575,12 +2592,21 @@
         </div>
       `;
 
+      
+      this.el.querySelector('#inpWebTag')?.addEventListener('change', e => {
+        if (sprite) { sprite.tag = e.target.value; this.doc.saveState(); this.cb.onCanvasRender(); }
+      });
+      this.el.querySelector('#inpWebHref')?.addEventListener('input', e => {
+        if (sprite) { sprite.linkUrl = e.target.value; this.doc.saveState(); }
+      });
+      this.el.querySelector('#inpWebHover')?.addEventListener('change', e => {
+        if (sprite) { sprite.hoverEffect = e.target.value; this.doc.saveState(); }
+      });
+
       this.bindScrubbing();
       this.bindInputs(selectedSprite, selectedMod);
 
-      this.el.querySelector('#btnFloatInspector')?.addEventListener('click', () => {
-        this.cb.onToggleFloat('inspector');
-      });
+      
     }
 
     getSelectedModule(sprite) {
@@ -2636,6 +2662,38 @@
       }
 
       return `
+        
+        <!-- Web Component Properties Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">웹 요소 속성 (Web Component)</div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">HTML 태그:</label>
+            <select class="ps-select" id="inpWebTag">
+              <option value="div" ${sprite.tag === 'div' ? 'selected' : ''}>&lt;div&gt; 컨테이너 / 박스</option>
+              <option value="button" ${sprite.tag === 'button' ? 'selected' : ''}>&lt;button&gt; 클릭 버튼</option>
+              <option value="a" ${sprite.tag === 'a' ? 'selected' : ''}>&lt;a&gt; 링크 (Link)</option>
+              <option value="nav" ${sprite.tag === 'nav' ? 'selected' : ''}>&lt;nav&gt; 네비게이션 바</option>
+              <option value="card" ${sprite.tag === 'card' ? 'selected' : ''}>&lt;article&gt; 카드 컴포넌트</option>
+              <option value="h1" ${sprite.tag === 'h1' ? 'selected' : ''}>&lt;h1&gt; 큰 제목</option>
+              <option value="p" ${sprite.tag === 'p' ? 'selected' : ''}>&lt;p&gt; 본문 텍스트</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">링크 (Href):</label>
+            <input type="text" class="ps-input" id="inpWebHref" placeholder="https://... 또는 #section" value="${sprite.linkUrl || ''}">
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">호버 효과:</label>
+            <select class="ps-select" id="inpWebHover">
+              <option value="none" ${sprite.hoverEffect === 'none' ? 'selected' : ''}>없음 (None)</option>
+              <option value="lift" ${sprite.hoverEffect === 'lift' ? 'selected' : ''}>살짝 뜨기 (Lift Up)</option>
+              <option value="zoom" ${sprite.hoverEffect === 'zoom' ? 'selected' : ''}>부드럽게 확대 (Zoom Up)</option>
+              <option value="glow" ${sprite.hoverEffect === 'glow' ? 'selected' : ''}>은은한 발광 (Glow)</option>
+              <option value="fade" ${sprite.hoverEffect === 'fade' ? 'selected' : ''}>투명도 전환 (Fade)</option>
+            </select>
+          </div>
+        </div>
+
         <!-- Transform Section -->
         <div class="ps-prop-section">
           <div class="ps-prop-header">변형 (Transform)</div>
@@ -2883,7 +2941,7 @@
           </div>
 
           <div class="tl-controls-right">
-            <button class="tl-btn" id="tlFloatTimeline" title="패널 팝업 띄우기">⧉</button>
+            
             <button class="tl-btn" id="tlToggleCollapse" title="타임라인 접기/펼치기">${this.collapsed ? '▲ 펼치기' : '▼ 접기'}</button>
           </div>
         </div>
@@ -2934,9 +2992,7 @@
         this.cb.onTogglePreview();
       });
 
-      this.el.querySelector('#tlFloatTimeline')?.addEventListener('click', () => {
-        this.cb.onToggleFloat('timeline');
-      });
+      
 
       this.el.querySelector('#tlToggleCollapse')?.addEventListener('click', () => {
         this.collapsed = !this.collapsed;
@@ -3256,6 +3312,9 @@
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mSettings">환경 설정... <span class="shortcut">Ctrl+,</span></button>
                 <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" id="mWebPreview">🌐 새 창에서 웹 미리보기 <span class="shortcut">Ctrl+Space</span></button>
+                <button class="ps-dropdown-item" id="mWebExport">📦 웹사이트 (HTML/CSS/JS) 내보내기...</button>
+                <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mExp">자바스크립트 내보내기... <span class="shortcut">Ctrl+E</span></button>
               </div>
             </div>
@@ -3276,6 +3335,13 @@
                 <button class="ps-dropdown-item" id="wTimeline">${this.windowToggles.timeline ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}타임라인 (Timeline)</button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="wResetLayout">기본 작업영역 재설정 (Reset Layout)</button>
+                <div class="ps-dropdown-sep"></div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">캔버스 규격 (Canvas Viewport)</div>
+                <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="900">🖥️ 데스크톱 표준 (1440 × 900)</button>
+                <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="1080">🖥️ Full HD (1920 × 1080)</button>
+                <button class="ps-dropdown-item" data-preset-w="1024" data-preset-h="768">💻 랩탑 (1024 × 768)</button>
+                <button class="ps-dropdown-item" data-preset-w="768" data-preset-h="1024">📱 태블릿 (768 × 1024)</button>
+                <button class="ps-dropdown-item" data-preset-w="375" data-preset-h="812">📱 모바일 (375 × 812)</button>
               </div>
             </div>
           </div>
@@ -3317,6 +3383,26 @@
         document.title = 'cmd:window_max';
         setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
       });
+      
+      this.el.querySelector('#mWebPreview')?.addEventListener('click', () => {
+        this.cb.onWebPreview();
+      });
+      this.el.querySelector('#mWebExport')?.addEventListener('click', () => {
+        this.cb.onWebExport();
+      });
+      this.el.querySelectorAll('[data-preset-w]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const w = parseInt(btn.dataset.presetW, 10);
+          const h = parseInt(btn.dataset.presetH, 10);
+          if (w && h) {
+            this.doc.width = w;
+            this.doc.height = h;
+            this.doc.saveState();
+            this.cb.onCanvasResize();
+          }
+        });
+      });
+
       this.el.querySelector('#winClose')?.addEventListener('click', () => {
         document.title = 'cmd:window_close';
         setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
@@ -3440,10 +3526,48 @@
         params: {}
       });
 
+      // Determine target sprite(s) for Node Mode:
+      const selSprite = this.doc.getSelectedSprite();
+      let targetSprites = [];
+
+      if (selSprite) {
+        if (selSprite.linkGroup) {
+          // Linked group: cluster all sprites with the same linkGroup
+          for (const ly of this.doc.layers) {
+            for (const sp of ly.sprites) {
+              if (sp.linkGroup === selSprite.linkGroup && !targetSprites.some(ts => ts.id === sp.id)) {
+                targetSprites.push(sp);
+              }
+            }
+          }
+        } else {
+          // Isolated single sprite
+          targetSprites = [selSprite];
+        }
+      } else {
+        // Fallback: pick the first sprite in doc if any
+        for (const ly of this.doc.layers) {
+          if (ly.sprites.length > 0) {
+            targetSprites = [ly.sprites[0]];
+            break;
+          }
+        }
+      }
+
+      // Update Node Editor header badge
+      const descEl = this.container.querySelector('.ne-desc');
+      if (descEl) {
+        if (targetSprites.length > 0) {
+          const names = targetSprites.map(s => s.name + (s.linkGroup ? ` (🔗그룹${s.linkGroup})` : '')).join(', ');
+          descEl.textContent = `현재 노드 대상: [${names}] — 연결된 모듈만 실제 작동합니다`;
+        } else {
+          descEl.textContent = `선택된 스프라이트가 없습니다. 레이어 창에서 스프라이트를 선택하세요.`;
+        }
+      }
+
       let curY = 60;
-      for (const layer of this.doc.layers) {
-        for (const sprite of layer.sprites) {
-          const spNodeId = 'sp_' + sprite.id;
+      for (const sprite of targetSprites) {
+        const spNodeId = 'sp_' + sprite.id;
           const spPos = existingPositions.get(spNodeId) || { x: 80, y: curY };
           this.nodes.push({
             id: spNodeId,
@@ -3507,7 +3631,6 @@
           }
 
           curY += 200;
-        }
       }
 
       // Keep existing manual wires if valid, otherwise seed newWires
@@ -4456,7 +4579,247 @@
   // 18. Main Application Controller
   // ==========================================================================
   // ==========================================================================
-  // 19. Main Application Controller (Decoupled Loop, Anti-Lag, Snap Docking)
+  // 18. Workstation Window Manager (8-Handle Edge/Corner Resize, Magnetic Flush Snapping)
+  // ==========================================================================
+  class WindowManager {
+    constructor(app) {
+      this.app = app;
+      this.snapThreshold = 14;
+      this.windows = [
+        { id: 'inspector', el: document.getElementById('inspectorContainer') },
+        { id: 'layers', el: document.getElementById('layersContainer') },
+        { id: 'timeline', el: document.getElementById('bottomTimeline') }
+      ];
+      this.init();
+    }
+
+    init() {
+      this.applyInitialLayout();
+      this.attachResizeHandles();
+      this.attachDragSnapping();
+    }
+
+    applyInitialLayout() {
+      const ws = document.getElementById('psWorkspace');
+      if (!ws) return;
+      const W = ws.clientWidth || window.innerWidth;
+      const H = ws.clientHeight || (window.innerHeight - 70);
+
+      // 1. Inspector at Top Right
+      const insp = document.getElementById('inspectorContainer');
+      if (insp) {
+        insp.classList.add('ps-window');
+        insp.style.left = `${Math.max(60, W - 290)}px`;
+        insp.style.top = '8px';
+        insp.style.width = '280px';
+        insp.style.height = `${Math.min(380, Math.floor((H - 24) * 0.48))}px`;
+      }
+
+      // 2. Layers directly snapped below Inspector
+      const layers = document.getElementById('layersContainer');
+      if (layers) {
+        layers.classList.add('ps-window');
+        const topOff = insp ? (insp.offsetTop + insp.offsetHeight + 6) : 396;
+        layers.style.left = `${Math.max(60, W - 290)}px`;
+        layers.style.top = `${topOff}px`;
+        layers.style.width = '280px';
+        layers.style.height = `${Math.max(180, H - topOff - 10)}px`;
+      }
+
+      // 3. Timeline snapped to bottom
+      const tl = document.getElementById('bottomTimeline');
+      if (tl) {
+        tl.classList.add('ps-window');
+        tl.style.left = '48px';
+        tl.style.top = `${Math.max(100, H - 188)}px`;
+        tl.style.width = `${Math.max(300, W - 348)}px`;
+        tl.style.height = '180px';
+      }
+    }
+
+    attachResizeHandles() {
+      const handles = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'];
+      this.windows.forEach(win => {
+        const el = win.el;
+        if (!el) return;
+
+        el.querySelectorAll('.win-resize-handle').forEach(h => h.remove());
+
+        handles.forEach(dir => {
+          const h = document.createElement('div');
+          h.className = `win-resize-handle handle-${dir}`;
+          el.appendChild(h);
+
+          h.addEventListener('mousedown', e => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startLeft = el.offsetLeft;
+            const startTop = el.offsetTop;
+            const startW = el.offsetWidth;
+            const startH = el.offsetHeight;
+
+            const onMove = ev => {
+              const dx = ev.clientX - startX;
+              const dy = ev.clientY - startY;
+
+              let newW = startW;
+              let newH = startH;
+              let newL = startLeft;
+              let newT = startTop;
+
+              if (dir.includes('e')) newW = Math.max(200, startW + dx);
+              if (dir.includes('w')) {
+                newW = Math.max(200, startW - dx);
+                newL = startLeft + (startW - newW);
+              }
+              if (dir.includes('s')) newH = Math.max(100, startH + dy);
+              if (dir.includes('n')) {
+                newH = Math.max(100, startH - dy);
+                newT = startTop + (startH - newH);
+              }
+
+              el.style.left = `${newL}px`;
+              el.style.top = `${newT}px`;
+              el.style.width = `${newW}px`;
+              el.style.height = `${newH}px`;
+
+              if (win.id === 'timeline' && this.app.timeline) {
+                this.app.timeline.renderCanvases();
+              }
+            };
+
+            const onUp = () => {
+              window.removeEventListener('mousemove', onMove);
+              window.removeEventListener('mouseup', onUp);
+              this.app.handleResize();
+            };
+
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+          });
+        });
+      });
+    }
+
+    attachDragSnapping() {
+      const guideH = document.getElementById('snapGuideH');
+      const guideV = document.getElementById('snapGuideV');
+
+      this.windows.forEach(currWin => {
+        const el = currWin.el;
+        if (!el) return;
+
+        const header = el.querySelector('.ps-dock-header, .timeline-header, .ps-panel-header');
+        if (!header) return;
+
+        header.style.cursor = 'move';
+        header.addEventListener('mousedown', e => {
+          if (e.target.closest('button, input, select, .ps-win-btn, .win-resize-handle')) return;
+          e.preventDefault();
+
+          this.windows.forEach(w => { if (w.el) w.el.style.zIndex = '30'; });
+          el.style.zIndex = '45';
+
+          const startX = e.clientX;
+          const startY = e.clientY;
+          const initL = el.offsetLeft;
+          const initT = el.offsetTop;
+          const w = el.offsetWidth;
+          const h = el.offsetHeight;
+
+          const ws = document.getElementById('psWorkspace');
+          const maxW = ws ? ws.clientWidth : window.innerWidth;
+          const maxH = ws ? ws.clientHeight : window.innerHeight;
+
+          const otherWins = this.windows.filter(w => w.id !== currWin.id && w.el);
+
+          const onMove = ev => {
+            let pL = initL + (ev.clientX - startX);
+            let pT = initT + (ev.clientY - startY);
+
+            let snapX = null;
+            let snapY = null;
+
+            // 1. Magnetic Flush Snapping with other windows
+            for (const other of otherWins) {
+              const oL = other.el.offsetLeft;
+              const oT = other.el.offsetTop;
+              const oW = other.el.offsetWidth;
+              const oH = other.el.offsetHeight;
+              const oR = oL + oW;
+              const oB = oT + oH;
+
+              // Horizontal Flush Snaps
+              if (Math.abs(pL - oR) < this.snapThreshold) {
+                pL = oR; snapX = oR;
+              } else if (Math.abs((pL + w) - oL) < this.snapThreshold) {
+                pL = oL - w; snapX = oL;
+              } else if (Math.abs(pL - oL) < this.snapThreshold) {
+                pL = oL; snapX = oL;
+              } else if (Math.abs((pL + w) - oR) < this.snapThreshold) {
+                pL = oR - w; snapX = oR;
+              }
+
+              // Vertical Flush Snaps
+              if (Math.abs(pT - oB) < this.snapThreshold) {
+                pT = oB; snapY = oB;
+              } else if (Math.abs((pT + h) - oT) < this.snapThreshold) {
+                pT = oT - h; snapY = oT;
+              } else if (Math.abs(pT - oT) < this.snapThreshold) {
+                pT = oT; snapY = oT;
+              } else if (Math.abs((pT + h) - oB) < this.snapThreshold) {
+                pT = oB - h; snapY = oB;
+              }
+            }
+
+            // 2. Magnetic Snaps to Workspace Bounds
+            const toolboxW = 40;
+            if (Math.abs(pL - toolboxW) < this.snapThreshold) { pL = toolboxW; snapX = toolboxW; }
+            if (Math.abs(pT - 0) < this.snapThreshold) { pT = 0; snapY = 0; }
+            if (Math.abs((pL + w) - maxW) < this.snapThreshold) { pL = maxW - w; snapX = maxW; }
+            if (Math.abs((pT + h) - maxH) < this.snapThreshold) { pT = maxH - h; snapY = maxH; }
+
+            el.style.left = `${pL}px`;
+            el.style.top = `${pT}px`;
+
+            if (guideV) {
+              if (snapX !== null) {
+                guideV.classList.remove('hidden');
+                guideV.style.left = `${snapX}px`;
+              } else {
+                guideV.classList.add('hidden');
+              }
+            }
+            if (guideH) {
+              if (snapY !== null) {
+                guideH.classList.remove('hidden');
+                guideH.style.top = `${snapY}px`;
+              } else {
+                guideH.classList.add('hidden');
+              }
+            }
+          };
+
+          const onUp = () => {
+            if (guideH) guideH.classList.add('hidden');
+            if (guideV) guideV.classList.add('hidden');
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            this.app.handleResize();
+          };
+
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+      });
+    }
+  }
+
+  // ==========================================================================
+  // 19. Main Application Controller (Decoupled Loop, Anti-Lag, Web Studio)
   // ==========================================================================
   class App {
     constructor() {
@@ -4466,7 +4829,6 @@
       this.moduleEngine = new ModuleEngine(this.doc);
       this.pluginManager = new PluginManager();
       this.isNodeMode = false;
-      this.floatingPanels = new Set();
 
       // Setup Tools with Decoupled Canvas Repaint vs History Commit
       this.tools = new DrawingTools(
@@ -4485,25 +4847,25 @@
       this.toolbox = new ToolboxUI(document.getElementById('leftToolbox'), this.tools, () => this.refreshUI());
       this.optionBar = new ToolOptionBarUI(document.getElementById('toolOptionBar'), this.tools, () => this.refreshUI());
       this.layersUI = new LayersPanelUI(document.getElementById('layersContainer'), this.doc, {
-        onUpdate: () => this.refreshUI(),
-        onToggleFloat: id => this.toggleFloatPanel(id)
+        onUpdate: () => this.refreshUI()
       });
       this.inspector = new InspectorPanelUI(document.getElementById('inspectorContainer'), this.doc, {
         onCanvasRender: () => this.renderCanvas(),
-        onUpdate: () => this.refreshUI(),
-        onToggleFloat: id => this.toggleFloatPanel(id)
+        onUpdate: () => this.refreshUI()
       });
       this.timeline = new TimelineUI(document.getElementById('bottomTimeline'), this.doc, {
         onSeek: () => this.renderCanvas(),
-        onTogglePreview: () => this.togglePreview(),
-        onToggleFloat: id => this.toggleFloatPanel(id),
-        get isPreview() { return window.jspenApp?.renderer.mode === 'preview'; }
+        onTogglePreview: () => this.openWebPreviewWindow(),
+        get isPreview() { return false; }
       });
       this.menuBar = new MenuBarUI(document.getElementById('topMenuBar'), this.doc, {
         onExport: () => this.exportModal.show(),
         onOpenSettings: () => this.settingsModal.show(),
         onToggleNodeMode: () => this.toggleNodeMode(),
         onResetLayout: () => this.resetLayout(),
+        onWebPreview: () => this.openWebPreviewWindow(),
+        onWebExport: () => this.exportWebsiteFiles(),
+        onCanvasResize: () => { this.handleResize(); this.refreshUI(); },
         onUpdate: () => this.refreshUI(),
         get isNodeMode() { return window.jspenApp?.isNodeMode; }
       });
@@ -4519,22 +4881,10 @@
         onToggleNodeMode: () => this.toggleNodeMode()
       });
 
+      this.windowManager = new WindowManager(this);
       this.handleResize();
       this.initEvents();
-      this.initSplitters();
-      this.initPanelSnapping();
       this.startLoop();
-    }
-
-    togglePreview() {
-      const isPrev = this.renderer.mode === 'preview';
-      this.renderer.mode = isPrev ? 'edit' : 'preview';
-      if (this.renderer.mode === 'preview') {
-        this.moduleEngine.start();
-      } else {
-        this.moduleEngine.stop();
-      }
-      this.renderCanvas();
     }
 
     toggleNodeMode() {
@@ -4550,146 +4900,216 @@
       this.menuBar.render();
     }
 
-    toggleFloatPanel(panelName) {
-      const idMap = {
-        inspector: '#inspectorContainer',
-        layers: '#layersContainer',
-        timeline: '#bottomTimeline',
-        toolbox: '#leftToolbox'
-      };
-      const el = document.querySelector(idMap[panelName]);
-      if (!el) return;
-
-      const isFloat = this.floatingPanels.has(panelName);
-      if (isFloat) {
-        this.dockPanel(panelName);
-      } else {
-        this.floatPanel(panelName, 220, 100);
-      }
-    }
-
-    floatPanel(panelName, x = 200, y = 100) {
-      const idMap = {
-        inspector: '#inspectorContainer',
-        layers: '#layersContainer',
-        timeline: '#bottomTimeline',
-        toolbox: '#leftToolbox'
-      };
-      const el = document.querySelector(idMap[panelName]);
-      if (!el) return;
-
-      this.floatingPanels.add(panelName);
-      el.classList.add('is-floating');
-      el.style.left = `${x}px`;
-      el.style.top = `${y}px`;
-      if (panelName === 'inspector') { el.style.width = '300px'; el.style.height = '420px'; }
-      else if (panelName === 'layers') { el.style.width = '300px'; el.style.height = '420px'; }
-      else if (panelName === 'timeline') { el.style.width = '700px'; el.style.height = '240px'; }
-      else if (panelName === 'toolbox') { el.style.width = '50px'; el.style.height = '480px'; }
-      this.handleResize();
-    }
-
-    dockPanel(panelName, zone = null) {
-      const idMap = {
-        inspector: '#inspectorContainer',
-        layers: '#layersContainer',
-        timeline: '#bottomTimeline',
-        toolbox: '#leftToolbox'
-      };
-      const el = document.querySelector(idMap[panelName]);
-      if (!el) return;
-
-      this.floatingPanels.delete(panelName);
-      el.classList.remove('is-floating');
-      el.style.left = '';
-      el.style.top = '';
-      el.style.width = '';
-      el.style.height = '';
-      this.handleResize();
-    }
-
     resetLayout() {
-      ['inspector', 'layers', 'timeline', 'toolbox'].forEach(p => this.dockPanel(p));
-      const rightDock = document.getElementById('rightDock');
-      if (rightDock) rightDock.style.width = '280px';
-      const inspSec = document.getElementById('inspectorContainer');
-      if (inspSec) { inspSec.style.height = ''; inspSec.style.flex = '1'; }
-      const tl = document.getElementById('bottomTimeline');
-      if (tl) tl.style.height = '180px';
+      this.windowManager.applyInitialLayout();
       this.handleResize();
       this.refreshUI();
     }
 
-    initPanelSnapping() {
-      const overlay = document.getElementById('snapZoneOverlay');
-      if (!overlay) return;
+    openWebPreviewWindow() {
+      const doc = this.doc;
+      const W = doc.width || 1440;
+      const H = doc.height || 900;
+      const bg = doc.transparentBackground ? 'transparent' : (doc.backgroundColor || '#ffffff');
 
-      const panelSelectors = [
-        { name: 'inspector', selector: '#inspectorContainer', header: '#inspectorContainer .ps-dock-header' },
-        { name: 'layers', selector: '#layersContainer', header: '#layersContainer .ps-dock-header' },
-        { name: 'timeline', selector: '#bottomTimeline', header: '#bottomTimeline .timeline-header' },
-        { name: 'toolbox', selector: '#leftToolbox', header: '#leftToolbox' }
-      ];
-
-      panelSelectors.forEach(({ name, selector, header }) => {
-        const headerEl = document.querySelector(header);
-        const panelEl = document.querySelector(selector);
-        if (!headerEl || !panelEl) return;
-
-        headerEl.addEventListener('mousedown', e => {
-          if (e.target.closest('button, input, select, .ps-win-btn')) return;
-          e.preventDefault();
-
-          const startX = e.clientX;
-          const startY = e.clientY;
-          let isDragging = false;
-          let grabOffsetX = 100, grabOffsetY = 15;
-
-          const onMove = ev => {
-            const dx = ev.clientX - startX;
-            const dy = ev.clientY - startY;
-
-            if (!isDragging && (Math.hypot(dx, dy) > 6)) {
-              isDragging = true;
-              if (!this.floatingPanels.has(name)) {
-                this.floatPanel(name, ev.clientX - grabOffsetX, ev.clientY - grabOffsetY);
-              }
-              overlay.classList.remove('hidden');
-            }
-
-            if (isDragging) {
-              panelEl.style.left = `${ev.clientX - grabOffsetX}px`;
-              panelEl.style.top = `${ev.clientY - grabOffsetY}px`;
-
-              // Check snap zones
-              overlay.querySelectorAll('.snap-indicator').forEach(ind => {
-                const r = ind.getBoundingClientRect();
-                const inside = ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
-                ind.classList.toggle('active', inside);
-              });
-            }
-          };
-
-          const onUp = ev => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-
-            if (isDragging) {
-              overlay.classList.add('hidden');
-              const activeZone = overlay.querySelector('.snap-indicator.active');
-              if (activeZone) {
-                const z = activeZone.dataset.zone;
-                activeZone.classList.remove('active');
-                this.dockPanel(name, z);
-              }
-              this.handleResize();
-            }
-          };
-
-          window.addEventListener('mousemove', onMove);
-          window.addEventListener('mouseup', onUp);
+      let elementsHtml = '';
+      const allSprites = [];
+      doc.layers.forEach((layer, lIdx) => {
+        if (!layer.visible) return;
+        layer.sprites.forEach((sprite, sIdx) => {
+          if (!sprite.visible) return;
+          allSprites.push({ layer, sprite, z: lIdx * 100 + sIdx });
         });
       });
+      allSprites.sort((a, b) => a.z - b.z);
+
+      allSprites.forEach(({ sprite, z }) => {
+        const tag = sprite.tag || 'div';
+        const isBtn = tag === 'button';
+        const isLink = tag === 'a' || !!sprite.linkUrl;
+        const hrefAttr = sprite.linkUrl ? `href="${sprite.linkUrl}" target="_blank"` : '';
+        const hoverCls = sprite.hoverEffect && sprite.hoverEffect !== 'none' ? `hover-${sprite.hoverEffect}` : '';
+        const cursorStyle = (isBtn || isLink) ? 'cursor:pointer;' : '';
+
+        let innerContent = '';
+        if (sprite.type === 'text') {
+          innerContent = sprite.text || '';
+        } else if (sprite.type === 'image' && sprite.imageUrl) {
+          innerContent = `<img src="${sprite.imageUrl}" style="width:100%;height:100%;object-fit:cover;display:block;" />`;
+        }
+
+        const borderRadius = sprite.type === 'circle' ? '50%' : `${sprite.cornerRadius || 0}px`;
+        const fill = sprite.fill || '#38bdf8';
+        const stroke = (sprite.strokeWidth && sprite.strokeWidth > 0) ? `${sprite.strokeWidth}px solid ${sprite.stroke}` : 'none';
+
+        elementsHtml += `
+          <${tag} class="web-sprite ${hoverCls}" id="${sprite.id}" ${hrefAttr} style="
+            position: absolute;
+            left: ${sprite.x}px;
+            top: ${sprite.y}px;
+            width: ${sprite.width}px;
+            height: ${sprite.height}px;
+            transform: rotate(${sprite.rotation || 0}deg) scale(${sprite.scaleX || 1}, ${sprite.scaleY || 1});
+            transform-origin: center center;
+            opacity: ${sprite.opacity !== undefined ? sprite.opacity : 1};
+            background: ${fill};
+            border: ${stroke};
+            border-radius: ${borderRadius};
+            z-index: ${z};
+            ${cursorStyle}
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-family: ${sprite.fontFamily || 'sans-serif'};
+            font-size: ${sprite.fontSize || 16}px;
+            font-weight: ${sprite.fontWeight || 'normal'};
+            text-align: ${sprite.textAlign || 'center'};
+            user-select: none;
+            text-decoration: none;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          ">${innerContent}</${tag}>
+        `;
+      });
+
+      const previewHtml = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${doc.name} - 웹사이트 라이브 미리보기</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #09090b;
+      color: #f4f4f5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+    .preview-bar {
+      height: 42px;
+      background: #141416;
+      border-bottom: 1px solid #28282c;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      position: sticky;
+      top: 0;
+      z-index: 9999;
+    }
+    .preview-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 11px;
+    }
+    .preview-badge {
+      background: #28282e;
+      color: #e4e4e7;
+      padding: 2px 6px;
+      border-radius: 2px;
+      font-weight: 700;
+      font-size: 10px;
+    }
+    .viewport-switchers {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .vp-btn {
+      background: #1f1f23;
+      border: 1px solid #333338;
+      color: #a1a1aa;
+      padding: 4px 10px;
+      border-radius: 2px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .vp-btn:hover, .vp-btn.active {
+      background: #28282e;
+      color: #ffffff;
+      border-color: #52525b;
+    }
+    .stage-wrapper {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: #0d0d0f;
+    }
+    #webArtboard {
+      position: relative;
+      width: ${W}px;
+      height: ${H}px;
+      background: ${bg};
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8), 0 0 0 1px #28282c;
+      overflow: hidden;
+      transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .hover-lift:hover {
+      transform: translateY(-6px) scale(1.02) !important;
+      box-shadow: 0 12px 28px rgba(0,0,0,0.4);
+    }
+    .hover-zoom:hover {
+      transform: scale(1.06) !important;
+    }
+    .hover-glow:hover {
+      box-shadow: 0 0 20px rgba(255, 255, 255, 0.35);
+    }
+    .hover-fade:hover {
+      opacity: 0.75 !important;
+    }
+  </style>
+</head>
+<body>
+  <header class="preview-bar">
+    <div class="preview-info">
+      <span class="preview-badge">LIVE WEB PREVIEW</span>
+      <span>${doc.name} (${W} × ${H})</span>
+    </div>
+    <div class="viewport-switchers">
+      <button class="vp-btn active" onclick="setVp(${W}, ${H}, this)">🖥️ 데스크톱 (${W}px)</button>
+      <button class="vp-btn" onclick="setVp(1024, 768, this)">💻 랩탑 (1024px)</button>
+      <button class="vp-btn" onclick="setVp(768, 1024, this)">📱 태블릿 (768px)</button>
+      <button class="vp-btn" onclick="setVp(375, 812, this)">📱 모바일 (375px)</button>
+    </div>
+  </header>
+  <main class="stage-wrapper">
+    <div id="webArtboard">
+      ${elementsHtml}
+    </div>
+  </main>
+  <script>
+    function setVp(w, h, btn) {
+      document.querySelectorAll('.vp-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const ab = document.getElementById('webArtboard');
+      ab.style.width = w + 'px';
+      if (h) ab.style.height = h + 'px';
+    }
+  </script>
+</body>
+</html>`;
+
+      const blob = new Blob([previewHtml], { type: 'text/html;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
+      const previewWin = window.open(blobUrl, '_blank', 'width=1500,height=960');
+      if (!previewWin || previewWin.closed) {
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.target = '_blank';
+        a.click();
+      }
+    }
+
+    exportWebsiteFiles() {
+      this.openWebPreviewWindow();
     }
 
     renderCanvas() {
@@ -4724,56 +5144,6 @@
       this.renderCanvas();
     }
 
-    initSplitters() {
-      const splitH = document.getElementById('dockSplitterH');
-      const rightDock = document.getElementById('rightDock');
-      if (splitH && rightDock) {
-        splitH.addEventListener('mousedown', e => {
-          e.preventDefault();
-          const startX = e.clientX;
-          const startW = rightDock.offsetWidth;
-          splitH.classList.add('dragging');
-
-          const onMove = ev => {
-            const newW = Math.max(220, Math.min(600, startW - (ev.clientX - startX)));
-            rightDock.style.width = `${newW}px`;
-            this.handleResize();
-          };
-          const onUp = () => {
-            splitH.classList.remove('dragging');
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-          };
-          window.addEventListener('mousemove', onMove);
-          window.addEventListener('mouseup', onUp);
-        });
-      }
-
-      const splitV = document.getElementById('dockSplitterV');
-      const inspSec = document.getElementById('inspectorContainer');
-      if (splitV && inspSec) {
-        splitV.addEventListener('mousedown', e => {
-          e.preventDefault();
-          const startY = e.clientY;
-          const startH = inspSec.offsetHeight;
-          splitV.classList.add('dragging');
-
-          const onMove = ev => {
-            const newH = Math.max(120, Math.min(800, startH + (ev.clientY - startY)));
-            inspSec.style.height = `${newH}px`;
-            inspSec.style.flex = 'none';
-          };
-          const onUp = () => {
-            splitV.classList.remove('dragging');
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-          };
-          window.addEventListener('mousemove', onMove);
-          window.addEventListener('mouseup', onUp);
-        });
-      }
-    }
-
     initEvents() {
       let isPanning = false, panStart = { x: 0, y: 0 }, initPan = { x: 0, y: 0 };
       let ms = { x: 0, y: 0 }, mw = { x: 0, y: 0 }, isDown = false;
@@ -4781,9 +5151,12 @@
       const loupeSwatch = document.getElementById('loupeSwatch');
       const loupeHex = document.getElementById('loupeHex');
 
-      window.addEventListener('resize', () => this.handleResize());
+      window.addEventListener('resize', () => {
+        this.handleResize();
+        this.windowManager.attachResizeHandles();
+      });
 
-      // 1. BLOCK BROWSER PAGE ZOOM ON CTRL + MOUSE WHEEL
+      // BLOCK BROWSER PAGE ZOOM ON CTRL + MOUSE WHEEL
       window.addEventListener('wheel', e => {
         if (e.ctrlKey) {
           e.preventDefault();
@@ -4803,8 +5176,6 @@
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         mw = this.renderer.screenToWorld(ms.x, ms.y);
         isDown = true;
-
-        if (this.renderer.mode === 'preview') return;
 
         if (this.tools.activeTool === 'hand' || e.spaceKey || e.button === 1) {
           isPanning = true;
@@ -4840,44 +5211,40 @@
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         mw = this.renderer.screenToWorld(ms.x, ms.y);
 
-        if (this.renderer.mode === 'preview') {
-          const m = this.moduleEngine.bus.mouse;
-          m.x = mw.x; m.y = mw.y; m.rawX = ms.x; m.rawY = ms.y;
-          return;
-        }
-
-        // Eyedropper Live Loupe Swatch
         if (this.tools.activeTool === 'eyedropper' && loupe) {
-          loupe.classList.remove('hidden');
-          loupe.style.left = `${e.clientX + 16}px`;
-          loupe.style.top = `${e.clientY + 16}px`;
-          const hex = this.renderer.samplePixelColor(ms.x, ms.y);
-          if (loupeSwatch) loupeSwatch.style.background = hex;
-          if (loupeHex) loupeHex.textContent = hex;
-        } else if (loupe && !loupe.classList.contains('hidden')) {
+          const pixel = this.renderer.getPixelColor(ms.x, ms.y);
+          if (pixel) {
+            loupe.classList.remove('hidden');
+            loupe.style.left = `${e.clientX + 16}px`;
+            loupe.style.top = `${e.clientY + 16}px`;
+            loupeSwatch.style.backgroundColor = pixel.hex;
+            loupeHex.textContent = pixel.hex.toUpperCase();
+          }
+        } else if (loupe) {
           loupe.classList.add('hidden');
         }
 
+        if (!isDown) return;
+
         if (isPanning) {
-          this.renderer.panX = initPan.x + (e.clientX - panStart.x);
-          this.renderer.panY = initPan.y + (e.clientY - panStart.y);
+          const dx = e.clientX - panStart.x;
+          const dy = e.clientY - panStart.y;
+          this.renderer.panX = initPan.x + dx;
+          this.renderer.panY = initPan.y + dy;
           this.renderCanvas();
           return;
         }
 
         if (this.transformBox.mode) {
-          this.transformBox.drag(mw.x, mw.y, e.shiftKey, e.altKey);
+          this.transformBox.drag(mw.x, mw.y);
           return;
         }
 
-        if (isDown) {
-          this.tools.handleMouseMove(mw.x, mw.y, e);
-        }
+        this.tools.handleMouseMove(mw.x, mw.y);
       });
 
-      window.addEventListener('mouseup', e => {
+      window.addEventListener('mouseup', () => {
         isDown = false;
-        if (this.renderer.mode === 'preview') return;
         if (isPanning) isPanning = false;
         if (this.transformBox.mode) {
           this.transformBox.endDrag();
@@ -4886,32 +5253,65 @@
         this.tools.handleMouseUp(mw.x, mw.y);
       });
 
-      // Global Keydown Shortcuts
+      // Global Keydown Shortcuts - Undo / Redo FIRST!
       window.addEventListener('keydown', e => {
         const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
 
-        // 1. Ctrl + Space: Instant Live Preview Toggle
+        // 1. UNDO: Ctrl+Z / Cmd+Z (without Shift)
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+          if (!isInput) {
+            e.preventDefault();
+            if (this.doc.undo()) {
+              this.refreshUI();
+              if (this.isNodeMode) {
+                this.nodeEditor.syncFromDoc();
+                this.nodeEditor.render();
+              }
+            }
+            return;
+          }
+        }
+
+        // 2. REDO: Ctrl+Y / Cmd+Y or Ctrl+Shift+Z / Cmd+Shift+Z
+        if (
+          ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) ||
+          ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z'))
+        ) {
+          if (!isInput) {
+            e.preventDefault();
+            if (this.doc.redo()) {
+              this.refreshUI();
+              if (this.isNodeMode) {
+                this.nodeEditor.syncFromDoc();
+                this.nodeEditor.render();
+              }
+            }
+            return;
+          }
+        }
+
+        // 3. Ctrl + Space: Live Web Preview in New Window
         if (e.ctrlKey && e.code === 'Space') {
           e.preventDefault();
-          this.togglePreview();
+          this.openWebPreviewWindow();
           return;
         }
 
-        // 2. Shift + Tab: Toggle Module Node Mode
+        // 4. Shift + Tab: Toggle Module Node Mode
         if (e.shiftKey && e.key === 'Tab') {
           e.preventDefault();
           this.toggleNodeMode();
           return;
         }
 
-        // 3. F2: Inline Rename
+        // 5. F2: Inline Rename
         if (e.key === 'F2') {
           e.preventDefault();
           this.layersUI.startRenameSelected();
           return;
         }
 
-        // 4. Ctrl + A: Select All
+        // 6. Ctrl + A: Select All
         if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A') && !isInput) {
           e.preventDefault();
           this.doc.selectAll();
@@ -4919,7 +5319,7 @@
           return;
         }
 
-        // 5. Ctrl + , : Settings
+        // 7. Ctrl + , : Settings
         if ((e.ctrlKey || e.metaKey) && e.key === ',') {
           e.preventDefault();
           this.settingsModal.show();
@@ -4928,7 +5328,7 @@
 
         if (isInput) return;
 
-        // Tool Hotkeys
+        // Tool Hotkeys (Evaluated ONLY after modifiers)
         const k = e.key.toLowerCase();
         if (k === 'v') this.tools.setTool('move');
         else if (k === 'a') this.tools.setTool('direct');
@@ -4943,8 +5343,6 @@
         else if (e.ctrlKey && k === 'e') { e.preventDefault(); this.exportModal.show(); }
         else if (e.ctrlKey && k === 's') { e.preventDefault(); document.title = 'cmd:save'; setTimeout(() => { document.title = 'JSPen Studio'; }, 100); }
         else if (e.ctrlKey && k === 'o') { e.preventDefault(); document.title = 'cmd:open'; setTimeout(() => { document.title = 'JSPen Studio'; }, 100); }
-        else if (e.ctrlKey && k === 'z') { e.preventDefault(); if (this.doc.undo()) this.refreshUI(); }
-        else if (e.ctrlKey && k === 'y') { e.preventDefault(); if (this.doc.redo()) this.refreshUI(); }
       });
     }
 
@@ -4956,7 +5354,6 @@
         const dt = Math.min((now - last) / 1000, 0.1);
         last = now;
 
-        // When Node Graph full screen mode is active, pause canvas rendering for zero CPU usage!
         if (this.isNodeMode) {
           requestAnimationFrame(loop);
           return;
@@ -4968,34 +5365,17 @@
           while (frameAcc >= frameInterval) {
             frameAcc -= frameInterval;
             this.doc.stepFrame(1);
-            if (this.timeline) this.timeline.updatePlayheadPosition();
-            this.inspector.updateInputs(this.doc.getSelectedSprite());
           }
+          this.renderCanvas();
         }
 
-        if (this.renderer.mode === 'preview') {
-          const m = this.moduleEngine.bus.mouse;
-          this.moduleEngine.update(dt, m, m, m.isDown, m.clicked);
-          this.moduleEngine.bus.mouse.clicked = false;
-        }
-
-        this.renderer.render(
-          this.tools.activeTool,
-          this.transformBox,
-          this.tools.activePenPoints,
-          this.tools.activeGradientDrag,
-          this.tools.activeCurvePoints,
-          this.tools.shapeDragStart,
-          this.tools.shapeDragCurrent
-        );
         requestAnimationFrame(loop);
       };
       requestAnimationFrame(loop);
     }
   }
 
-  // Expose key modules for Native Python Bridge & Extensibility
-  window.PhotoshopJSExporter = PhotoshopJSExporter;
+  // Export to Global
   window.DocumentModel = DocumentModel;
   window.Layer = Layer;
   window.Sprite = Sprite;

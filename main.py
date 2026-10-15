@@ -14,10 +14,30 @@ from PyQt6.QtGui import QIcon, QKeySequence, QAction
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
 
-class DesktopCanvasPage(QWebEnginePage):
-    """Custom page disabling browser context menus and text drag artifacts."""
+class PreviewWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setWindowTitle("JSPen Web Preview - 인터랙티브 웹사이트 라이브 미리보기")
+        self.resize(1440, 900)
+        self.view = QWebEngineView(self)
+        self.setCentralWidget(self.view)
+        settings = self.view.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, True)
+
+class DesktopCanvasPage(QWebEnginePage):
+    """Custom page disabling browser context menus and handling window.open for web preview."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.preview_windows = []
+
+    def createWindow(self, type_):
+        win = PreviewWindow(self.view().window() if self.view() else None)
+        self.preview_windows.append(win)
+        win.show()
+        return win.view.page()
 
     # Disable default browser right-click menu (Inspect, Reload, etc.)
     def createStandardContextMenu(self):
