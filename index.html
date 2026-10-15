@@ -53,16 +53,30 @@
         </div>
       </section>
 
+      <!-- Krita Bottom Dock Splitter -->
+      <div id="kritaSplitterBottom" class="krita-splitter-h"></div>
+
+      <!-- Krita Bottom Dock Row -->
+      <div id="kritaDockBottom" class="krita-dock-row">
+        <section id="bottomTimeline" class="krita-docker"></section>
+      </div>
     </div>
 
-    <!-- Floating, Edge/Corner Resizable & Snapping Workstation Panels -->
-    <section id="inspectorContainer" class="ps-window"></section>
-    <section id="layersContainer" class="ps-window"></section>
-    <section id="bottomTimeline" class="ps-window"></section>
+    <!-- Krita Right Dock Splitter -->
+    <div id="kritaSplitterRight" class="krita-splitter-v"></div>
 
-    <!-- Magnetic Snap Guidelines -->
-    <div id="snapGuideH" class="snap-guide-line snap-guide-h hidden"></div>
-    <div id="snapGuideV" class="snap-guide-line snap-guide-v hidden"></div>
+    <!-- Krita Right Dock Column -->
+    <aside id="kritaDockRight" class="krita-dock-column">
+      <section id="inspectorContainer" class="krita-docker"></section>
+      <div id="kritaSplitterRightInner" class="krita-splitter-h"></div>
+      <section id="layersContainer" class="krita-docker"></section>
+    </aside>
+
+    <!-- Floating Panels Container (When Detached/Floating) -->
+    <div id="kritaFloatingLayer"></div>
+
+    <!-- Krita Interactive Drop Preview Outline -->
+    <div id="kritaDropPreview" class="krita-drop-preview hidden"></div>
   </div>
 
   <!-- Floating Eyedropper Loupe Swatch -->

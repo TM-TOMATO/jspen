@@ -2367,7 +2367,6 @@
             while (existingGroups.has(String(gNum))) { gNum++; }
             targetGroup = String(gNum);
 
-            // Find other unlinked sprite to join or link together
             const allSprites = this.doc.layers.flatMap(ly => ly.sprites);
             const otherSprite = allSprites.find(sp => sp.id !== sprite.id);
             if (otherSprite && !otherSprite.linkGroup) {
@@ -3526,13 +3525,11 @@
         params: {}
       });
 
-      // Determine target sprite(s) for Node Mode:
       const selSprite = this.doc.getSelectedSprite();
       let targetSprites = [];
 
       if (selSprite) {
         if (selSprite.linkGroup) {
-          // Linked group: cluster all sprites with the same linkGroup
           for (const ly of this.doc.layers) {
             for (const sp of ly.sprites) {
               if (sp.linkGroup === selSprite.linkGroup && !targetSprites.some(ts => ts.id === sp.id)) {
@@ -3541,11 +3538,9 @@
             }
           }
         } else {
-          // Isolated single sprite
           targetSprites = [selSprite];
         }
       } else {
-        // Fallback: pick the first sprite in doc if any
         for (const ly of this.doc.layers) {
           if (ly.sprites.length > 0) {
             targetSprites = [ly.sprites[0]];
@@ -3554,7 +3549,6 @@
         }
       }
 
-      // Update Node Editor header badge
       const descEl = this.container.querySelector('.ne-desc');
       if (descEl) {
         if (targetSprites.length > 0) {
@@ -4579,241 +4573,447 @@
   // 18. Main Application Controller
   // ==========================================================================
   // ==========================================================================
-  // 18. Workstation Window Manager (8-Handle Edge/Corner Resize, Magnetic Flush Snapping)
+  // 18. Krita Docker Manager (Dock, Tear-Off Float, Drop Previews, Splitters)
   // ==========================================================================
-  class WindowManager {
+  class KritaDockerManager {
     constructor(app) {
       this.app = app;
-      this.snapThreshold = 14;
-      this.windows = [
-        { id: 'inspector', el: document.getElementById('inspectorContainer') },
-        { id: 'layers', el: document.getElementById('layersContainer') },
-        { id: 'timeline', el: document.getElementById('bottomTimeline') }
-      ];
+      this.dockers = {
+        inspector: {
+          id: 'inspector',
+          title: '속성 (Inspector)',
+          el: document.getElementById('inspectorContainer'),
+          state: 'docked', // 'docked' or 'floating'
+          dockArea: 'right', // 'right' or 'bottom'
+          dockSlot: 'top', // 'top' or 'bottom'
+          floatingRect: { x: window.innerWidth - 320, y: 70, w: 290, h: 420 },
+          collapsed: false
+        },
+        layers: {
+          id: 'layers',
+          title: '레이어 (Layers)',
+          el: document.getElementById('layersContainer'),
+          state: 'docked',
+          dockArea: 'right',
+          dockSlot: 'bottom',
+          floatingRect: { x: window.innerWidth - 320, y: 500, w: 290, h: 360 },
+          collapsed: false
+        },
+        timeline: {
+          id: 'timeline',
+          title: '타임라인 (Timeline)',
+          el: document.getElementById('bottomTimeline'),
+          state: 'docked',
+          dockArea: 'bottom',
+          dockSlot: 'bottom',
+          floatingRect: { x: 50, y: window.innerHeight - 240, w: 760, h: 220 },
+          collapsed: false
+        }
+      };
+
+      this.activeTabRight = 'inspector';
+      this.activeDropTarget = null;
       this.init();
     }
 
     init() {
-      this.applyInitialLayout();
-      this.attachResizeHandles();
-      this.attachDragSnapping();
+      this.renderDockers();
+      this.bindTitlebars();
+      this.bindSplitters();
+      this.attachFloatingResizeHandles();
     }
 
-    applyInitialLayout() {
-      const ws = document.getElementById('psWorkspace');
-      if (!ws) return;
-      const W = ws.clientWidth || window.innerWidth;
-      const H = ws.clientHeight || (window.innerHeight - 70);
+    renderDockers() {
+      const rightCol = document.getElementById('kritaDockRight');
+      const bottomRow = document.getElementById('kritaDockBottom');
+      const floatLayer = document.getElementById('kritaFloatingLayer');
+      const splitRight = document.getElementById('kritaSplitterRight');
+      const splitInner = document.getElementById('kritaSplitterRightInner');
+      const splitBottom = document.getElementById('kritaSplitterBottom');
 
-      // 1. Inspector at Top Right
-      const insp = document.getElementById('inspectorContainer');
-      if (insp) {
-        insp.classList.add('ps-window');
-        insp.style.left = `${Math.max(60, W - 290)}px`;
-        insp.style.top = '8px';
-        insp.style.width = '280px';
-        insp.style.height = `${Math.min(380, Math.floor((H - 24) * 0.48))}px`;
-      }
+      const rightDockers = Object.values(this.dockers).filter(d => d.state === 'docked' && d.dockArea === 'right');
+      const bottomDockers = Object.values(this.dockers).filter(d => d.state === 'docked' && d.dockArea === 'bottom');
+      const floatingDockers = Object.values(this.dockers).filter(d => d.state === 'floating');
 
-      // 2. Layers directly snapped below Inspector
-      const layers = document.getElementById('layersContainer');
-      if (layers) {
-        layers.classList.add('ps-window');
-        const topOff = insp ? (insp.offsetTop + insp.offsetHeight + 6) : 396;
-        layers.style.left = `${Math.max(60, W - 290)}px`;
-        layers.style.top = `${topOff}px`;
-        layers.style.width = '280px';
-        layers.style.height = `${Math.max(180, H - topOff - 10)}px`;
-      }
+      // 1. Right Dock
+      if (rightDockers.length > 0) {
+        if (rightCol) rightCol.classList.remove('hidden');
+        if (splitRight) splitRight.classList.remove('hidden');
+        if (splitInner) splitInner.classList.toggle('hidden', rightDockers.length <= 1);
 
-      // 3. Timeline snapped to bottom
-      const tl = document.getElementById('bottomTimeline');
-      if (tl) {
-        tl.classList.add('ps-window');
-        tl.style.left = '48px';
-        tl.style.top = `${Math.max(100, H - 188)}px`;
-        tl.style.width = `${Math.max(300, W - 348)}px`;
-        tl.style.height = '180px';
-      }
-    }
-
-    attachResizeHandles() {
-      const handles = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'];
-      this.windows.forEach(win => {
-        const el = win.el;
-        if (!el) return;
-
-        el.querySelectorAll('.win-resize-handle').forEach(h => h.remove());
-
-        handles.forEach(dir => {
-          const h = document.createElement('div');
-          h.className = `win-resize-handle handle-${dir}`;
-          el.appendChild(h);
-
-          h.addEventListener('mousedown', e => {
-            e.preventDefault();
-            e.stopPropagation();
-
-            const startX = e.clientX;
-            const startY = e.clientY;
-            const startLeft = el.offsetLeft;
-            const startTop = el.offsetTop;
-            const startW = el.offsetWidth;
-            const startH = el.offsetHeight;
-
-            const onMove = ev => {
-              const dx = ev.clientX - startX;
-              const dy = ev.clientY - startY;
-
-              let newW = startW;
-              let newH = startH;
-              let newL = startLeft;
-              let newT = startTop;
-
-              if (dir.includes('e')) newW = Math.max(200, startW + dx);
-              if (dir.includes('w')) {
-                newW = Math.max(200, startW - dx);
-                newL = startLeft + (startW - newW);
-              }
-              if (dir.includes('s')) newH = Math.max(100, startH + dy);
-              if (dir.includes('n')) {
-                newH = Math.max(100, startH - dy);
-                newT = startTop + (startH - newH);
-              }
-
-              el.style.left = `${newL}px`;
-              el.style.top = `${newT}px`;
-              el.style.width = `${newW}px`;
-              el.style.height = `${newH}px`;
-
-              if (win.id === 'timeline' && this.app.timeline) {
-                this.app.timeline.renderCanvases();
-              }
-            };
-
-            const onUp = () => {
-              window.removeEventListener('mousemove', onMove);
-              window.removeEventListener('mouseup', onUp);
-              this.app.handleResize();
-            };
-
-            window.addEventListener('mousemove', onMove);
-            window.addEventListener('mouseup', onUp);
-          });
+        rightDockers.forEach(d => {
+          if (d.el && rightCol) {
+            rightCol.appendChild(d.el);
+            d.el.classList.remove('is-floating');
+            d.el.style.position = '';
+            d.el.style.left = '';
+            d.el.style.top = '';
+            d.el.style.width = '';
+            d.el.style.display = 'flex';
+            d.el.classList.add('docked-flex');
+            if (d.collapsed) {
+              d.el.style.height = '32px';
+              d.el.style.flex = 'none';
+            } else {
+              d.el.style.height = '';
+              d.el.style.flex = '1';
+            }
+          }
         });
+      } else {
+        if (rightCol) rightCol.classList.add('hidden');
+        if (splitRight) splitRight.classList.add('hidden');
+      }
+
+      // 2. Bottom Dock
+      if (bottomDockers.length > 0) {
+        if (bottomRow) bottomRow.classList.remove('hidden');
+        if (splitBottom) splitBottom.classList.remove('hidden');
+        bottomDockers.forEach(d => {
+          if (d.el && bottomRow) {
+            bottomRow.appendChild(d.el);
+            d.el.classList.remove('is-floating');
+            d.el.style.position = '';
+            d.el.style.left = '';
+            d.el.style.top = '';
+            d.el.style.width = '';
+            d.el.style.display = 'flex';
+            d.el.classList.add('docked-flex');
+            if (d.collapsed) {
+              d.el.style.height = '35px';
+              d.el.style.flex = 'none';
+            } else {
+              d.el.style.height = '';
+              d.el.style.flex = '1';
+            }
+          }
+        });
+      } else {
+        if (bottomRow) bottomRow.classList.add('hidden');
+        if (splitBottom) splitBottom.classList.add('hidden');
+      }
+
+      // 3. Floating Layer
+      floatingDockers.forEach(d => {
+        if (d.el && floatLayer) {
+          floatLayer.appendChild(d.el);
+          d.el.classList.add('is-floating');
+          d.el.classList.remove('docked-flex');
+          d.el.style.display = 'flex';
+          d.el.style.position = 'absolute';
+          d.el.style.left = `${d.floatingRect.x}px`;
+          d.el.style.top = `${d.floatingRect.y}px`;
+          d.el.style.width = `${d.floatingRect.w}px`;
+          d.el.style.height = d.collapsed ? '32px' : `${d.floatingRect.h}px`;
+        }
       });
+
+      this.attachFloatingResizeHandles();
+      this.app.handleResize();
     }
 
-    attachDragSnapping() {
-      const guideH = document.getElementById('snapGuideH');
-      const guideV = document.getElementById('snapGuideV');
+    bindTitlebars() {
+      const ws = document.getElementById('psWorkspace');
+      const preview = document.getElementById('kritaDropPreview');
+      if (!ws) return;
 
-      this.windows.forEach(currWin => {
-        const el = currWin.el;
+      Object.values(this.dockers).forEach(docker => {
+        const el = docker.el;
         if (!el) return;
 
-        const header = el.querySelector('.ps-dock-header, .timeline-header, .ps-panel-header');
-        if (!header) return;
+        this.ensureTitlebar(docker);
 
-        header.style.cursor = 'move';
-        header.addEventListener('mousedown', e => {
+        const titlebar = el.querySelector('.krita-docker-titlebar, .timeline-header, .ps-dock-header');
+        if (!titlebar) return;
+
+        titlebar.addEventListener('mousedown', e => {
           if (e.target.closest('button, input, select, .ps-win-btn, .win-resize-handle')) return;
           e.preventDefault();
 
-          this.windows.forEach(w => { if (w.el) w.el.style.zIndex = '30'; });
-          el.style.zIndex = '45';
+          if (e.detail === 2) {
+            this.toggleFloat(docker.id);
+            return;
+          }
 
           const startX = e.clientX;
           const startY = e.clientY;
-          const initL = el.offsetLeft;
-          const initT = el.offsetTop;
-          const w = el.offsetWidth;
-          const h = el.offsetHeight;
-
-          const ws = document.getElementById('psWorkspace');
-          const maxW = ws ? ws.clientWidth : window.innerWidth;
-          const maxH = ws ? ws.clientHeight : window.innerHeight;
-
-          const otherWins = this.windows.filter(w => w.id !== currWin.id && w.el);
+          let isDragging = false;
+          let grabOffsetX = 100;
+          let grabOffsetY = 16;
 
           const onMove = ev => {
-            let pL = initL + (ev.clientX - startX);
-            let pT = initT + (ev.clientY - startY);
+            const dx = ev.clientX - startX;
+            const dy = ev.clientY - startY;
 
-            let snapX = null;
-            let snapY = null;
-
-            // 1. Magnetic Flush Snapping with other windows
-            for (const other of otherWins) {
-              const oL = other.el.offsetLeft;
-              const oT = other.el.offsetTop;
-              const oW = other.el.offsetWidth;
-              const oH = other.el.offsetHeight;
-              const oR = oL + oW;
-              const oB = oT + oH;
-
-              // Horizontal Flush Snaps
-              if (Math.abs(pL - oR) < this.snapThreshold) {
-                pL = oR; snapX = oR;
-              } else if (Math.abs((pL + w) - oL) < this.snapThreshold) {
-                pL = oL - w; snapX = oL;
-              } else if (Math.abs(pL - oL) < this.snapThreshold) {
-                pL = oL; snapX = oL;
-              } else if (Math.abs((pL + w) - oR) < this.snapThreshold) {
-                pL = oR - w; snapX = oR;
-              }
-
-              // Vertical Flush Snaps
-              if (Math.abs(pT - oB) < this.snapThreshold) {
-                pT = oB; snapY = oB;
-              } else if (Math.abs((pT + h) - oT) < this.snapThreshold) {
-                pT = oT - h; snapY = oT;
-              } else if (Math.abs(pT - oT) < this.snapThreshold) {
-                pT = oT; snapY = oT;
-              } else if (Math.abs((pT + h) - oB) < this.snapThreshold) {
-                pT = oB - h; snapY = oB;
-              }
+            if (!isDragging && Math.hypot(dx, dy) > 5) {
+              isDragging = true;
+              if (preview) preview.classList.remove('hidden');
             }
 
-            // 2. Magnetic Snaps to Workspace Bounds
-            const toolboxW = 40;
-            if (Math.abs(pL - toolboxW) < this.snapThreshold) { pL = toolboxW; snapX = toolboxW; }
-            if (Math.abs(pT - 0) < this.snapThreshold) { pT = 0; snapY = 0; }
-            if (Math.abs((pL + w) - maxW) < this.snapThreshold) { pL = maxW - w; snapX = maxW; }
-            if (Math.abs((pT + h) - maxH) < this.snapThreshold) { pT = maxH - h; snapY = maxH; }
+            if (isDragging) {
+              const wsRect = ws.getBoundingClientRect();
+              const mx = ev.clientX - wsRect.left;
+              const my = ev.clientY - wsRect.top;
+              const W = wsRect.width;
+              const H = wsRect.height;
 
-            el.style.left = `${pL}px`;
-            el.style.top = `${pT}px`;
+              let target = 'float';
+              let prevRect = null;
+              let label = '창 띄우기 (Float)';
 
-            if (guideV) {
-              if (snapX !== null) {
-                guideV.classList.remove('hidden');
-                guideV.style.left = `${snapX}px`;
-              } else {
-                guideV.classList.add('hidden');
+              // Right Dock Zones
+              if (mx > W - 280) {
+                if (my < H * 0.45) {
+                  target = 'right-top';
+                  prevRect = { left: W - 290, top: 4, width: 286, height: Math.floor(H * 0.48) };
+                  label = '우측 상단 도킹 (Dock Top)';
+                } else if (my < H - 80) {
+                  target = 'right-bottom';
+                  prevRect = { left: W - 290, top: Math.floor(H * 0.48) + 4, width: 286, height: Math.floor(H * 0.52) - 8 };
+                  label = '우측 하단 도킹 (Dock Bottom)';
+                }
               }
-            }
-            if (guideH) {
-              if (snapY !== null) {
-                guideH.classList.remove('hidden');
-                guideH.style.top = `${snapY}px`;
-              } else {
-                guideH.classList.add('hidden');
+              // Bottom Dock Zone
+              else if (my > H - 180 && mx > 40 && mx < W - 280) {
+                target = 'bottom';
+                prevRect = { left: 40, top: H - 190, width: W - 330, height: 186 };
+                label = '하단 도킹 (Dock Bottom)';
+              }
+
+              this.activeDropTarget = target;
+
+              if (preview) {
+                if (prevRect) {
+                  preview.style.display = 'flex';
+                  preview.style.left = `${prevRect.left}px`;
+                  preview.style.top = `${prevRect.top}px`;
+                  preview.style.width = `${prevRect.width}px`;
+                  preview.style.height = `${prevRect.height}px`;
+                  preview.textContent = label;
+                } else {
+                  preview.style.display = 'none';
+                }
+              }
+
+              if (docker.state === 'floating') {
+                el.style.left = `${ev.clientX - grabOffsetX}px`;
+                el.style.top = `${ev.clientY - grabOffsetY}px`;
               }
             }
           };
 
-          const onUp = () => {
-            if (guideH) guideH.classList.add('hidden');
-            if (guideV) guideV.classList.add('hidden');
+          const onUp = ev => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
-            this.app.handleResize();
+
+            if (preview) {
+              preview.classList.add('hidden');
+              preview.style.display = 'none';
+            }
+
+            if (isDragging) {
+              const target = this.activeDropTarget || 'float';
+              if (target === 'right-top') {
+                docker.state = 'docked';
+                docker.dockArea = 'right';
+                docker.dockSlot = 'top';
+              } else if (target === 'right-bottom') {
+                docker.state = 'docked';
+                docker.dockArea = 'right';
+                docker.dockSlot = 'bottom';
+              } else if (target === 'bottom') {
+                docker.state = 'docked';
+                docker.dockArea = 'bottom';
+                docker.dockSlot = 'bottom';
+              } else {
+                docker.state = 'floating';
+                docker.floatingRect.x = Math.max(40, ev.clientX - grabOffsetX);
+                docker.floatingRect.y = Math.max(40, ev.clientY - grabOffsetY);
+              }
+              this.renderDockers();
+            }
           };
 
           window.addEventListener('mousemove', onMove);
           window.addEventListener('mouseup', onUp);
         });
+      });
+    }
+
+    ensureTitlebar(docker) {
+      const el = docker.el;
+      if (!el) return;
+
+      const titlebar = el.querySelector('.ps-dock-header, .timeline-header, .ps-panel-header');
+      if (!titlebar) return;
+
+      titlebar.classList.add('krita-docker-titlebar');
+
+      let actions = titlebar.querySelector('.krita-docker-actions');
+      if (!actions) {
+        actions = document.createElement('div');
+        actions.className = 'krita-docker-actions';
+        titlebar.appendChild(actions);
+
+        actions.innerHTML = `
+          <button class="krita-action-btn" data-docker-act="toggle-collapse" title="접기/펼치기">▼</button>
+          <button class="krita-action-btn" data-docker-act="toggle-float" title="창 분리(Float) / 도킹(Dock)">⧉</button>
+        `;
+
+        actions.querySelector('[data-docker-act="toggle-collapse"]')?.addEventListener('click', e => {
+          e.stopPropagation();
+          this.toggleCollapse(docker.id);
+        });
+
+        actions.querySelector('[data-docker-act="toggle-float"]')?.addEventListener('click', e => {
+          e.stopPropagation();
+          this.toggleFloat(docker.id);
+        });
+      }
+    }
+
+    toggleFloat(dockerId) {
+      const d = this.dockers[dockerId];
+      if (!d) return;
+      if (d.state === 'docked') {
+        d.state = 'floating';
+        d.floatingRect.x = Math.max(80, window.innerWidth - 340);
+        d.floatingRect.y = dockerId === 'inspector' ? 70 : (dockerId === 'layers' ? 480 : 200);
+      } else {
+        d.state = 'docked';
+        if (dockerId === 'inspector') { d.dockArea = 'right'; d.dockSlot = 'top'; }
+        else if (dockerId === 'layers') { d.dockArea = 'right'; d.dockSlot = 'bottom'; }
+        else if (dockerId === 'timeline') { d.dockArea = 'bottom'; d.dockSlot = 'bottom'; }
+      }
+      this.renderDockers();
+    }
+
+    toggleCollapse(dockerId) {
+      const d = this.dockers[dockerId];
+      if (!d) return;
+      d.collapsed = !d.collapsed;
+      this.renderDockers();
+    }
+
+    bindSplitters() {
+      const splitRight = document.getElementById('kritaSplitterRight');
+      const rightCol = document.getElementById('kritaDockRight');
+      if (splitRight && rightCol) {
+        splitRight.addEventListener('mousedown', e => {
+          e.preventDefault();
+          const startX = e.clientX;
+          const startW = rightCol.offsetWidth;
+          splitRight.classList.add('dragging');
+
+          const onMove = ev => {
+            const newW = Math.max(200, Math.min(600, startW - (ev.clientX - startX)));
+            rightCol.style.width = `${newW}px`;
+            this.app.handleResize();
+          };
+          const onUp = () => {
+            splitRight.classList.remove('dragging');
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            this.app.handleResize();
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+      }
+
+      const splitBottom = document.getElementById('kritaSplitterBottom');
+      const bottomRow = document.getElementById('kritaDockBottom');
+      if (splitBottom && bottomRow) {
+        splitBottom.addEventListener('mousedown', e => {
+          e.preventDefault();
+          const startY = e.clientY;
+          const startH = bottomRow.offsetHeight;
+          splitBottom.classList.add('dragging');
+
+          const onMove = ev => {
+            const newH = Math.max(100, Math.min(500, startH - (ev.clientY - startY)));
+            bottomRow.style.height = `${newH}px`;
+            this.app.handleResize();
+          };
+          const onUp = () => {
+            splitBottom.classList.remove('dragging');
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            this.app.handleResize();
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+      }
+    }
+
+    attachFloatingResizeHandles() {
+      const handles = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'];
+      Object.values(this.dockers).forEach(docker => {
+        const el = docker.el;
+        if (!el) return;
+
+        el.querySelectorAll('.win-resize-handle').forEach(h => h.remove());
+
+        if (docker.state === 'floating' && !docker.collapsed) {
+          handles.forEach(dir => {
+            const h = document.createElement('div');
+            h.className = `win-resize-handle handle-${dir}`;
+            el.appendChild(h);
+
+            h.addEventListener('mousedown', e => {
+              e.preventDefault();
+              e.stopPropagation();
+
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const startL = el.offsetLeft;
+              const startT = el.offsetTop;
+              const startW = el.offsetWidth;
+              const startH = el.offsetHeight;
+
+              const onMove = ev => {
+                const dx = ev.clientX - startX;
+                const dy = ev.clientY - startY;
+
+                let newW = startW;
+                let newH = startH;
+                let newL = startL;
+                let newT = startT;
+
+                if (dir.includes('e')) newW = Math.max(200, startW + dx);
+                if (dir.includes('w')) {
+                  newW = Math.max(200, startW - dx);
+                  newL = startL + (startW - newW);
+                }
+                if (dir.includes('s')) newH = Math.max(100, startH + dy);
+                if (dir.includes('n')) {
+                  newH = Math.max(100, startH - dy);
+                  newT = startT + (startH - newH);
+                }
+
+                el.style.left = `${newL}px`;
+                el.style.top = `${newT}px`;
+                el.style.width = `${newW}px`;
+                el.style.height = `${newH}px`;
+
+                docker.floatingRect.x = newL;
+                docker.floatingRect.y = newT;
+                docker.floatingRect.w = newW;
+                docker.floatingRect.h = newH;
+              };
+
+              const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+                this.app.handleResize();
+              };
+
+              window.addEventListener('mousemove', onMove);
+              window.addEventListener('mouseup', onUp);
+            });
+          });
+        }
       });
     }
   }
@@ -4881,7 +5081,7 @@
         onToggleNodeMode: () => this.toggleNodeMode()
       });
 
-      this.windowManager = new WindowManager(this);
+      this.dockerManager = new KritaDockerManager(this);
       this.handleResize();
       this.initEvents();
       this.startLoop();
@@ -4901,7 +5101,19 @@
     }
 
     resetLayout() {
-      this.windowManager.applyInitialLayout();
+      Object.values(this.dockerManager.dockers).forEach(d => {
+        d.state = 'docked';
+        d.collapsed = false;
+        if (d.id === 'inspector') { d.dockArea = 'right'; d.dockSlot = 'top'; }
+        else if (d.id === 'layers') { d.dockArea = 'right'; d.dockSlot = 'bottom'; }
+        else if (d.id === 'timeline') { d.dockArea = 'bottom'; d.dockSlot = 'bottom'; }
+      });
+      const rightCol = document.getElementById('kritaDockRight');
+      if (rightCol) rightCol.style.width = '290px';
+      const bottomRow = document.getElementById('kritaDockBottom');
+      if (bottomRow) bottomRow.style.height = '195px';
+
+      this.dockerManager.renderDockers();
       this.handleResize();
       this.refreshUI();
     }
@@ -5153,24 +5365,20 @@
 
       window.addEventListener('resize', () => {
         this.handleResize();
-        this.windowManager.attachResizeHandles();
       });
 
-      // BLOCK BROWSER PAGE ZOOM ON CTRL + MOUSE WHEEL
       window.addEventListener('wheel', e => {
         if (e.ctrlKey) {
           e.preventDefault();
         }
       }, { passive: false });
 
-      // BLOCK BROWSER PAGE ZOOM ON CTRL + '+', '-', '=', '0'
       window.addEventListener('keydown', e => {
         if (e.ctrlKey && (e.key === '=' || e.key === '-' || e.key === '+' || e.key === '0')) {
           e.preventDefault();
         }
       });
 
-      // Canvas Mouse Handling
       this.canvas.addEventListener('mousedown', e => {
         const r = this.canvas.getBoundingClientRect();
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -5328,7 +5536,6 @@
 
         if (isInput) return;
 
-        // Tool Hotkeys (Evaluated ONLY after modifiers)
         const k = e.key.toLowerCase();
         if (k === 'v') this.tools.setTool('move');
         else if (k === 'a') this.tools.setTool('direct');
@@ -5375,7 +5582,6 @@
     }
   }
 
-  // Export to Global
   window.DocumentModel = DocumentModel;
   window.Layer = Layer;
   window.Sprite = Sprite;
