@@ -337,6 +337,9 @@
       this.linkGroup = options.linkGroup || null;
       this.tag = options.tag || 'div';
       this.linkUrl = options.linkUrl || '';
+      this.linkTarget = options.linkTarget || '_blank'; // '_blank' | '_self'
+      this.anchorId = options.anchorId || '';
+      this.cssClass = options.cssClass || '';
       this.hoverEffect = options.hoverEffect || 'none';
       this.collapsed = options.collapsed || false;
       this.triggerEvent = options.triggerEvent || 'viewport_enter';
@@ -455,6 +458,9 @@
         linkGroup: this.linkGroup,
         tag: this.tag,
         linkUrl: this.linkUrl,
+        linkTarget: this.linkTarget,
+        anchorId: this.anchorId,
+        cssClass: this.cssClass,
         hoverEffect: this.hoverEffect,
         collapsed: this.collapsed,
         triggerEvent: this.triggerEvent,
@@ -2894,7 +2900,24 @@
 
     render() {
       const t = this.tools.activeTool;
-      let html = `<div class="ps-option-group"><span class="ps-option-title">${this.getToolName(t)}</span></div>`;
+      let html = `
+        <div class="ps-option-group"><span class="ps-option-title">${this.getToolName(t)}</span></div>
+        <!-- Website Builder Quick Controls -->
+        <div class="ps-option-group" style="border-left:1px solid var(--ps-border);padding-left:10px;margin-left:4px;display:flex;align-items:center;gap:6px;">
+          <select class="ps-select" id="optWebTplSelect" style="width:140px;height:24px;font-size:11px;background:#18181b;color:#38bdf8;border-color:#38bdf8;">
+            <option value="">⚡ 웹 템플릿 삽입...</option>
+            <option value="full_landing">🚀 [풀 패키지] 전체 사이트</option>
+            <option value="navbar">📌 상단 네비게이션 헤더</option>
+            <option value="hero">✨ 메인 히어로 섹션</option>
+            <option value="feature_grid">🗂️ 3열 기능 카드 그리드</option>
+            <option value="cta_banner">🎯 전환 유도 CTA 배너</option>
+            <option value="footer">📄 하단 푸터</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" id="btnOptWebPreview" style="height:24px;font-size:11px;padding:2px 8px;color:#38bdf8;border-color:#38bdf8;display:flex;align-items:center;gap:4px;" title="새 창에서 실시간 웹 미리보기 (Ctrl+Space)">
+            🌐 웹 미리보기
+          </button>
+        </div>
+      `;
 
       if (t === 'brush') {
         html += `
@@ -2947,6 +2970,20 @@
         this.tools.renderer.centerArtboard();
         this.onUpdate();
         this.render();
+      });
+
+      // Quick Website Builder Controls Event Handlers
+      this.el.querySelector('#optWebTplSelect')?.addEventListener('change', e => {
+        const tpl = e.target.value;
+        if (tpl && window.jspenApp?.insertWebsiteTemplate) {
+          window.jspenApp.insertWebsiteTemplate(tpl);
+          e.target.value = '';
+        }
+      });
+      this.el.querySelector('#btnOptWebPreview')?.addEventListener('click', () => {
+        if (window.jspenApp?.openWebPreviewWindow) {
+          window.jspenApp.openWebPreviewWindow();
+        }
       });
     }
 
@@ -3482,7 +3519,26 @@
         if (sprite) { sprite.tag = e.target.value; this.doc.saveState(); this.cb.onCanvasRender(); }
       });
       this.el.querySelector('#inpWebHref')?.addEventListener('input', e => {
-        if (sprite) { sprite.linkUrl = e.target.value; this.doc.saveState(); }
+        if (sprite) {
+          sprite.linkUrl = e.target.value;
+          const btn = this.el.querySelector('#btnTestLink');
+          if (btn) btn.disabled = !sprite.linkUrl;
+          this.doc.saveState();
+        }
+      });
+      this.el.querySelector('#inpWebTarget')?.addEventListener('change', e => {
+        if (sprite) { sprite.linkTarget = e.target.value; this.doc.saveState(); }
+      });
+      this.el.querySelector('#btnTestLink')?.addEventListener('click', () => {
+        if (sprite && sprite.linkUrl) {
+          window.open(sprite.linkUrl, sprite.linkTarget || '_blank');
+        }
+      });
+      this.el.querySelector('#inpWebAnchor')?.addEventListener('input', e => {
+        if (sprite) { sprite.anchorId = e.target.value; this.doc.saveState(); }
+      });
+      this.el.querySelector('#inpWebClass')?.addEventListener('input', e => {
+        if (sprite) { sprite.cssClass = e.target.value; this.doc.saveState(); }
       });
       this.el.querySelector('#inpWebHover')?.addEventListener('change', e => {
         if (sprite) { sprite.hoverEffect = e.target.value; this.doc.saveState(); }
@@ -3754,33 +3810,61 @@
 
       return `
         
-        <!-- Web Component Properties Section -->
-        <div class="ps-prop-section">
-          <div class="ps-prop-header">웹 요소 속성 (Web Component)</div>
+        <!-- Web Component & Hyperlink System -->
+        <div class="ps-prop-section" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.04);">
+          <div class="ps-prop-header" style="color:#38bdf8; display:flex; justify-content:space-between; align-items:center;">
+            <span>🌐 웹 요소 및 하이퍼링크 (Web & Link)</span>
+            <span style="font-size:10px; opacity:0.8;">${sprite.linkUrl ? '🔗 링크 연결됨' : '일반 요소'}</span>
+          </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">HTML 태그:</label>
             <select class="ps-select" id="inpWebTag">
               <option value="div" ${sprite.tag === 'div' ? 'selected' : ''}>&lt;div&gt; 컨테이너 / 박스</option>
               <option value="button" ${sprite.tag === 'button' ? 'selected' : ''}>&lt;button&gt; 클릭 버튼</option>
-              <option value="a" ${sprite.tag === 'a' ? 'selected' : ''}>&lt;a&gt; 링크 (Link)</option>
-              <option value="nav" ${sprite.tag === 'nav' ? 'selected' : ''}>&lt;nav&gt; 네비게이션 바</option>
-              <option value="card" ${sprite.tag === 'card' ? 'selected' : ''}>&lt;article&gt; 카드 컴포넌트</option>
+              <option value="a" ${sprite.tag === 'a' ? 'selected' : ''}>&lt;a&gt; 하이퍼링크 (Link)</option>
+              <option value="nav" ${sprite.tag === 'nav' ? 'selected' : ''}>&lt;nav&gt; 네비게이션</option>
+              <option value="header" ${sprite.tag === 'header' ? 'selected' : ''}>&lt;header&gt; 헤더</option>
+              <option value="section" ${sprite.tag === 'section' ? 'selected' : ''}>&lt;section&gt; 섹션</option>
+              <option value="article" ${sprite.tag === 'article' ? 'selected' : ''}>&lt;article&gt; 카드 / 아티클</option>
+              <option value="footer" ${sprite.tag === 'footer' ? 'selected' : ''}>&lt;footer&gt; 푸터</option>
               <option value="h1" ${sprite.tag === 'h1' ? 'selected' : ''}>&lt;h1&gt; 큰 제목</option>
-              <option value="p" ${sprite.tag === 'p' ? 'selected' : ''}>&lt;p&gt; 본문 텍스트</option>
+              <option value="h2" ${sprite.tag === 'h2' ? 'selected' : ''}>&lt;h2&gt; 중간 제목</option>
+              <option value="p" ${sprite.tag === 'p' ? 'selected' : ''}>&lt;p&gt; 본문 문단</option>
             </select>
           </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">링크 (Href):</label>
-            <input type="text" class="ps-input" id="inpWebHref" placeholder="https://... 또는 #section" value="${sprite.linkUrl || ''}">
+            <label class="ps-prop-label">이동 링크 URL:</label>
+            <input type="text" class="ps-input" id="inpWebHref" placeholder="https://example.com 또는 #section" value="${sprite.linkUrl || ''}">
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">열기 방식:</label>
+            <select class="ps-select" id="inpWebTarget">
+              <option value="_blank" ${(sprite.linkTarget || '_blank') === '_blank' ? 'selected' : ''}>새 탭에서 열기 (_blank)</option>
+              <option value="_self" ${sprite.linkTarget === '_self' ? 'selected' : ''}>현재 창에서 열기 (_self)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row" style="margin-top:2px;">
+            <button class="btn btn-secondary btn-sm" id="btnTestLink" style="width:100%; justify-content:center; gap:6px; color:#38bdf8; border-color:#38bdf8;" ${!sprite.linkUrl ? 'disabled' : ''}>
+              🔗 브라우저에서 링크 바로 열기 (테스트)
+            </button>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">인페이지 앵커 ID:</label>
+            <input type="text" class="ps-input" id="inpWebAnchor" placeholder="예: hero, features, contact" value="${sprite.anchorId || ''}">
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">CSS 클래스:</label>
+            <input type="text" class="ps-input" id="inpWebClass" placeholder="예: btn-primary nav-item" value="${sprite.cssClass || ''}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">호버 효과:</label>
             <select class="ps-select" id="inpWebHover">
               <option value="none" ${sprite.hoverEffect === 'none' ? 'selected' : ''}>없음 (None)</option>
-              <option value="lift" ${sprite.hoverEffect === 'lift' ? 'selected' : ''}>살짝 뜨기 (Lift Up)</option>
-              <option value="zoom" ${sprite.hoverEffect === 'zoom' ? 'selected' : ''}>부드럽게 확대 (Zoom Up)</option>
-              <option value="glow" ${sprite.hoverEffect === 'glow' ? 'selected' : ''}>은은한 발광 (Glow)</option>
-              <option value="fade" ${sprite.hoverEffect === 'fade' ? 'selected' : ''}>투명도 전환 (Fade)</option>
+              <option value="lift" ${sprite.hoverEffect === 'lift' ? 'selected' : ''}>살짝 뜨기 (Lift Up -3px)</option>
+              <option value="zoom" ${sprite.hoverEffect === 'zoom' ? 'selected' : ''}>부드럽게 확대 (Zoom 1.05x)</option>
+              <option value="glow" ${sprite.hoverEffect === 'glow' ? 'selected' : ''}>화려한 발광 (Cyan Glow)</option>
+              <option value="fade" ${sprite.hoverEffect === 'fade' ? 'selected' : ''}>투명도 전환 (Fade 80%)</option>
+              <option value="bounce" ${sprite.hoverEffect === 'bounce' ? 'selected' : ''}>통통 튀기 (Bounce)</option>
             </select>
           </div>
         </div>
@@ -4712,7 +4796,29 @@
                 <button class="ps-dropdown-item" data-filter-act="reset">⟲ 선택 대상 필터 초기화</button>
               </div>
             </div>
-            <div class="ps-menu-item"><span>창(W)</span>
+            <div class="ps-menu-item"><span>웹(W)</span>
+              <div class="ps-dropdown-menu">
+                <button class="ps-dropdown-item" id="mWPreview">🌐 실시간 웹 미리보기 <span class="shortcut">Ctrl+Space</span></button>
+                <button class="ps-dropdown-item" id="mWExport">💾 완성 웹사이트 (HTML 파일) 다운로드...</button>
+                <button class="ps-dropdown-item" id="mWCopy">📋 HTML/CSS 소스 코드 복사</button>
+                <div class="ps-dropdown-sep"></div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#38bdf8;">⚡ 웹 컴포넌트 템플릿 원클릭 삽입</div>
+                <button class="ps-dropdown-item" data-web-tpl="full_landing">🚀 [풀 패키지] 완성형 랜딩페이지 전체 삽입</button>
+                <button class="ps-dropdown-item" data-web-tpl="navbar">📌 상단 네비게이션 헤더 (Navbar)</button>
+                <button class="ps-dropdown-item" data-web-tpl="hero">✨ 메인 히어로 섹션 (Hero Section)</button>
+                <button class="ps-dropdown-item" data-web-tpl="feature_grid">🗂️ 3열 기능 소개 카드 그리드 (Features)</button>
+                <button class="ps-dropdown-item" data-web-tpl="cta_banner">🎯 전환 유도 CTA 배너 (CTA Banner)</button>
+                <button class="ps-dropdown-item" data-web-tpl="footer">📄 하단 푸터 (Footer Section)</button>
+                <div class="ps-dropdown-sep"></div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">📐 반응형 캔버스 규격 전환</div>
+                <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="1080">🖥️ 데스크톱 Full HD (1920 × 1080)</button>
+                <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="900">💻 맥북 / 노트북 (1440 × 900)</button>
+                <button class="ps-dropdown-item" data-preset-w="768" data-preset-h="1024">📱 태블릿 iPad (768 × 1024)</button>
+                <button class="ps-dropdown-item" data-preset-w="390" data-preset-h="844">📱 모바일 스마트폰 (390 × 844)</button>
+                <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="3600">📜 세로 롱페이지 웹 (1440 × 3600)</button>
+              </div>
+            </div>
+            <div class="ps-menu-item"><span>창(V)</span>
               <div class="ps-dropdown-menu">
                 <button class="ps-dropdown-item" id="wToolbox">${isToolbox ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}도구 상자 (Toolbox)</button>
                 <button class="ps-dropdown-item" id="wOptionBar">${isOptBar ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}옵션 바 (Option Bar)</button>
@@ -4873,8 +4979,25 @@
       this.el.querySelector('#mWebPreview')?.addEventListener('click', () => {
         this.cb.onWebPreview();
       });
+      this.el.querySelector('#mWPreview')?.addEventListener('click', () => {
+        this.cb.onWebPreview();
+      });
       this.el.querySelector('#mWebExport')?.addEventListener('click', () => {
         this.cb.onWebExport();
+      });
+      this.el.querySelector('#mWExport')?.addEventListener('click', () => {
+        this.cb.onWebExport();
+      });
+      this.el.querySelector('#mWCopy')?.addEventListener('click', () => {
+        if (this.cb.onWebCopy) this.cb.onWebCopy();
+      });
+
+      // Web Template insertion clicks
+      this.el.querySelectorAll('[data-web-tpl]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tpl = btn.dataset.webTpl;
+          if (this.cb.onInsertWebTemplate) this.cb.onInsertWebTemplate(tpl);
+        });
       });
       this.el.querySelectorAll('[data-preset-w]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -7158,6 +7281,8 @@
         onResetLayout: () => this.resetLayout(),
         onWebPreview: () => this.openWebPreviewWindow(),
         onWebExport: () => this.exportWebsiteFiles(),
+        onWebCopy: () => this.copyWebsiteCode(),
+        onInsertWebTemplate: tpl => this.insertWebsiteTemplate(tpl),
         onCanvasResize: () => { this.handleResize(); this.refreshUI(); },
         onUpdate: () => this.refreshUI(),
         onToggleToolbox: () => this.toggleToolbox(),
@@ -7213,6 +7338,220 @@
       }
     }
 
+    insertWebsiteTemplate(type) {
+      const W = this.doc.width || 1440;
+      const layer = this.doc.getSelectedLayer() || this.doc.layers[0];
+      if (!layer) return;
+
+      if (type === 'navbar') {
+        const bg = layer.addSprite({
+          name: '네비게이션 헤더 배경',
+          type: 'rect',
+          x: Math.round(W / 2), y: 35,
+          width: W, height: 70,
+          fill: '#141417',
+          stroke: '#27272a', strokeWidth: 1,
+          tag: 'nav'
+        });
+        const logo = layer.addSprite({
+          name: '브랜드 로고',
+          type: 'text',
+          text: '✦ JSPen Studio',
+          fontSize: 20, fontWeight: 'bold', fill: '#ffffff',
+          x: 130, y: 35,
+          tag: 'a', linkUrl: '#', linkTarget: '_self'
+        });
+        const l1 = layer.addSprite({
+          name: '메뉴 - 기능',
+          type: 'text',
+          text: '기능 소개',
+          fontSize: 13, fill: '#a1a1aa',
+          x: Math.round(W / 2) - 130, y: 35,
+          tag: 'a', linkUrl: '#features', linkTarget: '_self', hoverEffect: 'glow'
+        });
+        const l2 = layer.addSprite({
+          name: '메뉴 - 가격',
+          type: 'text',
+          text: '요금 안내',
+          fontSize: 13, fill: '#a1a1aa',
+          x: Math.round(W / 2), y: 35,
+          tag: 'a', linkUrl: '#pricing', linkTarget: '_self', hoverEffect: 'glow'
+        });
+        const l3 = layer.addSprite({
+          name: '메뉴 - 문의',
+          type: 'text',
+          text: '고객 지원',
+          fontSize: 13, fill: '#a1a1aa',
+          x: Math.round(W / 2) + 130, y: 35,
+          tag: 'a', linkUrl: '#contact', linkTarget: '_self', hoverEffect: 'glow'
+        });
+        const cta = layer.addSprite({
+          name: '헤더 CTA 버튼',
+          type: 'rect',
+          text: '무료 시작하기',
+          fontSize: 13, fontWeight: 'bold',
+          x: W - 120, y: 35,
+          width: 130, height: 40, cornerRadius: 20,
+          fill: '#0284c7',
+          tag: 'a', linkUrl: 'https://github.com', linkTarget: '_blank', hoverEffect: 'lift'
+        });
+      }
+      else if (type === 'hero') {
+        const badge = layer.addSprite({
+          name: '히어로 배지',
+          type: 'rect',
+          text: '✨ 2026 차세대 인터랙티브 웹사이트 빌더',
+          fontSize: 12, fill: '#1e293b', stroke: '#38bdf8', strokeWidth: 1, cornerRadius: 16,
+          width: 290, height: 32,
+          x: Math.round(W / 2), y: 150
+        });
+        const title = layer.addSprite({
+          name: '히어로 메인 타이틀',
+          type: 'text',
+          text: '상상을 현실로 만드는\n가장 진보된 웹 디자인',
+          fontSize: 44, fontWeight: '900', fill: '#ffffff',
+          x: Math.round(W / 2), y: 240, width: 850, height: 110,
+          tag: 'h1', textAlign: 'center'
+        });
+        const desc = layer.addSprite({
+          name: '히어로 설명 텍스트',
+          type: 'text',
+          text: '복잡한 코딩 없이 그래픽 툴처럼 자유롭게 디자인하고, 실시간 반응형 애니메이션과 링크를 웹사이트에 즉시 적용하세요.',
+          fontSize: 16, fill: '#a1a1aa',
+          x: Math.round(W / 2), y: 340, width: 720, height: 50,
+          tag: 'p', textAlign: 'center'
+        });
+        const btn1 = layer.addSprite({
+          name: '히어로 메인 CTA 버튼',
+          type: 'rect',
+          text: '지금 바로 시작하기 ➔',
+          fontSize: 15, fontWeight: 'bold',
+          x: Math.round(W / 2) - 110, y: 410,
+          width: 190, height: 50, cornerRadius: 25,
+          fill: '#38bdf8',
+          tag: 'a', linkUrl: 'https://example.com/start', linkTarget: '_blank', hoverEffect: 'lift'
+        });
+        const btn2 = layer.addSprite({
+          name: '히어로 둘러보기 버튼',
+          type: 'rect',
+          text: '기능 둘러보기',
+          fontSize: 15, fontWeight: 'bold',
+          x: Math.round(W / 2) + 100, y: 410,
+          width: 160, height: 50, cornerRadius: 25,
+          fill: '#27272a', stroke: '#52525b', strokeWidth: 1,
+          tag: 'a', linkUrl: '#features', linkTarget: '_self', hoverEffect: 'zoom'
+        });
+        const card = layer.addSprite({
+          name: '히어로 인터랙티브 카드',
+          type: 'rect',
+          text: '⚡ Live Interactive Canvas',
+          fontSize: 18, fontWeight: 'bold',
+          x: Math.round(W / 2), y: 580,
+          width: 680, height: 240, cornerRadius: 14,
+          fill: '#18181b', stroke: '#38bdf8', strokeWidth: 1.5,
+          modules: [{ id: 'hero_wave_' + Date.now(), type: 'motion_wave', name: '부유 진동', enabled: true, params: { condition: 'always', amplitude: 8, frequency: 1, axis: 'y' } }]
+        });
+      }
+      else if (type === 'feature_grid') {
+        const title = layer.addSprite({
+          name: '기능 섹션 타이틀',
+          type: 'text',
+          text: '강력한 핵심 기능',
+          fontSize: 32, fontWeight: 'bold', fill: '#ffffff',
+          x: Math.round(W / 2), y: 760, width: 600, height: 40,
+          tag: 'h2', anchorId: 'features', textAlign: 'center'
+        });
+        const c1 = layer.addSprite({
+          name: '기능 카드 1',
+          type: 'rect',
+          text: '⚡ 초고속 반응형 웹\n\n모든 화면 규격(1920/1440/390)에 완벽 대응하는 반응형 웹 레이아웃을 생성합니다.',
+          fontSize: 14, fill: '#18181b', stroke: '#27272a', strokeWidth: 1, cornerRadius: 12,
+          x: Math.round(W / 2) - 380, y: 900, width: 340, height: 200,
+          tag: 'article', hoverEffect: 'lift'
+        });
+        const c2 = layer.addSprite({
+          name: '기능 카드 2',
+          type: 'rect',
+          text: '🎨 포토샵 그래픽 필터\n\n블러, 색조 회전, 클리핑 마스크, 알파 투명도 등 최고급 그래픽 효과를 실시간 적용합니다.',
+          fontSize: 14, fill: '#18181b', stroke: '#38bdf8', strokeWidth: 1, cornerRadius: 12,
+          x: Math.round(W / 2), y: 900, width: 340, height: 200,
+          tag: 'article', hoverEffect: 'lift'
+        });
+        const c3 = layer.addSprite({
+          name: '기능 카드 3',
+          type: 'rect',
+          text: '🔗 실시간 하이퍼링크\n\n버튼과 배너, 텍스트에 클릭 링크를 삽입하여 바로 실전 웹사이트로 활용하세요.',
+          fontSize: 14, fill: '#18181b', stroke: '#27272a', strokeWidth: 1, cornerRadius: 12,
+          x: Math.round(W / 2) + 380, y: 900, width: 340, height: 200,
+          tag: 'article', hoverEffect: 'lift'
+        });
+      }
+      else if (type === 'cta_banner') {
+        const ctaBg = layer.addSprite({
+          name: 'CTA 배너 배경',
+          type: 'rect',
+          x: Math.round(W / 2), y: 1150, width: Math.min(1100, W - 100), height: 200,
+          cornerRadius: 16, fill: '#0f172a', stroke: '#0284c7', strokeWidth: 1.5,
+          anchorId: 'pricing'
+        });
+        const ctaText = layer.addSprite({
+          name: 'CTA 타이틀',
+          type: 'text',
+          text: '지금 바로 당신의 아이디어를 웹사이트로 완성하세요',
+          fontSize: 26, fontWeight: 'bold', fill: '#ffffff',
+          x: Math.round(W / 2), y: 1120, width: 800, height: 40,
+          textAlign: 'center'
+        });
+        const ctaBtn = layer.addSprite({
+          name: 'CTA 링크 버튼',
+          type: 'rect',
+          text: '지금 무료로 시작하기 ➔',
+          fontSize: 15, fontWeight: 'bold',
+          x: Math.round(W / 2), y: 1180, width: 230, height: 48, cornerRadius: 24,
+          fill: '#0284c7',
+          tag: 'a', linkUrl: 'https://github.com', linkTarget: '_blank', hoverEffect: 'lift'
+        });
+      }
+      else if (type === 'footer') {
+        const footBg = layer.addSprite({
+          name: '푸터 배경',
+          type: 'rect',
+          x: Math.round(W / 2), y: 1360, width: W, height: 120,
+          fill: '#09090b', stroke: '#18181b', strokeWidth: 1,
+          tag: 'footer', anchorId: 'contact'
+        });
+        const footCopy = layer.addSprite({
+          name: '푸터 저작권',
+          type: 'text',
+          text: '© 2026 JSPen Studio. All rights reserved. Powered by Advanced Interactive Web Engine.',
+          fontSize: 12, fill: '#71717a',
+          x: Math.round(W / 2), y: 1345, width: 800, height: 25,
+          textAlign: 'center'
+        });
+        const footLinks = layer.addSprite({
+          name: '푸터 링크 목록',
+          type: 'text',
+          text: '개인정보처리방침  |  이용약관  |  고객지원  |  GitHub 저장소',
+          fontSize: 12, fill: '#a1a1aa',
+          x: Math.round(W / 2), y: 1375, width: 600, height: 25,
+          tag: 'a', linkUrl: 'https://github.com/TM-TOMATO/jspen', linkTarget: '_blank', textAlign: 'center'
+        });
+      }
+      else if (type === 'full_landing') {
+        this.doc.width = 1440;
+        this.doc.height = 1450;
+        this.insertWebsiteTemplate('navbar');
+        this.insertWebsiteTemplate('hero');
+        this.insertWebsiteTemplate('feature_grid');
+        this.insertWebsiteTemplate('cta_banner');
+        this.insertWebsiteTemplate('footer');
+      }
+
+      this.doc.saveState();
+      this.refreshUI();
+      this.renderCanvas();
+    }
+
     toggleNodeMode() {
       this.isNodeMode = !this.isNodeMode;
       const nodeCont = document.getElementById('nodeEditorContainer');
@@ -7253,7 +7592,7 @@
       this.menuBar.render();
     }
 
-    openWebPreviewWindow() {
+    generateWebsiteHTML(forExport = false) {
       const doc = this.doc;
       const W = doc.width || 1440;
       const H = doc.height || 900;
@@ -7271,13 +7610,17 @@
       allSprites.sort((a, b) => a.z - b.z);
 
       allSprites.forEach(({ sprite, z }) => {
-        if (sprite.type === 'screen_trigger') return; // Triggers are invisible in production
+        if (sprite.type === 'screen_trigger') return; // Sensor trigger only
 
-        const tag = sprite.tag || 'div';
+        // Tag: If linkUrl is present, default to <a> for true HTML hyperlink navigation
+        let tag = sprite.tag || 'div';
+        if (sprite.linkUrl && tag === 'div') tag = 'a';
+
+        const isLink = !!sprite.linkUrl || tag === 'a';
         const isBtn = tag === 'button';
-        const isLink = tag === 'a' || !!sprite.linkUrl;
-        const hrefAttr = sprite.linkUrl ? `href="${sprite.linkUrl}" target="_blank"` : '';
-        const hoverCls = sprite.hoverEffect && sprite.hoverEffect !== 'none' ? `hover-${sprite.hoverEffect}` : '';
+        const hrefAttr = sprite.linkUrl ? `href="${sprite.linkUrl}" target="${sprite.linkTarget || '_blank'}" rel="noopener noreferrer"` : '';
+        const anchorAttr = sprite.anchorId ? `id="${sprite.anchorId}"` : `id="${sprite.id}"`;
+        const classAttr = `web-sprite ${sprite.hoverEffect && sprite.hoverEffect !== 'none' ? 'hover-' + sprite.hoverEffect : ''} ${sprite.cssClass || ''}`.trim();
         const cursorStyle = (isBtn || isLink) ? 'cursor:pointer;' : '';
 
         let innerContent = '';
@@ -7329,7 +7672,7 @@
         const topPos = Math.round(sprite.y - sprite.height / 2);
 
         elementsHtml += `
-          <${tag} class="web-sprite ${hoverCls}" id="${sprite.id}" ${hrefAttr} style="
+          <${tag} class="${classAttr}" ${anchorAttr} ${hrefAttr} style="
             position: absolute;
             left: ${leftPos}px;
             top: ${topPos}px;
@@ -7407,6 +7750,130 @@
 </body>
 </html>`;
 
+      const previewToolbar = forExport ? '' : `
+  <header id="previewToolbar" style="position:fixed;top:0;left:0;right:0;height:46px;background:#18181b;border-bottom:1px solid #27272a;display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:999999;font-family:-apple-system,BlinkMacSystemFont,'Pretendard',sans-serif;color:#f4f4f5;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-weight:700;color:#38bdf8;font-size:13px;">🌐 JSPen 웹사이트 실시간 미리보기</span>
+      <span style="color:#3f3f46;">|</span>
+      <div style="display:flex;align-items:center;gap:4px;background:#27272a;padding:2px 4px;border-radius:4px;">
+        <button onclick="setArtboardWidth(1920)" style="background:transparent;border:none;color:#d4d4d8;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:11px;">🖥️ 1920</button>
+        <button onclick="setArtboardWidth(1440)" style="background:transparent;border:none;color:#d4d4d8;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:11px;">💻 1440</button>
+        <button onclick="setArtboardWidth(768)" style="background:transparent;border:none;color:#d4d4d8;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:11px;">📱 768</button>
+        <button onclick="setArtboardWidth(390)" style="background:transparent;border:none;color:#d4d4d8;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:11px;">📱 390</button>
+        <button onclick="setArtboardWidth('100%')" style="background:transparent;border:none;color:#38bdf8;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:11px;font-weight:bold;">100% 전체</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button onclick="copyCode()" style="background:#27272a;border:1px solid #3f3f46;color:#ffffff;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:11.5px;font-weight:600;">📋 HTML 코드 복사</button>
+      <button onclick="downloadHtml()" style="background:#0284c7;border:none;color:#ffffff;padding:5px 14px;border-radius:4px;cursor:pointer;font-size:11.5px;font-weight:700;box-shadow:0 2px 8px rgba(2,132,199,0.4);">💾 index.html 다운로드</button>
+    </div>
+  </header>
+  <div style="height:46px;"></div>
+      `;
+
+      return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${doc.name} - JSPen Website</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: ${bg};
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      width: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+    #webArtboard {
+      position: relative;
+      width: ${W}px;
+      min-height: ${H}px;
+      margin: 0 auto;
+      background: ${bg};
+      overflow: visible;
+      transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .web-sprite {
+      text-decoration: none !important;
+      color: inherit;
+    }
+    .hover-lift:hover {
+      transform: translateY(-8px) scale(1.02) !important;
+      box-shadow: 0 16px 32px rgba(0,0,0,0.35);
+    }
+    .hover-zoom:hover {
+      transform: scale(1.06) !important;
+    }
+    .hover-glow:hover {
+      box-shadow: 0 0 28px rgba(56, 189, 248, 0.5);
+    }
+    .hover-fade:hover {
+      opacity: 0.75 !important;
+    }
+  </style>
+</head>
+<body>
+  ${previewToolbar}
+  <div id="webArtboard">
+    ${elementsHtml}
+  </div>
+
+  <script>
+    // Smooth scrolling for in-page section links
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', e => {
+        const targetId = a.getAttribute('href').slice(1);
+        const targetEl = document.getElementById(targetId);
+        if (targetEl) {
+          e.preventDefault();
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+
+    function setArtboardWidth(w) {
+      const artboard = document.getElementById('webArtboard');
+      if (artboard) {
+        artboard.style.width = typeof w === 'number' ? (w + 'px') : w;
+      }
+    }
+
+    function downloadHtml() {
+      const clone = document.documentElement.cloneNode(true);
+      const toolbar = clone.querySelector('#previewToolbar');
+      if (toolbar) toolbar.remove();
+      const spacer = clone.querySelector('body > div[style*="height:46px"]');
+      if (spacer) spacer.remove();
+      const htmlContent = '<!DOCTYPE html>\n' + clone.outerHTML;
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'index.html';
+      a.click();
+    }
+
+    function copyCode() {
+      const clone = document.documentElement.cloneNode(true);
+      const toolbar = clone.querySelector('#previewToolbar');
+      if (toolbar) toolbar.remove();
+      const spacer = clone.querySelector('body > div[style*="height:46px"]');
+      if (spacer) spacer.remove();
+      navigator.clipboard.writeText('<!DOCTYPE html>\n' + clone.outerHTML).then(() => {
+        alert('HTML 코드가 클립보드에 복사되었습니다! 실제 웹 프로젝트에 붙여넣기 하세요.');
+      });
+    }
+  </script>
+</body>
+</html>`;
+    }
+
+    openWebPreviewWindow() {
+      const previewHtml = this.generateWebsiteHTML(false);
       const blob = new Blob([previewHtml], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
       const previewWin = window.open(blobUrl, '_blank', 'width=1500,height=960');
@@ -7418,8 +7885,28 @@
       }
     }
 
+    copyWebsiteCode() {
+      const exportHtml = this.generateWebsiteHTML(true);
+      navigator.clipboard.writeText(exportHtml).then(() => {
+        alert('웹사이트 전체 HTML 코드가 클립보드에 복사되었습니다!');
+      }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = exportHtml;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        alert('웹사이트 전체 HTML 코드가 클립보드에 복사되었습니다!');
+      });
+    }
+
     exportWebsiteFiles() {
-      this.openWebPreviewWindow();
+      const exportHtml = this.generateWebsiteHTML(true);
+      const blob = new Blob([exportHtml], { type: 'text/html;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (this.doc.name || 'website').replace(/\s+/g, '_') + '.html';
+      a.click();
     }
 
     renderCanvas() {
@@ -7503,6 +7990,31 @@
         }
       });
 
+      // Hyperlink Click Navigation (Preview Mode & Ctrl+Click in Edit Mode)
+      this.canvas.addEventListener('click', e => {
+        const r = this.canvas.getBoundingClientRect();
+        const ms = { x: e.clientX - r.left, y: e.clientY - r.top };
+        const mw = this.renderer.screenToWorld(ms.x, ms.y);
+        const clickedSprite = this.doc.hitTestSprite(mw.x, mw.y);
+
+        if (clickedSprite && clickedSprite.linkUrl) {
+          if (this.moduleEngine.active || e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            const href = clickedSprite.linkUrl.trim();
+            if (href.startsWith('#')) {
+              const targetId = href.slice(1);
+              const targetSp = this.doc.layers.flatMap(l => l.sprites).find(s => s.anchorId === targetId || s.id === targetId);
+              if (targetSp) {
+                this.renderer.panY = -(targetSp.y - 120);
+                this.renderCanvas();
+              }
+            } else {
+              window.open(href, clickedSprite.linkTarget || '_blank');
+            }
+          }
+        }
+      });
+
       this.canvas.addEventListener('mousedown', e => {
         const r = this.canvas.getBoundingClientRect();
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -7543,6 +8055,16 @@
         const r = this.canvas.getBoundingClientRect();
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         mw = this.renderer.screenToWorld(ms.x, ms.y);
+
+        // Pointer cursor for hyperlinks during preview mode
+        if (this.moduleEngine.active) {
+          const hoveredSp = this.doc.hitTestSprite(mw.x, mw.y);
+          if (hoveredSp && hoveredSp.linkUrl) {
+            this.canvas.style.cursor = 'pointer';
+          } else {
+            this.canvas.style.cursor = 'default';
+          }
+        }
 
         if (this.tools.activeTool === 'eyedropper' && loupe) {
           const pixel = this.renderer.getPixelColor(ms.x, ms.y);
