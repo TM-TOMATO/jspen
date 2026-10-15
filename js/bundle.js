@@ -669,6 +669,7 @@
     selectAll() {
       this.selectedSpriteIds.clear();
       for (const l of this.layers) {
+        l.expanded = true;
         for (const s of l.sprites) {
           this.selectedSpriteIds.add(s.id);
         }
@@ -679,6 +680,35 @@
           this.selectedSpriteId = this.layers[0].sprites[0].id;
         }
       }
+    }
+
+    deleteSelected() {
+      const idsToDelete = new Set(this.selectedSpriteIds);
+      if (this.selectedSpriteId) idsToDelete.add(this.selectedSpriteId);
+      if (idsToDelete.size === 0) return false;
+
+      let deleted = false;
+      for (const layer of this.layers) {
+        const before = layer.sprites.length;
+        layer.sprites = layer.sprites.filter(s => !idsToDelete.has(s.id));
+        if (layer.sprites.length !== before) {
+          deleted = true;
+        }
+      }
+
+      this.selectedSpriteIds.clear();
+      this.selectedSpriteId = null;
+
+      const curLayer = this.getSelectedLayer();
+      if (curLayer && curLayer.sprites.length > 0) {
+        this.selectedSpriteId = curLayer.sprites[curLayer.sprites.length - 1].id;
+        this.selectedSpriteIds.add(this.selectedSpriteId);
+      }
+
+      if (deleted) {
+        this.saveState();
+      }
+      return deleted;
     }
 
     setFrame(frame) {
@@ -1253,6 +1283,30 @@
         const selSprite = this.doc.getSelectedSprite();
         if (selSprite && transformBox && (activeTool === 'move' || activeTool === 'direct')) {
           this.drawTransformGizmo(ctx, selSprite, transformBox);
+        }
+
+        // Draw selection outlines for all other selected sprites (e.g. from Ctrl+A / multi-selection)
+        if (this.doc.selectedSpriteIds && this.doc.selectedSpriteIds.size > 1 && (activeTool === 'move' || activeTool === 'direct')) {
+          for (const spId of this.doc.selectedSpriteIds) {
+            if (selSprite && spId === selSprite.id) continue;
+            let otherSp = null;
+            for (const layer of this.doc.layers) {
+              otherSp = layer.getSprite(spId);
+              if (otherSp) break;
+            }
+            if (otherSp) {
+              ctx.save();
+              ctx.strokeStyle = '#38bdf8';
+              ctx.lineWidth = 1 / this.zoom;
+              ctx.setLineDash([4 / this.zoom, 3 / this.zoom]);
+              const ohw = (otherSp.width * (otherSp.scaleX || 1)) / 2;
+              const ohh = (otherSp.height * (otherSp.scaleY || 1)) / 2;
+              ctx.translate(otherSp.x, otherSp.y);
+              ctx.rotate(((otherSp.rotation || 0) * Math.PI) / 180);
+              ctx.strokeRect(-ohw, -ohh, ohw * 2, ohh * 2);
+              ctx.restore();
+            }
+          }
         }
 
         // Pen Overlay
@@ -3043,18 +3097,12 @@
       const t = this.tools.activeTool;
       let html = `
         <div class="ps-option-group"><span class="ps-option-title">${this.getToolName(t)}</span></div>
-        <!-- Website Builder Quick Controls -->
+        <!-- Mode Switcher & Quick Controls -->
         <div class="ps-option-group" style="border-left:1px solid var(--ps-border);padding-left:10px;margin-left:4px;display:flex;align-items:center;gap:6px;">
-          <select class="ps-select" id="optWebTplSelect" style="width:140px;height:24px;font-size:11px;background:#18181b;color:#38bdf8;border-color:#38bdf8;">
-            <option value="">⚡ 웹 템플릿 삽입...</option>
-            <option value="full_landing">🚀 [풀 패키지] 전체 사이트</option>
-            <option value="navbar">📌 상단 네비게이션 헤더</option>
-            <option value="hero">✨ 메인 히어로 섹션</option>
-            <option value="feature_grid">🗂️ 3열 기능 카드 그리드</option>
-            <option value="cta_banner">🎯 전환 유도 CTA 배너</option>
-            <option value="footer">📄 하단 푸터</option>
-          </select>
-          <button class="btn btn-secondary btn-sm" id="btnOptWebPreview" style="height:24px;font-size:11px;padding:2px 8px;color:#38bdf8;border-color:#38bdf8;display:flex;align-items:center;gap:4px;" title="새 창에서 실시간 웹 미리보기 (Ctrl+Space)">
+          <button class="btn btn-primary btn-sm" id="btnOptNodeMode" style="height:24px;font-size:11px;padding:2px 10px;display:flex;align-items:center;gap:5px;font-weight:600;" title="모듈 노드 모드 / 스튜디오 전환 (Shift+Tab)">
+            ${window.jspenApp?.isNodeMode ? '스튜디오로 복귀 (Shift+Tab)' : '모듈 노드 모드 (Shift+Tab)'}
+          </button>
+          <button class="btn btn-secondary btn-sm" id="btnOptWebPreview" style="height:24px;font-size:11px;padding:2px 8px;color:#38bdf8;border-color:#38bdf8;display:flex;align-items:center;gap:4px;" title="새 창에서 실시간 웹 미리보기 (Alt+W / Ctrl+Space)">
             🌐 웹 미리보기
           </button>
         </div>
@@ -3113,12 +3161,10 @@
         this.render();
       });
 
-      // Quick Website Builder Controls Event Handlers
-      this.el.querySelector('#optWebTplSelect')?.addEventListener('change', e => {
-        const tpl = e.target.value;
-        if (tpl && window.jspenApp?.insertWebsiteTemplate) {
-          window.jspenApp.insertWebsiteTemplate(tpl);
-          e.target.value = '';
+      // Quick Mode Switcher & Web Preview Controls Event Handlers
+      this.el.querySelector('#btnOptNodeMode')?.addEventListener('click', () => {
+        if (window.jspenApp?.toggleNodeMode) {
+          window.jspenApp.toggleNodeMode();
         }
       });
       this.el.querySelector('#btnOptWebPreview')?.addEventListener('click', () => {
@@ -3168,11 +3214,12 @@
     render() {
       const reversedLayers = [...this.doc.layers].reverse();
       this.el.innerHTML = `
-        <div class="ps-dock-header">
+        <div class="ps-dock-header krita-docker-titlebar">
           <span class="ps-dock-title">레이어 (Layers)</span>
           <div class="ps-dock-tools">
             <button class="ps-dock-tool-btn" id="btnNewLayer" title="새 레이어 생성">+ 레이어</button>
-            
+            <button class="krita-action-btn" data-docker-act="toggle-collapse" title="접기/펼치기">▼</button>
+            <button class="krita-action-btn" data-docker-act="toggle-float" title="창 분리(Float) / 도킹(Dock)">⧉</button>
           </div>
         </div>
 
@@ -3279,6 +3326,18 @@
         });
         nameInput.addEventListener('blur', commit);
       }
+
+      this.scrollToSelected();
+    }
+
+    scrollToSelected() {
+      setTimeout(() => {
+        const target = this.el.querySelector(`.ps-sprite-sub-item[data-sprite-id="${this.doc.selectedSpriteId}"]`) ||
+                       this.el.querySelector(`.ps-layer-row[data-layer-id="${this.doc.selectedLayerId}"]`);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 40);
     }
 
     initEventsOnce() {
@@ -3644,10 +3703,11 @@
       const selectedMod = this.getSelectedModule(selectedSprite);
 
       this.el.innerHTML = `
-        <div class="ps-dock-header">
+        <div class="ps-dock-header krita-docker-titlebar">
           <span class="ps-dock-title">속성 (Inspector)</span>
           <div class="ps-dock-tools">
-            
+            <button class="krita-action-btn" data-docker-act="toggle-collapse" title="접기/펼치기">▼</button>
+            <button class="krita-action-btn" data-docker-act="toggle-float" title="창 분리(Float) / 도킹(Dock)">⧉</button>
           </div>
         </div>
 
@@ -3655,36 +3715,6 @@
           ${selectedMod ? this.renderModuleInspector(selectedMod, selectedSprite) : this.renderVisualInspector(selectedSprite, selectedLayer)}
         </div>
       `;
-
-      
-      this.el.querySelector('#inpWebTag')?.addEventListener('change', e => {
-        if (sprite) { sprite.tag = e.target.value; this.doc.saveState(); this.cb.onCanvasRender(); }
-      });
-      this.el.querySelector('#inpWebHref')?.addEventListener('input', e => {
-        if (sprite) {
-          sprite.linkUrl = e.target.value;
-          const btn = this.el.querySelector('#btnTestLink');
-          if (btn) btn.disabled = !sprite.linkUrl;
-          this.doc.saveState();
-        }
-      });
-      this.el.querySelector('#inpWebTarget')?.addEventListener('change', e => {
-        if (sprite) { sprite.linkTarget = e.target.value; this.doc.saveState(); }
-      });
-      this.el.querySelector('#btnTestLink')?.addEventListener('click', () => {
-        if (sprite && sprite.linkUrl) {
-          window.open(sprite.linkUrl, sprite.linkTarget || '_blank');
-        }
-      });
-      this.el.querySelector('#inpWebAnchor')?.addEventListener('input', e => {
-        if (sprite) { sprite.anchorId = e.target.value; this.doc.saveState(); }
-      });
-      this.el.querySelector('#inpWebClass')?.addEventListener('input', e => {
-        if (sprite) { sprite.cssClass = e.target.value; this.doc.saveState(); }
-      });
-      this.el.querySelector('#inpWebHover')?.addEventListener('change', e => {
-        if (sprite) { sprite.hoverEffect = e.target.value; this.doc.saveState(); }
-      });
 
       this.bindScrubbing();
       this.bindInputs(selectedSprite, selectedMod);
@@ -4126,64 +4156,7 @@
       return `
         ${this.renderModifierStack(sprite)}
 
-        <!-- Web Component & Hyperlink System -->
-        <div class="ps-prop-section" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.04);">
-          <div class="ps-prop-header" style="color:#38bdf8; display:flex; justify-content:space-between; align-items:center;">
-            <span>🌐 웹 요소 및 하이퍼링크 (Web & Link)</span>
-            <span style="font-size:10px; opacity:0.8;">${sprite.linkUrl ? '🔗 링크 연결됨' : '일반 요소'}</span>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">HTML 태그:</label>
-            <select class="ps-select" id="inpWebTag">
-              <option value="div" ${sprite.tag === 'div' ? 'selected' : ''}>&lt;div&gt; 컨테이너 / 박스</option>
-              <option value="button" ${sprite.tag === 'button' ? 'selected' : ''}>&lt;button&gt; 클릭 버튼</option>
-              <option value="a" ${sprite.tag === 'a' ? 'selected' : ''}>&lt;a&gt; 하이퍼링크 (Link)</option>
-              <option value="nav" ${sprite.tag === 'nav' ? 'selected' : ''}>&lt;nav&gt; 네비게이션</option>
-              <option value="header" ${sprite.tag === 'header' ? 'selected' : ''}>&lt;header&gt; 헤더</option>
-              <option value="section" ${sprite.tag === 'section' ? 'selected' : ''}>&lt;section&gt; 섹션</option>
-              <option value="article" ${sprite.tag === 'article' ? 'selected' : ''}>&lt;article&gt; 카드 / 아티클</option>
-              <option value="footer" ${sprite.tag === 'footer' ? 'selected' : ''}>&lt;footer&gt; 푸터</option>
-              <option value="h1" ${sprite.tag === 'h1' ? 'selected' : ''}>&lt;h1&gt; 큰 제목</option>
-              <option value="h2" ${sprite.tag === 'h2' ? 'selected' : ''}>&lt;h2&gt; 중간 제목</option>
-              <option value="p" ${sprite.tag === 'p' ? 'selected' : ''}>&lt;p&gt; 본문 문단</option>
-            </select>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">이동 링크 URL:</label>
-            <input type="text" class="ps-input" id="inpWebHref" placeholder="https://example.com 또는 #section" value="${sprite.linkUrl || ''}">
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">열기 방식:</label>
-            <select class="ps-select" id="inpWebTarget">
-              <option value="_blank" ${(sprite.linkTarget || '_blank') === '_blank' ? 'selected' : ''}>새 탭에서 열기 (_blank)</option>
-              <option value="_self" ${sprite.linkTarget === '_self' ? 'selected' : ''}>현재 창에서 열기 (_self)</option>
-            </select>
-          </div>
-          <div class="ps-prop-row" style="margin-top:2px;">
-            <button class="btn btn-secondary btn-sm" id="btnTestLink" style="width:100%; justify-content:center; gap:6px; color:#38bdf8; border-color:#38bdf8;" ${!sprite.linkUrl ? 'disabled' : ''}>
-              🔗 브라우저에서 링크 바로 열기 (테스트)
-            </button>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">인페이지 앵커 ID:</label>
-            <input type="text" class="ps-input" id="inpWebAnchor" placeholder="예: hero, features, contact" value="${sprite.anchorId || ''}">
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">CSS 클래스:</label>
-            <input type="text" class="ps-input" id="inpWebClass" placeholder="예: btn-primary nav-item" value="${sprite.cssClass || ''}">
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">호버 효과:</label>
-            <select class="ps-select" id="inpWebHover">
-              <option value="none" ${sprite.hoverEffect === 'none' ? 'selected' : ''}>없음 (None)</option>
-              <option value="lift" ${sprite.hoverEffect === 'lift' ? 'selected' : ''}>살짝 뜨기 (Lift Up -3px)</option>
-              <option value="zoom" ${sprite.hoverEffect === 'zoom' ? 'selected' : ''}>부드럽게 확대 (Zoom 1.05x)</option>
-              <option value="glow" ${sprite.hoverEffect === 'glow' ? 'selected' : ''}>화려한 발광 (Cyan Glow)</option>
-              <option value="fade" ${sprite.hoverEffect === 'fade' ? 'selected' : ''}>투명도 전환 (Fade 80%)</option>
-              <option value="bounce" ${sprite.hoverEffect === 'bounce' ? 'selected' : ''}>통통 튀기 (Bounce)</option>
-            </select>
-          </div>
-        </div>
+
 
         <!-- Sprite Link Group & Hierarchy Section -->
         <div class="ps-prop-section">
@@ -5248,11 +5221,6 @@
             <span class="ps-logo-text">JSPen Studio</span>
           </div>
 
-          <!-- Mode Switcher -->
-          <button class="ps-mode-switch-btn" id="btnSwitchMode">
-            ${this.cb.isNodeMode ? '스튜디오로 복귀 (Shift+Tab)' : '모듈 노드 모드 (Shift+Tab)'}
-          </button>
-
           <div class="ps-menu-items">
             <div class="ps-menu-item"><span>파일(F)</span>
               <div class="ps-dropdown-menu">
@@ -5262,8 +5230,16 @@
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mSettings">환경 설정... <span class="shortcut">Ctrl+,</span></button>
                 <div class="ps-dropdown-sep"></div>
-                <button class="ps-dropdown-item" id="mWebPreview">🌐 새 창에서 웹 미리보기 <span class="shortcut">Ctrl+Space</span></button>
+                <button class="ps-dropdown-item" id="mWebPreview">🌐 새 창에서 웹 미리보기 <span class="shortcut">Alt+W</span></button>
                 <button class="ps-dropdown-item" id="mWebExport">📦 웹사이트 (HTML/CSS/JS) 내보내기...</button>
+                <div class="ps-dropdown-sep"></div>
+                <div style="padding:4px 8px;font-size:10px;color:#a1a1aa;font-weight:600;">웹 템플릿 삽입</div>
+                <button class="ps-dropdown-item" data-web-tpl="full_landing">🚀 [풀 패키지] 전체 사이트</button>
+                <button class="ps-dropdown-item" data-web-tpl="navbar">📌 상단 네비게이션 헤더</button>
+                <button class="ps-dropdown-item" data-web-tpl="hero">✨ 메인 히어로 섹션</button>
+                <button class="ps-dropdown-item" data-web-tpl="feature_grid">🗂️ 3열 기능 카드 그리드</button>
+                <button class="ps-dropdown-item" data-web-tpl="cta_banner">🎯 전환 유도 CTA 배너</button>
+                <button class="ps-dropdown-item" data-web-tpl="footer">📄 하단 푸터</button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mExp">자바스크립트 내보내기... <span class="shortcut">Ctrl+E</span></button>
               </div>
@@ -5531,9 +5507,14 @@
         setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
       });
 
-      // Mode switch
-      this.el.querySelector('#btnSwitchMode')?.addEventListener('click', () => {
-        this.cb.onToggleNodeMode();
+      // Web template items
+      this.el.querySelectorAll('[data-web-tpl]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tpl = btn.getAttribute('data-web-tpl');
+          if (tpl && window.jspenApp?.insertWebsiteTemplate) {
+            window.jspenApp.insertWebsiteTemplate(tpl);
+          }
+        });
       });
 
       // File actions
@@ -6658,7 +6639,9 @@
       this.recordingId = null;
 
       this.defaultShortcuts = [
-        { id: 'preview', name: '실시간 웹 미리보기 (새 창)', key: 'Ctrl + Space' },
+        { id: 'webPreview', name: '실시간 웹 미리보기 (Alt+W)', key: 'Alt + W' },
+        { id: 'preview', name: '실시간 웹 미리보기 (Ctrl+Space)', key: 'Ctrl + Space' },
+        { id: 'delete', name: '선택 스프라이트 삭제 (Delete)', key: 'Delete' },
         { id: 'nodeMode', name: '모듈 노드 모드 / 스튜디오 전환', key: 'Shift + Tab' },
         { id: 'selectAll', name: '전체 스프라이트 선택', key: 'Ctrl + A' },
         { id: 'copy', name: '스프라이트 복사', key: 'Ctrl + C' },
@@ -7169,6 +7152,9 @@
             if (d.collapsed) {
               d.el.style.height = '32px';
               d.el.style.flex = 'none';
+            } else if (d.id === 'inspector' && this.inspectorHeight) {
+              d.el.style.height = `${this.inspectorHeight}px`;
+              d.el.style.flex = 'none';
             } else {
               d.el.style.height = '';
               d.el.style.flex = '1';
@@ -7310,10 +7296,24 @@
 
         this.ensureTitlebar(docker);
 
-        const titlebar = el.querySelector('.krita-docker-titlebar, .timeline-header, .ps-dock-header');
-        if (!titlebar) return;
+        // Persistent event delegation on container element so innerHTML replacements don't sever dragging
+        el.addEventListener('mousedown', e => {
+          const header = e.target.closest('.krita-docker-titlebar, .timeline-header, .ps-dock-header, .ps-panel-header');
+          if (!header || !el.contains(header)) return;
 
-        titlebar.addEventListener('mousedown', e => {
+          // Check for collapse / float action buttons
+          const actBtn = e.target.closest('[data-docker-act]');
+          if (actBtn) {
+            e.stopPropagation();
+            const act = actBtn.dataset.dockerAct;
+            if (act === 'toggle-collapse') {
+              this.toggleCollapse(docker.id);
+            } else if (act === 'toggle-float') {
+              this.toggleFloat(docker.id);
+            }
+            return;
+          }
+
           if (e.target.closest('button, input, select, .ps-win-btn, .win-resize-handle')) return;
           e.preventDefault();
 
@@ -7654,6 +7654,49 @@
           };
           window.addEventListener('mousemove', onMove);
           window.addEventListener('mouseup', onUp);
+        });
+      }
+
+      // Inner Splitter between Inspector and Layers in Right Dock Column
+      const splitInner = document.getElementById('kritaSplitterRightInner');
+      const inspEl = document.getElementById('inspectorContainer');
+      const layersEl = document.getElementById('layersContainer');
+      if (splitInner && rightCol && inspEl && layersEl) {
+        splitInner.addEventListener('mousedown', e => {
+          e.preventDefault();
+          const startY = e.clientY;
+          const startInspH = inspEl.offsetHeight;
+          const rightColH = rightCol.offsetHeight;
+          splitInner.classList.add('dragging');
+
+          const onMove = ev => {
+            const dy = ev.clientY - startY;
+            const newInspH = Math.max(80, Math.min(rightColH - 100, startInspH + dy));
+            this.inspectorHeight = newInspH;
+            inspEl.style.height = `${newInspH}px`;
+            inspEl.style.flex = 'none';
+            layersEl.style.flex = '1 1 0';
+            this.app.handleResize();
+          };
+
+          const onUp = () => {
+            splitInner.classList.remove('dragging');
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            this.app.handleResize();
+          };
+
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+
+        splitInner.addEventListener('dblclick', () => {
+          this.inspectorHeight = null;
+          inspEl.style.height = '';
+          inspEl.style.flex = '1 1 0';
+          layersEl.style.height = '';
+          layersEl.style.flex = '1 1 0';
+          this.app.handleResize();
         });
       }
     }
@@ -8077,6 +8120,7 @@
         this.nodeEditor.render();
       }
       this.menuBar.render();
+      if (this.optionBar) this.optionBar.render();
     }
 
     resetLayout() {
@@ -8546,7 +8590,7 @@
           return;
         }
 
-        if (this.tools.activeTool === 'move') {
+        if (this.tools.activeTool === 'move' || this.tools.activeTool === 'direct') {
           const curTarget = this.transformBox.getTarget();
           const hit = curTarget ? this.transformBox.hitTest(mw.x, mw.y, curTarget) : null;
           if (hit) {
@@ -8557,10 +8601,17 @@
           const clickedSprite = this.doc.hitTestSprite(mw.x, mw.y);
           if (clickedSprite) {
             const ownerLayer = this.doc.layers.find(l => l.sprites.some(s => s.id === clickedSprite.id));
-            if (ownerLayer) this.doc.selectedLayerId = ownerLayer.id;
+            if (ownerLayer) {
+              this.doc.selectedLayerId = ownerLayer.id;
+              ownerLayer.expanded = true;
+            }
             this.doc.selectedSpriteId = clickedSprite.id;
+            this.doc.selectedSpriteIds = new Set([clickedSprite.id]);
             this.doc.selectedModuleId = null;
             this.refreshUI();
+            if (this.layersUI?.scrollToSelected) {
+              this.layersUI.scrollToSelected();
+            }
             this.transformBox.startDrag(mw.x, mw.y, 'body', clickedSprite);
             return;
           }
@@ -8661,6 +8712,7 @@
         const copyKey = this.settingsModal?.getShortcutKey('copy') || 'Ctrl + C';
         const pasteKey= this.settingsModal?.getShortcutKey('paste') || 'Ctrl + V';
         const renKey  = this.settingsModal?.getShortcutKey('rename') || 'F2';
+        const deleteKey = this.settingsModal?.getShortcutKey('delete') || 'Delete';
 
         // 1. UNDO
         if (checkShortcutMatch(e, undoKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey)) {
@@ -8692,8 +8744,8 @@
           }
         }
 
-        // 3. Web Preview
-        if (checkShortcutMatch(e, prevKey) || (e.ctrlKey && e.code === 'Space')) {
+        // 3. Web Preview (Alt + W or Ctrl + Space)
+        if (checkShortcutMatch(e, 'Alt + W') || (e.altKey && (e.key === 'w' || e.key === 'W')) || checkShortcutMatch(e, prevKey) || (e.ctrlKey && e.code === 'Space')) {
           e.preventDefault();
           this.openWebPreviewWindow();
           return;
@@ -8754,6 +8806,17 @@
           this.doc.selectAll();
           this.refreshUI();
           return;
+        }
+
+        // 9. Delete Selected Sprites (Delete / Backspace)
+        if (checkShortcutMatch(e, deleteKey) || e.key === 'Delete' || e.key === 'Backspace') {
+          if (!isInput && !this.isNodeMode) {
+            e.preventDefault();
+            if (this.doc.deleteSelected()) {
+              this.refreshUI();
+            }
+            return;
+          }
         }
 
         if (isInput) return;
