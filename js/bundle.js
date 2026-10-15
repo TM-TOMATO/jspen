@@ -88,7 +88,7 @@
     },
     math_calculate: {
       category: 'logic', name: '수학 계산 (Math)', icon: 'CALC',
-      description: '사칙연산, 삼각함수, 비교, 클램프 연산을 수행하여 다른 노드나 속성에 값을 공급합니다.',
+      description: '사칙연산, 삼각함수, 비교, 클램프 연산을 수행하여 변형 속성 또는 포토샵 필터(블러, 밝기, 대비, 알파 등)를 실시간 조작합니다.',
       defaultParams: {
         condition: 'always',
         operation: 'add', // add, subtract, multiply, divide, sin, cos, min, max, clamp, lerp
@@ -96,26 +96,30 @@
         inputB: 1,
         clampMin: 0,
         clampMax: 100,
-        outputProperty: 'x'
+        outputProperty: 'x' // x, y, rotation, scaleX, scaleY, opacity, filter_blur, filter_brightness, filter_contrast, filter_opacity, filter_grayscale, filter_invert, filter_hueRotate
       }
     },
     screen_trigger: {
       category: 'sensor', name: '화면 트리거 (뷰포트)', icon: 'TRIG',
-      description: '화면 스크롤이 이 위치에 도달하거나 마우스가 진입했을 때 지정된 액션을 발동합니다.',
+      description: '화면 스크롤이 이 위치에 도달하거나 마우스가 진입했을 때 지정된 신호를 방출하거나 모듈/필터 애니메이션을 발동합니다.',
       defaultParams: {
         condition: 'always',
-        triggerEvent: 'viewport_enter', // viewport_enter, viewport_exit, mouse_enter, mouse_move, scroll_reach
-        action: 'trigger_module', // trigger_module, show_sprite, hide_sprite, animate_in, open_url
+        triggerEvent: 'viewport_enter', // viewport_enter, viewport_exit, mouse_enter, mouse_move, scroll_reach, click
+        action: 'emit_signal', // emit_signal, trigger_module, animate_filter, set_filter, show_sprite, hide_sprite, pulse, animate_in
+        signalName: 'signal_1',
         targetSpriteId: '',
         targetModuleId: '',
+        filterEffect: 'blur', // blur, brightness, contrast, saturate, grayscale, sepia, hueRotate, invert, opacity
+        filterValue: 20,
         once: false
       }
     },
     photoshop_filter: {
       category: 'motion', name: '포토샵 필터 FX', icon: 'FLTR',
-      description: '블러, 밝기, 대비, 채도, 흑백, 세피아, 색조 회전, 글로우 등 고급 필터를 실시간 적용합니다.',
+      description: '블러, 밝기, 대비, 채도, 흑백, 세피아, 색조 회전, 알파값(투명도) 등 필터를 정적 또는 신호/트리거/박동에 연동하여 실시간 적용합니다.',
       defaultParams: {
         condition: 'always',
+        mode: 'static', // static, pulse, reactive, on_trigger
         blur: 0,
         brightness: 100,
         contrast: 100,
@@ -125,7 +129,10 @@
         hueRotate: 0,
         invert: 0,
         opacity: 100,
-        dropShadow: false
+        dropShadow: false,
+        pulseSpeed: 2.0,
+        pulseMin: 0,
+        pulseMax: 20
       }
     },
     look_at: {
@@ -140,23 +147,34 @@
     },
     value_remapper: {
       category: 'logic', name: '값 매핑기', icon: 'MAP',
-      description: '입력 수치를 원하는 출력 범위로 비례 환산합니다.',
+      description: '입력 수치를 원하는 출력 범위로 비례 환산하여 속성이나 필터에 연결합니다.',
       defaultParams: { condition: 'always', inputSource: 'mouse_x', inMin: 0, inMax: 800, outMin: 0, outMax: 360, outputProperty: 'rotation' }
     },
     signal_relay: {
-      category: 'logic', name: '신호 전달기', icon: 'RLY',
-      description: '입력 신호를 지연시키거나 다른 레이어의 모듈로 분기 전달합니다.',
-      defaultParams: { condition: 'always', delaySec: 0.3, targetLayerId: null }
+      category: 'logic', name: '신호 전달기 (Signal Relay)', icon: 'RLY',
+      description: '화면 트리거 또는 다른 모듈의 신호를 수신하여 지연 후 재전송하거나 대상 모듈/필터를 연계 발동합니다.',
+      defaultParams: {
+        condition: 'always',
+        inputSignal: 'signal_1',
+        delaySec: 0.3,
+        outputSignal: 'signal_relayed',
+        action: 'emit_signal', // emit_signal, trigger_module, animate_filter, set_filter, toggle_active
+        targetSpriteId: '',
+        targetModuleId: '',
+        targetLayerId: '',
+        filterEffect: 'invert',
+        filterValue: 100
+      }
     },
     toggle_switch: {
       category: 'logic', name: '토글 스위치', icon: 'TOG',
-      description: '클릭할 때마다 켜짐(ON)/꺼짐(OFF) 상태를 반전 전환합니다.',
-      defaultParams: { condition: 'always', initialValue: false }
+      description: '트리거 감지, 신호 수신 또는 클릭할 때마다 켜짐(ON)/꺼짐(OFF) 상태를 반전 전환하고 신호를 방출합니다.',
+      defaultParams: { condition: 'always', inputSignal: '', initialValue: false }
     },
     counter_accumulator: {
       category: 'logic', name: '숫자 카운터', icon: 'CNT',
-      description: '이벤트 발생 시마다 숫자를 1씩 증가시키고 텍스트에 반영합니다.',
-      defaultParams: { condition: 'always', startVal: 0, stepVal: 1, maxVal: 9999 }
+      description: '트리거 감지 또는 신호 발생 시마다 숫자를 증가시키고 텍스트/신호에 반영합니다.',
+      defaultParams: { condition: 'always', inputSignal: '', startVal: 0, stepVal: 1, maxVal: 9999 }
     },
     node_merge: {
       category: 'logic', name: '모듈 합치기', icon: 'MRG',
@@ -323,6 +341,17 @@
       this.collapsed = options.collapsed || false;
       this.triggerEvent = options.triggerEvent || 'viewport_enter';
       this.triggerAction = options.triggerAction || 'trigger_module';
+      this.targetSpriteId = options.targetSpriteId || '';
+      this.targetModuleId = options.targetModuleId || '';
+      this.signalName = options.signalName || '';
+      this.filterEffect = options.filterEffect || 'blur';
+      this.filterValue = options.filterValue !== undefined ? options.filterValue : 20;
+
+      // Photoshop-style Mask & Clipping Mask support
+      this.isMask = options.isMask || false;
+      this.maskMode = options.maskMode || 'none'; // 'none' | 'clip_mask' | 'inverted_mask'
+      this.maskTargetId = options.maskTargetId || null;
+
       this.filters = options.filters || {
         blur: 0,
         brightness: 100,
@@ -335,6 +364,7 @@
         opacity: 100,
         dropShadow: false
       };
+      if (this.filters.opacity === undefined) this.filters.opacity = 100;
 
       this.runtime = {
         x: this.x, y: this.y, rotation: this.rotation,
@@ -429,6 +459,14 @@
         collapsed: this.collapsed,
         triggerEvent: this.triggerEvent,
         triggerAction: this.triggerAction,
+        targetSpriteId: this.targetSpriteId,
+        targetModuleId: this.targetModuleId,
+        signalName: this.signalName,
+        filterEffect: this.filterEffect,
+        filterValue: this.filterValue,
+        isMask: this.isMask,
+        maskMode: this.maskMode,
+        maskTargetId: this.maskTargetId,
         filters: JSON.parse(JSON.stringify(this.filters || {}))
       };
     }
@@ -668,6 +706,16 @@
 
     getLayer(id) {
       return this.layers.find(l => l.id === id) || null;
+    }
+
+    findSpriteById(id) {
+      if (!id) return null;
+      for (const l of this.layers) {
+        for (const s of l.sprites) {
+          if (s.id === id) return s;
+        }
+      }
+      return null;
     }
 
     getSelectedLayer() {
@@ -1266,12 +1314,57 @@
         if (lf.sepia) fltrs.push(`sepia(${lf.sepia}%)`);
         if (lf.hueRotate) fltrs.push(`hue-rotate(${lf.hueRotate}deg)`);
         if (lf.invert) fltrs.push(`invert(${lf.invert}%)`);
+        if (lf.opacity !== undefined && lf.opacity !== 100) {
+          fltrs.push(`opacity(${lf.opacity}%)`);
+          ctx.globalAlpha *= Math.max(0, Math.min(1, lf.opacity / 100));
+        }
         if (lf.dropShadow) fltrs.push(`drop-shadow(0px 8px 16px rgba(0,0,0,0.5))`);
         if (fltrs.length > 0) ctx.filter = fltrs.join(' ');
       }
 
-      for (const sprite of layer.sprites) {
+      for (let sIdx = 0; sIdx < layer.sprites.length; sIdx++) {
+        const sprite = layer.sprites[sIdx];
         if (!sprite.visible) continue;
+
+        // True Photoshop Clipping Mask & Inverted Mask rendering
+        const isMask = sprite.isMask || (sprite.maskMode && sprite.maskMode !== 'none');
+        if (isMask) {
+          let maskBase = null;
+          if (sprite.maskTargetId) {
+            maskBase = layer.sprites.find(s => s.id === sprite.maskTargetId);
+          }
+          if (!maskBase && sIdx > 0) {
+            maskBase = layer.sprites[sIdx - 1];
+          }
+
+          if (maskBase && maskBase.visible) {
+            if (!this._maskCanvas) this._maskCanvas = document.createElement('canvas');
+            if (this._maskCanvas.width !== this.doc.width || this._maskCanvas.height !== this.doc.height) {
+              this._maskCanvas.width = this.doc.width;
+              this._maskCanvas.height = this.doc.height;
+            }
+            const mCtx = this._maskCanvas.getContext('2d');
+            mCtx.clearRect(0, 0, this.doc.width, this.doc.height);
+
+            // 1. Draw base mask silhouette
+            mCtx.save();
+            this.drawSprite(mCtx, maskBase);
+            mCtx.restore();
+
+            // 2. Composite target sprite into mask silhouette
+            mCtx.save();
+            mCtx.globalCompositeOperation = (sprite.maskMode === 'inverted_mask' ? 'source-out' : 'source-in');
+            this.drawSprite(mCtx, sprite);
+            mCtx.restore();
+
+            // 3. Composite onto main canvas
+            ctx.save();
+            ctx.drawImage(this._maskCanvas, 0, 0);
+            ctx.restore();
+            continue;
+          }
+        }
+
         this.drawSprite(ctx, sprite);
       }
       ctx.restore();
@@ -1293,7 +1386,7 @@
 
       if (sprite.blendMode) ctx.globalCompositeOperation = sprite.blendMode;
 
-      // Apply Photoshop-style Graphic Filters
+      // Apply Photoshop-style Graphic Filters (including Alpha Opacity)
       if (sprite.filters) {
         const f = sprite.filters;
         const fltrs = [];
@@ -1305,6 +1398,10 @@
         if (f.sepia) fltrs.push(`sepia(${f.sepia}%)`);
         if (f.hueRotate) fltrs.push(`hue-rotate(${f.hueRotate}deg)`);
         if (f.invert) fltrs.push(`invert(${f.invert}%)`);
+        if (f.opacity !== undefined && f.opacity !== 100) {
+          fltrs.push(`opacity(${f.opacity}%)`);
+          ctx.globalAlpha *= Math.max(0, Math.min(1, f.opacity / 100));
+        }
         if (f.dropShadow) fltrs.push(`drop-shadow(0px 8px 16px rgba(0,0,0,0.5))`);
         if (fltrs.length > 0) ctx.filter = fltrs.join(' ');
       }
@@ -2035,10 +2132,23 @@
       this.doc = docModel;
       this.bus = {
         mouse: { x: 0, y: 0, rawX: 0, rawY: 0, vx: 0, vy: 0, isDown: false, clicked: false },
-        scroll: { deltaY: 0, progress: 0 },
+        scroll: { deltaY: 0, progress: 0, scrollY: 0 },
         time: 0,
         particles: [],
-        keyState: {}
+        keyState: {},
+        signals: new Map(),
+        activeTriggers: new Set(),
+        activeTriggerTargets: new Set()
+      };
+      this.bus.emitSignal = (signalName, sourceId = '', payload = null) => {
+        if (!signalName) return;
+        this.bus.signals.set(signalName, { time: this.bus.time, sourceId, payload });
+      };
+      this.bus.hasSignal = (signalName, maxAgeSec = 0.35) => {
+        if (!signalName || signalName === '*') return this.bus.signals.size > 0;
+        const s = this.bus.signals.get(signalName);
+        if (!s) return false;
+        return (this.bus.time - s.time) <= maxAgeSec;
       };
       this.active = false;
       this.draggedSprite = null;
@@ -2073,6 +2183,19 @@
         const ef = mod.params?.endFrame || this.doc.totalFrames;
         return this.doc.currentFrame >= sf && this.doc.currentFrame <= ef;
       }
+      if (cond === 'on_trigger') {
+        if (sprite.runtime && sprite.runtime.isTriggered) return true;
+        if (bus.activeTriggerTargets && bus.activeTriggerTargets.has(sprite.id)) return true;
+        if (mod.params?.triggerId && bus.activeTriggers && bus.activeTriggers.has(mod.params.triggerId)) return true;
+        return false;
+      }
+      if (cond === 'on_signal') {
+        const sName = mod.params?.listenSignal || mod.params?.inputSignal || '*';
+        return bus.hasSignal(sName);
+      }
+      if (cond === 'on_toggle') {
+        return sprite.runtime && sprite.runtime.toggleState !== false;
+      }
       return true;
     }
 
@@ -2087,7 +2210,16 @@
       this.bus.mouse.isDown = isDown;
       this.bus.mouse.clicked = clicked;
 
-      // Handle free dragging via draggable module
+      // Clean up stale signals (> 0.6s)
+      for (const [sigName, sigData] of this.bus.signals.entries()) {
+        if (this.bus.time - sigData.time > 0.6) {
+          this.bus.signals.delete(sigName);
+        }
+      }
+      this.bus.activeTriggers.clear();
+      this.bus.activeTriggerTargets.clear();
+
+      // Free dragging
       if (this.draggedSprite) {
         if (this.bus.mouse.isDown) {
           this.draggedSprite.runtime.x = this.bus.mouse.x - this.dragOffset.x;
@@ -2106,18 +2238,90 @@
         if (p.life <= 0) this.bus.particles.splice(i, 1);
       }
 
+      // --- PHASE 1: Screen Triggers Detection & Signal Emission ---
+      for (const layer of this.doc.layers) {
+        if (!layer.visible) continue;
+        for (const sprite of layer.sprites) {
+          if (!sprite.visible) continue;
+          sprite.runtime.isHovered = this.isPointInside(this.bus.mouse.x, this.bus.mouse.y, sprite);
+
+          // Check if sprite is a screen_trigger sprite OR has screen_trigger module
+          const triggerMod = (sprite.modules || []).find(m => m.enabled && m.type === 'screen_trigger');
+          const isTriggerSprite = sprite.type === 'screen_trigger' || !!triggerMod;
+
+          if (isTriggerSprite) {
+            const trgEvt = triggerMod?.params?.triggerEvent || sprite.triggerEvent || 'viewport_enter';
+            const trgAct = triggerMod?.params?.action || sprite.triggerAction || 'emit_signal';
+            const trgSig = triggerMod?.params?.signalName || sprite.signalName || ('trig_' + sprite.id);
+            const trgTgtId = triggerMod?.params?.targetSpriteId || sprite.targetSpriteId || '';
+            const trgFx = triggerMod?.params?.filterEffect || sprite.filterEffect || 'blur';
+            const trgFxVal = parseFloat(triggerMod?.params?.filterValue !== undefined ? triggerMod.params.filterValue : (sprite.filterValue ?? 20));
+
+            const halfW = (sprite.width || 100) / 2;
+            const halfH = (sprite.height || 100) / 2;
+            const isMouseInside = this.bus.mouse.x >= sprite.x - halfW && this.bus.mouse.x <= sprite.x + halfW &&
+                                  this.bus.mouse.y >= sprite.y - halfH && this.bus.mouse.y <= sprite.y + halfH;
+            const scrollY = this.bus.scroll?.scrollY || 0;
+            const vpHeight = this.doc.viewportHeight || 900;
+            const isInsideViewport = (sprite.y + halfH >= scrollY) && (sprite.y - halfH <= scrollY + vpHeight);
+
+            let triggered = false;
+            if (trgEvt === 'viewport_enter') triggered = isInsideViewport;
+            else if (trgEvt === 'viewport_exit') triggered = !isInsideViewport;
+            else if (trgEvt === 'mouse_enter') triggered = isMouseInside;
+            else if (trgEvt === 'mouse_move') triggered = isMouseInside && (Math.abs(this.bus.mouse.vx) > 0.5 || Math.abs(this.bus.mouse.vy) > 0.5);
+            else if (trgEvt === 'scroll_reach') triggered = scrollY >= (sprite.y - 300);
+            else if (trgEvt === 'click') triggered = isMouseInside && this.bus.mouse.clicked;
+
+            sprite.runtime.isTriggered = triggered;
+
+            if (triggered) {
+              this.bus.activeTriggers.add(sprite.id);
+              this.bus.emitSignal(trgSig, sprite.id);
+
+              if (trgTgtId) {
+                this.bus.activeTriggerTargets.add(trgTgtId);
+                const tgt = this.doc.findSpriteById(trgTgtId);
+                if (tgt) {
+                  tgt.runtime.isTriggered = true;
+                  if (trgAct === 'show_sprite') { tgt.visible = true; tgt.runtime.visible = true; }
+                  else if (trgAct === 'hide_sprite') { tgt.runtime.visible = false; }
+                  else if (trgAct === 'pulse') {
+                    tgt.runtime.scaleX = (tgt.scaleX || 1) * 1.15;
+                    tgt.runtime.scaleY = (tgt.scaleY || 1) * 1.15;
+                  }
+                  else if (trgAct === 'animate_in') {
+                    tgt.runtime.opacity = Math.min(1, (tgt.runtime.opacity || 0) + dt * 2.5);
+                  }
+                  else if (trgAct === 'animate_filter' || trgAct === 'filter_fx') {
+                    if (!tgt.filters) tgt.filters = {};
+                    if (trgFx === 'blur') tgt.filters.blur = Math.min(trgFxVal, (tgt.filters.blur || 0) + dt * 30);
+                    else if (trgFx === 'grayscale') tgt.filters.grayscale = Math.min(trgFxVal, (tgt.filters.grayscale || 0) + dt * 100);
+                    else if (trgFx === 'invert') tgt.filters.invert = Math.min(trgFxVal, (tgt.filters.invert || 0) + dt * 100);
+                    else if (trgFx === 'opacity') tgt.filters.opacity = trgFxVal;
+                    else tgt.filters[trgFx] = trgFxVal;
+                  }
+                  else if (trgAct === 'set_filter') {
+                    if (!tgt.filters) tgt.filters = {};
+                    tgt.filters[trgFx] = trgFxVal;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // --- PHASE 2: Complete Module Execution & Signal Relay ---
       for (const layer of this.doc.layers) {
         if (!layer.visible) continue;
 
         for (const sprite of layer.sprites) {
           if (!sprite.visible) continue;
-          sprite.runtime.isHovered = this.isPointInside(this.bus.mouse.x, this.bus.mouse.y, sprite);
 
           for (const mod of (sprite.modules || [])) {
             if (!mod.enabled) continue;
-            // Node editor connectivity check: Only modules wired to Output node run!
             if (this.activeModuleIds && !this.activeModuleIds.has(mod.id)) continue;
-            // Condition evaluation
             if (!this.evaluateCondition(mod, sprite, this.bus)) continue;
 
             const p = mod.params || {};
@@ -2129,6 +2333,102 @@
                   this.dragOffset = { x: this.bus.mouse.x - sprite.runtime.x, y: this.bus.mouse.y - sprite.runtime.y };
                 }
                 break;
+
+              case 'screen_trigger':
+                // Already evaluated in Phase 1
+                break;
+
+              case 'signal_relay': {
+                const inSig = p.inputSignal || '*';
+                const outSig = p.outputSignal || 'signal_relayed';
+                const delay = parseFloat(p.delaySec !== undefined ? p.delaySec : 0.3);
+
+                sprite.runtime._relayQueue = sprite.runtime._relayQueue || [];
+
+                if (this.bus.hasSignal(inSig)) {
+                  const sObj = this.bus.signals.get(inSig) || { time: this.bus.time };
+                  if (!sprite.runtime._lastHandledSigTime || (sObj.time - sprite.runtime._lastHandledSigTime > 0.15)) {
+                    sprite.runtime._lastHandledSigTime = sObj.time;
+                    sprite.runtime._relayQueue.push({
+                      timer: delay,
+                      outputSignal: outSig,
+                      action: p.action || 'emit_signal',
+                      targetSpriteId: p.targetSpriteId,
+                      targetModuleId: p.targetModuleId,
+                      targetLayerId: p.targetLayerId,
+                      filterEffect: p.filterEffect || 'invert',
+                      filterValue: parseFloat(p.filterValue !== undefined ? p.filterValue : 100)
+                    });
+                  }
+                }
+
+                if (sprite.runtime._relayQueue.length > 0) {
+                  for (let qIdx = sprite.runtime._relayQueue.length - 1; qIdx >= 0; qIdx--) {
+                    const item = sprite.runtime._relayQueue[qIdx];
+                    item.timer -= dt;
+                    if (item.timer <= 0) {
+                      this.bus.emitSignal(item.outputSignal, sprite.id);
+                      if (item.targetSpriteId) {
+                        const tgt = this.doc.findSpriteById(item.targetSpriteId);
+                        if (tgt) {
+                          tgt.runtime.isTriggered = true;
+                          this.bus.activeTriggerTargets.add(tgt.id);
+                          if (item.action === 'animate_filter' || item.action === 'set_filter') {
+                            if (!tgt.filters) tgt.filters = {};
+                            tgt.filters[item.filterEffect] = item.filterValue;
+                          } else if (item.action === 'toggle_active') {
+                            tgt.visible = !tgt.visible;
+                          }
+                        }
+                      }
+                      if (item.targetLayerId) {
+                        const tgtL = this.doc.getLayer(item.targetLayerId);
+                        if (tgtL) {
+                          if (item.action === 'animate_filter' || item.action === 'set_filter') {
+                            if (!tgtL.filters) tgtL.filters = {};
+                            tgtL.filters[item.filterEffect] = item.filterValue;
+                          } else if (item.action === 'toggle_active') {
+                            tgtL.visible = !tgtL.visible;
+                          }
+                        }
+                      }
+                      sprite.runtime._relayQueue.splice(qIdx, 1);
+                    }
+                  }
+                }
+                break;
+              }
+
+              case 'toggle_switch': {
+                const inSig = p.inputSignal || '';
+                const shouldToggle = (inSig && this.bus.hasSignal(inSig)) || (this.bus.mouse.clicked && sprite.runtime.isHovered);
+                if (shouldToggle) {
+                  if (!sprite.runtime._lastToggleTime || (this.bus.time - sprite.runtime._lastToggleTime > 0.2)) {
+                    sprite.runtime._lastToggleTime = this.bus.time;
+                    sprite.runtime.toggleState = (sprite.runtime.toggleState === undefined ? !(p.initialValue || false) : !sprite.runtime.toggleState);
+                    this.bus.emitSignal(sprite.runtime.toggleState ? 'toggle_on' : 'toggle_off', sprite.id);
+                  }
+                }
+                break;
+              }
+
+              case 'counter_accumulator': {
+                const inSig = p.inputSignal || '';
+                const shouldCount = (inSig && this.bus.hasSignal(inSig)) || (this.bus.mouse.clicked && sprite.runtime.isHovered) || sprite.runtime.isTriggered;
+                if (shouldCount) {
+                  if (!sprite.runtime._lastCountTime || (this.bus.time - sprite.runtime._lastCountTime > 0.15)) {
+                    sprite.runtime._lastCountTime = this.bus.time;
+                    sprite.runtime.counterValue = (sprite.runtime.counterValue !== undefined ? sprite.runtime.counterValue : (p.startVal || 0)) + (p.stepVal || 1);
+                    if (p.maxVal !== undefined && sprite.runtime.counterValue > p.maxVal) {
+                      sprite.runtime.counterValue = p.startVal || 0;
+                      this.bus.emitSignal('counter_max', sprite.id);
+                    }
+                    if (sprite.type === 'text') sprite.text = String(sprite.runtime.counterValue);
+                    this.bus.emitSignal('counter_tick', sprite.id, sprite.runtime.counterValue);
+                  }
+                }
+                break;
+              }
 
               case 'follow_target': {
                 let tx = this.bus.mouse.x, ty = this.bus.mouse.y;
@@ -2168,13 +2468,7 @@
                   const angle = this.bus.time * spd;
                   sprite.runtime.x = tx + Math.cos(angle) * rad;
                   sprite.runtime.y = ty + Math.sin(angle) * rad;
-                } else if (mode === 'elastic') {
-                  sprite.runtime.vx = ((sprite.runtime.vx || 0) + dx * (st * 1.5)) * Math.max(0.6, dp * 0.95);
-                  sprite.runtime.vy = ((sprite.runtime.vy || 0) + dy * (st * 1.5)) * Math.max(0.6, dp * 0.95);
-                  sprite.runtime.x += sprite.runtime.vx;
-                  sprite.runtime.y += sprite.runtime.vy;
                 } else {
-                  // default spring
                   sprite.runtime.vx = ((sprite.runtime.vx || 0) + dx * st) * dp;
                   sprite.runtime.vy = ((sprite.runtime.vy || 0) + dy * st) * dp;
                   sprite.runtime.x += sprite.runtime.vx;
@@ -2226,40 +2520,43 @@
                 else if (tgt === 'scaleX') sprite.runtime.scaleX = res;
                 else if (tgt === 'scaleY') sprite.runtime.scaleY = res;
                 else if (tgt === 'opacity') sprite.runtime.opacity = Math.max(0, Math.min(1, res));
-                else if (tgt === 'filter_blur') {
+                else if (tgt.startsWith('filter_')) {
                   if (!sprite.filters) sprite.filters = {};
-                  sprite.filters.blur = res;
+                  const fltrKey = tgt.replace('filter_', '');
+                  if (fltrKey === 'opacity') sprite.filters.opacity = Math.max(0, Math.min(100, res));
+                  else sprite.filters[fltrKey] = res;
                 }
                 break;
               }
 
               case 'photoshop_filter': {
                 if (!sprite.filters) sprite.filters = {};
-                if (p.blur !== undefined) sprite.filters.blur = parseFloat(p.blur || 0);
-                if (p.brightness !== undefined) sprite.filters.brightness = parseFloat(p.brightness || 100);
-                if (p.contrast !== undefined) sprite.filters.contrast = parseFloat(p.contrast || 100);
-                if (p.saturate !== undefined) sprite.filters.saturate = parseFloat(p.saturate || 100);
-                if (p.grayscale !== undefined) sprite.filters.grayscale = parseFloat(p.grayscale || 0);
-                if (p.sepia !== undefined) sprite.filters.sepia = parseFloat(p.sepia || 0);
-                if (p.hueRotate !== undefined) sprite.filters.hueRotate = parseFloat(p.hueRotate || 0);
-                if (p.invert !== undefined) sprite.filters.invert = parseFloat(p.invert || 0);
-                if (p.shadowBlur !== undefined) sprite.filters.shadowBlur = parseFloat(p.shadowBlur || 0);
-                if (p.shadowColor !== undefined) sprite.filters.shadowColor = p.shadowColor || 'rgba(0,0,0,0.5)';
-                break;
-              }
-
-              case 'screen_trigger': {
-                const mx = this.bus.mouse.x, my = this.bus.mouse.y;
-                const isInside = mx >= sprite.x - sprite.width / 2 && mx <= sprite.x + sprite.width / 2 &&
-                                 my >= sprite.y - sprite.height / 2 && my <= sprite.y + sprite.height / 2;
-                sprite.runtime.isTriggered = isInside;
-                if (isInside && p.targetSpriteId) {
-                  const tgt = this.doc.findSpriteById(p.targetSpriteId);
-                  if (tgt) {
-                    if (p.action === 'show_sprite') tgt.runtime.visible = true;
-                    else if (p.action === 'hide_sprite') tgt.runtime.visible = false;
-                    else if (p.action === 'pulse') tgt.runtime.scaleX = (tgt.scaleX || 1) * 1.1;
-                  }
+                const fMode = p.mode || 'static';
+                if (fMode === 'pulse') {
+                  const spd = parseFloat(p.pulseSpeed || 2.0);
+                  const wave = (Math.sin(this.bus.time * spd * Math.PI * 2) + 1) / 2;
+                  const pMin = parseFloat(p.pulseMin || 0);
+                  const pMax = parseFloat(p.pulseMax || 25);
+                  sprite.filters.blur = pMin + wave * (pMax - pMin);
+                  if (p.opacity !== undefined) sprite.filters.opacity = 40 + wave * 60;
+                  if (p.hueRotate) sprite.filters.hueRotate = (this.bus.time * 60) % 360;
+                } else if (fMode === 'reactive') {
+                  const dist = Math.hypot(this.bus.mouse.x - sprite.runtime.x, this.bus.mouse.y - sprite.runtime.y);
+                  const normDist = Math.max(0, Math.min(1, dist / 400));
+                  sprite.filters.blur = (1 - normDist) * 20;
+                  sprite.filters.brightness = 100 + (1 - normDist) * 50;
+                } else {
+                  if (p.blur !== undefined) sprite.filters.blur = parseFloat(p.blur || 0);
+                  if (p.brightness !== undefined) sprite.filters.brightness = parseFloat(p.brightness || 100);
+                  if (p.contrast !== undefined) sprite.filters.contrast = parseFloat(p.contrast || 100);
+                  if (p.saturate !== undefined) sprite.filters.saturate = parseFloat(p.saturate || 100);
+                  if (p.grayscale !== undefined) sprite.filters.grayscale = parseFloat(p.grayscale || 0);
+                  if (p.sepia !== undefined) sprite.filters.sepia = parseFloat(p.sepia || 0);
+                  if (p.hueRotate !== undefined) sprite.filters.hueRotate = parseFloat(p.hueRotate || 0);
+                  if (p.invert !== undefined) sprite.filters.invert = parseFloat(p.invert || 0);
+                  if (p.opacity !== undefined) sprite.filters.opacity = parseFloat(p.opacity !== undefined ? p.opacity : 100);
+                  if (p.shadowBlur !== undefined) sprite.filters.shadowBlur = parseFloat(p.shadowBlur || 0);
+                  if (p.shadowColor !== undefined) sprite.filters.shadowColor = p.shadowColor || 'rgba(0,0,0,0.5)';
                 }
                 break;
               }
@@ -2275,8 +2572,8 @@
               }
 
               case 'motion_wave': {
-                const amp = p.amplitude || 12;
-                const freq = p.frequency || 1.5;
+                const amp = parseFloat(p.amplitude || 12);
+                const freq = parseFloat(p.frequency || 1.5);
                 const off = Math.sin(this.bus.time * freq * Math.PI * 2) * amp;
                 if (p.axis === 'x') sprite.runtime.x = sprite.x + off;
                 else sprite.runtime.y = sprite.y + off;
@@ -2284,22 +2581,52 @@
               }
 
               case 'pulse_scale': {
-                const minS = p.minScale || 0.9, maxS = p.maxScale || 1.1;
-                const spd = p.speed || 2.0;
+                const minS = parseFloat(p.minScale || 0.9), maxS = parseFloat(p.maxScale || 1.1);
+                const spd = parseFloat(p.speed || 2.0);
                 const s = minS + ((Math.sin(this.bus.time * spd * Math.PI * 2) + 1) / 2) * (maxS - minS);
                 sprite.runtime.scaleX = sprite.scaleX * s;
                 sprite.runtime.scaleY = sprite.scaleY * s;
                 break;
               }
 
+              case 'shake_vibrate': {
+                const intensity = parseFloat(p.intensity || 8);
+                sprite.runtime.x += (Math.random() - 0.5) * intensity;
+                sprite.runtime.y += (Math.random() - 0.5) * intensity;
+                break;
+              }
+
+              case 'wall_bounce': {
+                sprite.runtime.vx = sprite.runtime.vx || parseFloat(p.speedX || 120);
+                sprite.runtime.vy = sprite.runtime.vy || parseFloat(p.speedY || 80);
+                sprite.runtime.x += sprite.runtime.vx * dt;
+                sprite.runtime.y += sprite.runtime.vy * dt;
+                const hw = sprite.width / 2, hh = sprite.height / 2;
+                if (sprite.runtime.x - hw <= 0 || sprite.runtime.x + hw >= this.doc.width) {
+                  sprite.runtime.vx *= -1;
+                  this.bus.emitSignal('wall_bounce', sprite.id);
+                }
+                if (sprite.runtime.y - hh <= 0 || sprite.runtime.y + hh >= this.doc.height) {
+                  sprite.runtime.vy *= -1;
+                  this.bus.emitSignal('wall_bounce', sprite.id);
+                }
+                break;
+              }
+
+              case 'rainbow_shift': {
+                if (!sprite.filters) sprite.filters = {};
+                const spd = parseFloat(p.speed || 60);
+                sprite.filters.hueRotate = ((sprite.filters.hueRotate || 0) + spd * dt) % 360;
+                break;
+              }
+
               case 'orbit_spin': {
-                const spd = p.speedDegPerSec || 45;
+                const spd = parseFloat(p.speedDegPerSec || 45);
                 sprite.runtime.rotation = (sprite.runtime.rotation + spd * dt) % 360;
                 break;
               }
 
               case 'timeline_keyframes': {
-                // Execute keyframes through encapsulated module
                 sprite.evaluateKeyframes(this.doc.currentFrame);
                 break;
               }
@@ -2707,6 +3034,7 @@
                           ${isFolded ? '▶' : '▼'}
                         </button>
                         <button class="ps-layer-vis-btn ${s.visible ? '' : 'muted'}" data-act="vis-sprite" title="스프라이트 가시성">${s.visible ? '●' : '○'}</button>
+                        ${(s.isMask || (s.maskMode && s.maskMode !== 'none')) ? '<span title="클리핑 마스크 적용됨" style="color:#a855f7;font-weight:bold;margin-right:2px;font-size:12px;">↳</span>' : ''}
                         <span class="ps-sp-icon">${s.type === 'rect' ? '▭' : (s.type === 'circle' ? '○' : (s.type === 'text' ? 'T' : (s.type === 'path' ? '⟿' : '✎')))}</span>
                         
                         ${this.renamingId === s.id ? `
@@ -3269,11 +3597,19 @@
             <label class="ps-prop-label">작동 조건 (Condition):</label>
             <select class="ps-select" id="modCond">
               <option value="always" ${params.condition==='always'?'selected':''}>항상 작동 (Always)</option>
+              <option value="on_trigger" ${params.condition==='on_trigger'?'selected':''}>화면 트리거 감지 시 (On Trigger)</option>
+              <option value="on_signal" ${params.condition==='on_signal'?'selected':''}>신호 수신 시 (On Signal)</option>
+              <option value="on_toggle" ${params.condition==='on_toggle'?'selected':''}>토글 스위치 켜짐 시 (On Toggle)</option>
               <option value="on_click" ${params.condition==='on_click'?'selected':''}>마우스 클릭 시 (On Click)</option>
               <option value="on_hover" ${params.condition==='on_hover'?'selected':''}>마우스 호버 시 (On Hover)</option>
               <option value="key_press" ${params.condition==='key_press'?'selected':''}>키보드 입력 시 (Key Press)</option>
               <option value="timeline_active" ${params.condition==='timeline_active'?'selected':''}>특정 프레임 구간 (Timeline)</option>
             </select>
+          </div>
+
+          <div class="ps-prop-row" style="margin-top:8px;${params.condition==='on_signal'?'':'display:none;'}">
+            <label class="ps-prop-label">수신 신호명:</label>
+            <input type="text" class="ps-input" data-param-key="listenSignal" value="${params.listenSignal || params.inputSignal || 'signal_1'}" placeholder="예: signal_1">
           </div>
 
           <!-- Target Entity Selector (Sprite / Layer / Module) -->
@@ -3370,6 +3706,12 @@
             <label class="ps-prop-label">반전 (Invert):</label>
             <div class="blender-scrub-group">
               <input type="number" class="blender-scrub-input" id="fltrInvert" min="0" max="100" value="${filters.invert || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">알파값 (Alpha Opacity):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrOpacity" min="0" max="100" value="${filters.opacity !== undefined ? filters.opacity : 100}">
             </div>
           </div>
           <div class="ps-prop-row">
@@ -3471,19 +3813,76 @@
               <option value="mouse_enter" ${sprite.triggerEvent === 'mouse_enter' ? 'selected' : ''}>마우스 진입 시 (Mouse Enter)</option>
               <option value="mouse_move" ${sprite.triggerEvent === 'mouse_move' ? 'selected' : ''}>마우스 이동 시 (Mouse Move)</option>
               <option value="scroll_reach" ${sprite.triggerEvent === 'scroll_reach' ? 'selected' : ''}>스크롤 도달 시 (Scroll Reach)</option>
+              <option value="click" ${sprite.triggerEvent === 'click' ? 'selected' : ''}>클릭 시 (Click)</option>
             </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">신호 이름:</label>
+            <input type="text" class="ps-input" id="inpTriggerSignalName" value="${sprite.signalName || 'signal_1'}" placeholder="예: signal_1">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">발동 액션:</label>
             <select class="ps-select" id="inpTriggerAction">
+              <option value="emit_signal" ${sprite.triggerAction === 'emit_signal' ? 'selected' : ''}>신호 방출 (Emit Signal)</option>
+              <option value="animate_filter" ${sprite.triggerAction === 'animate_filter' ? 'selected' : ''}>필터 애니메이션 효과 (Filter FX)</option>
+              <option value="set_filter" ${sprite.triggerAction === 'set_filter' ? 'selected' : ''}>필터 값 즉시 설정</option>
               <option value="trigger_module" ${sprite.triggerAction === 'trigger_module' ? 'selected' : ''}>연결 모듈 실행</option>
               <option value="show_sprite" ${sprite.triggerAction === 'show_sprite' ? 'selected' : ''}>스프라이트 표시</option>
               <option value="hide_sprite" ${sprite.triggerAction === 'hide_sprite' ? 'selected' : ''}>스프라이트 숨김</option>
+              <option value="pulse" ${sprite.triggerAction === 'pulse' ? 'selected' : ''}>펄스 박동 확대</option>
               <option value="animate_in" ${sprite.triggerAction === 'animate_in' ? 'selected' : ''}>페이드인 모션</option>
             </select>
           </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">대상 스프라이트:</label>
+            <select class="ps-select" id="inpTriggerTargetSprite">
+              <option value="">(대상 없음)</option>
+              ${this.doc.layers.flatMap(l => l.sprites).filter(s => s.id !== sprite.id).map(s => `
+                <option value="${s.id}" ${sprite.targetSpriteId === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
+              `).join('')}
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">필터 FX 종류:</label>
+            <select class="ps-select" id="inpTriggerFilterEffect">
+              <option value="blur" ${sprite.filterEffect === 'blur' ? 'selected' : ''}>가우시안 블러 (Blur)</option>
+              <option value="grayscale" ${sprite.filterEffect === 'grayscale' ? 'selected' : ''}>흑백 전환 (Grayscale)</option>
+              <option value="invert" ${sprite.filterEffect === 'invert' ? 'selected' : ''}>색상 반전 (Invert)</option>
+              <option value="brightness" ${sprite.filterEffect === 'brightness' ? 'selected' : ''}>밝기 (Brightness)</option>
+              <option value="contrast" ${sprite.filterEffect === 'contrast' ? 'selected' : ''}>대비 (Contrast)</option>
+              <option value="opacity" ${sprite.filterEffect === 'opacity' ? 'selected' : ''}>알파값/투명도 (Opacity)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">필터 목표치:</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="inpTriggerFilterValue" value="${sprite.filterValue !== undefined ? sprite.filterValue : 20}">
+            </div>
+          </div>
         </div>
         ` : ''}
+
+        <!-- Photoshop-Style Mask & Clipping Mask Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">마스크 설정 (Mask & Clipping)</div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">마스크 모드:</label>
+            <select class="ps-select" id="inpMaskMode">
+              <option value="none" ${(!sprite.maskMode || sprite.maskMode === 'none') ? 'selected' : ''}>없음 (None)</option>
+              <option value="clip_mask" ${sprite.maskMode === 'clip_mask' ? 'selected' : ''}>클리핑 마스크 (Clipping Mask)</option>
+              <option value="inverted_mask" ${sprite.maskMode === 'inverted_mask' ? 'selected' : ''}>반전 마스크 (Inverted Mask)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row" id="rowMaskTarget" style="${(!sprite.maskMode || sprite.maskMode === 'none') ? 'display:none;' : ''}">
+            <label class="ps-prop-label">클리핑 대상:</label>
+            <select class="ps-select" id="inpMaskTarget">
+              <option value="">(아래 스프라이트에 클리핑)</option>
+              ${(this.doc.layers.find(l => l.sprites.some(s => s.id === sprite.id))?.sprites || []).filter(s => s.id !== sprite.id).map(s => `
+                <option value="${s.id}" ${sprite.maskTargetId === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
+              `).join('')}
+            </select>
+          </div>
+        </div>
 
         <!-- Photoshop-Style Graphics Filters -->
         <div class="ps-prop-section">
@@ -3534,6 +3933,12 @@
             <label class="ps-prop-label">반전 (Invert):</label>
             <div class="blender-scrub-group">
               <input type="number" class="blender-scrub-input" id="fltrInvert" min="0" max="100" value="${sprite.filters?.invert || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">알파값 (Alpha Opacity):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrOpacity" min="0" max="100" value="${sprite.filters?.opacity !== undefined ? sprite.filters.opacity : 100}">
             </div>
           </div>
           <div class="ps-prop-row">
@@ -3758,7 +4163,40 @@
       bindFilter('fltrSepia', 'sepia');
       bindFilter('fltrHue', 'hueRotate');
       bindFilter('fltrInvert', 'invert');
+      bindFilter('fltrOpacity', 'opacity');
       bindFilter('fltrDropShadow', 'dropShadow', true);
+
+      // Mask & Clipping Mask Bindings
+      this.el.querySelector('#inpMaskMode')?.addEventListener('change', e => {
+        if (sprite) {
+          sprite.maskMode = e.target.value;
+          sprite.isMask = (e.target.value !== 'none');
+          this.doc.saveState();
+          this.cb.onCanvasRender();
+          this.render();
+        }
+      });
+      this.el.querySelector('#inpMaskTarget')?.addEventListener('change', e => {
+        if (sprite) {
+          sprite.maskTargetId = e.target.value || null;
+          this.doc.saveState();
+          this.cb.onCanvasRender();
+        }
+      });
+
+      // Screen Trigger Bindings
+      this.el.querySelector('#inpTriggerSignalName')?.addEventListener('input', e => {
+        if (sprite) { sprite.signalName = e.target.value; this.doc.saveState(); }
+      });
+      this.el.querySelector('#inpTriggerTargetSprite')?.addEventListener('change', e => {
+        if (sprite) { sprite.targetSpriteId = e.target.value; this.doc.saveState(); this.cb.onCanvasRender(); }
+      });
+      this.el.querySelector('#inpTriggerFilterEffect')?.addEventListener('change', e => {
+        if (sprite) { sprite.filterEffect = e.target.value; this.doc.saveState(); }
+      });
+      this.el.querySelector('#inpTriggerFilterValue')?.addEventListener('input', e => {
+        if (sprite) { sprite.filterValue = parseFloat(e.target.value) || 0; this.doc.saveState(); }
+      });
 
       bindProp('inpX', 'x');
       bindProp('inpY', 'y');
@@ -4259,7 +4697,11 @@
                 <button class="ps-dropdown-item" data-filter-act="grayscale">🖤 흑백 필터 (Grayscale)</button>
                 <button class="ps-dropdown-item" data-filter-act="sepia">📜 세피아 빈티지 (Sepia)</button>
                 <button class="ps-dropdown-item" data-filter-act="invert">🔄 색상 반전 (Invert)</button>
+                <button class="ps-dropdown-item" data-filter-act="opacity">👁️ 알파값 / 투명도 조절 (Alpha Opacity)...</button>
                 <button class="ps-dropdown-item" data-filter-act="shadow">🌑 드롭 섀도우 (Drop Shadow)</button>
+                <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" data-filter-act="mask">🎭 클리핑 마스크 만들기 (Create Clipping Mask)</button>
+                <button class="ps-dropdown-item" data-filter-act="unmask">🔓 클리핑 마스크 해제 (Release Clipping Mask)</button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" data-filter-act="reset">⟲ 선택 대상 필터 초기화</button>
               </div>
@@ -4332,6 +4774,23 @@
           else if (act === 'grayscale') target.filters.grayscale = 100;
           else if (act === 'sepia') target.filters.sepia = 80;
           else if (act === 'invert') target.filters.invert = 100;
+          else if (act === 'opacity') {
+            const val = prompt('알파값 / 불투명도 입력 (0 ~ 100):', target.filters.opacity !== undefined ? target.filters.opacity : 100);
+            if (val !== null) target.filters.opacity = Math.max(0, Math.min(100, parseFloat(val) || 0));
+          }
+          else if (act === 'mask') {
+            if (target instanceof Sprite || target.sprites === undefined) {
+              target.isMask = true;
+              target.maskMode = 'clip_mask';
+            }
+          }
+          else if (act === 'unmask') {
+            if (target instanceof Sprite || target.sprites === undefined) {
+              target.isMask = false;
+              target.maskMode = 'none';
+              target.maskTargetId = null;
+            }
+          }
           else if (act === 'shadow') target.filters.dropShadow = true;
           else if (act === 'reset') {
             target.filters = { blur: 0, brightness: 100, contrast: 100, saturate: 100, grayscale: 0, sepia: 0, hueRotate: 0, invert: 0, opacity: 100, dropShadow: false };
@@ -6801,9 +7260,17 @@
           if (f.sepia) fltrs.push(`sepia(${f.sepia}%)`);
           if (f.hueRotate) fltrs.push(`hue-rotate(${f.hueRotate}deg)`);
           if (f.invert) fltrs.push(`invert(${f.invert}%)`);
+          if (f.opacity !== undefined && f.opacity !== 100) fltrs.push(`opacity(${f.opacity}%)`);
           if (f.dropShadow) fltrs.push(`drop-shadow(0px 8px 16px rgba(0,0,0,0.4))`);
         }
         const filterStyle = fltrs.length > 0 ? `filter: ${fltrs.join(' ')};` : '';
+
+        // Clipping Mask in Web Preview
+        let clipStyle = '';
+        if (sprite.maskMode === 'clip_mask') {
+          if (sprite.type === 'circle') clipStyle = 'clip-path: circle(50% at 50% 50%); -webkit-clip-path: circle(50% at 50% 50%);';
+          else if (sprite.cornerRadius) clipStyle = `clip-path: inset(0 round ${sprite.cornerRadius}px); -webkit-clip-path: inset(0 round ${sprite.cornerRadius}px);`;
+        }
 
         // Exact match with studio coordinates: Center (x, y) translated to CSS Top-Left (x - w/2, y - h/2)
         const leftPos = Math.round(sprite.x - sprite.width / 2);
@@ -6825,6 +7292,7 @@
             z-index: ${z};
             ${cursorStyle}
             ${filterStyle}
+            ${clipStyle}
             display: flex;
             align-items: center;
             justify-content: center;
