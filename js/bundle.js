@@ -302,6 +302,8 @@
       this.pathPoints = options.pathPoints || [];
       this.isClosedPath = options.isClosedPath !== undefined ? options.isClosedPath : true;
       this.strokes = options.strokes || [];
+      this.brushStrokePoints = options.brushStrokePoints || [];
+      this.brushSize = options.brushSize || 6;
 
       this.text = options.text || '텍스트';
       this.fontSize = options.fontSize || 32;
@@ -412,6 +414,8 @@
         bevel: this.bevel, cornerRadius: this.cornerRadius,
         pathPoints: JSON.parse(JSON.stringify(this.pathPoints)),
         isClosedPath: this.isClosedPath,
+        brushStrokePoints: JSON.parse(JSON.stringify(this.brushStrokePoints || [])),
+        brushSize: this.brushSize,
         strokes: JSON.parse(JSON.stringify(this.strokes)),
         text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily,
         fontWeight: this.fontWeight, textAlign: this.textAlign,
@@ -441,6 +445,18 @@
       this.zIndex = options.zIndex !== undefined ? options.zIndex : 0;
       this.expanded = options.expanded !== undefined ? options.expanded : true;
       this.modules = options.modules || [];
+      this.filters = options.filters || {
+        blur: 0,
+        brightness: 100,
+        contrast: 100,
+        saturate: 100,
+        grayscale: 0,
+        sepia: 0,
+        hueRotate: 0,
+        invert: 0,
+        opacity: 100,
+        dropShadow: false
+      };
 
       this.sprites = [];
       if (Array.isArray(options.sprites)) {
@@ -537,6 +553,7 @@
         id: this.id, name: this.name, visible: this.visible, locked: this.locked,
         opacity: this.opacity, blendMode: this.blendMode, zIndex: this.zIndex,
         expanded: this.expanded, modules: JSON.parse(JSON.stringify(this.modules)),
+        filters: JSON.parse(JSON.stringify(this.filters || {})),
         sprites: this.sprites.map(s => s.toJSON())
       };
     }
@@ -1237,6 +1254,22 @@
       ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
       if (layer.blendMode) ctx.globalCompositeOperation = layer.blendMode;
 
+      // Photoshop Layer-level Filters
+      if (layer.filters) {
+        const lf = layer.filters;
+        const fltrs = [];
+        if (lf.blur) fltrs.push(`blur(${lf.blur}px)`);
+        if (lf.brightness !== undefined && lf.brightness !== 100) fltrs.push(`brightness(${lf.brightness}%)`);
+        if (lf.contrast !== undefined && lf.contrast !== 100) fltrs.push(`contrast(${lf.contrast}%)`);
+        if (lf.saturate !== undefined && lf.saturate !== 100) fltrs.push(`saturate(${lf.saturate}%)`);
+        if (lf.grayscale) fltrs.push(`grayscale(${lf.grayscale}%)`);
+        if (lf.sepia) fltrs.push(`sepia(${lf.sepia}%)`);
+        if (lf.hueRotate) fltrs.push(`hue-rotate(${lf.hueRotate}deg)`);
+        if (lf.invert) fltrs.push(`invert(${lf.invert}%)`);
+        if (lf.dropShadow) fltrs.push(`drop-shadow(0px 8px 16px rgba(0,0,0,0.5))`);
+        if (fltrs.length > 0) ctx.filter = fltrs.join(' ');
+      }
+
       for (const sprite of layer.sprites) {
         if (!sprite.visible) continue;
         this.drawSprite(ctx, sprite);
@@ -1394,14 +1427,21 @@
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
           ctx.strokeStyle = sprite.stroke || sprite.fill || '#ffffff';
-          ctx.lineWidth = sprite.brushSize || 4;
+          ctx.lineWidth = sprite.brushSize || 6;
           if (sprite.strokeOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.strokeOpacity));
-          ctx.beginPath();
-          ctx.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length; i++) {
-            ctx.lineTo(pts[i].x, pts[i].y);
+          if (pts.length === 1) {
+            ctx.beginPath();
+            ctx.arc(pts[0].x, pts[0].y, (sprite.brushSize || 6) / 2, 0, Math.PI * 2);
+            ctx.fillStyle = sprite.stroke || sprite.fill || '#ffffff';
+            ctx.fill();
+          } else {
+            ctx.beginPath();
+            ctx.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) {
+              ctx.lineTo(pts[i].x, pts[i].y);
+            }
+            ctx.stroke();
           }
-          ctx.stroke();
           ctx.restore();
         }
       } else if (sprite.type === 'path') {
@@ -1826,7 +1866,7 @@
     }
 
     commitBrushStroke() {
-      if (!this.activeBrushStroke || this.activeBrushStroke.length < 2) {
+      if (!this.activeBrushStroke || this.activeBrushStroke.length === 0) {
         this.activeBrushStroke = null;
         return;
       }
@@ -1834,6 +1874,10 @@
       if (!activeLayer) return;
 
       const pts = this.activeBrushStroke;
+      if (pts.length === 1) {
+        pts.push({ x: pts[0].x + 0.1, y: pts[0].y + 0.1 });
+      }
+
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       pts.forEach(p => {
         minX = Math.min(minX, p.x);
@@ -1852,15 +1896,16 @@
         x: cx, y: cy,
         width: Math.max(20, maxX - minX),
         height: Math.max(20, maxY - minY),
-        brushSize: this.brushSize,
+        brushSize: this.brushSize || 6,
         brushStrokePoints: relPts,
-        stroke: this.doc.foregroundColor,
+        stroke: this.doc.foregroundColor || '#ffffff',
         fill: 'transparent'
       });
 
       this.activeBrushStroke = null;
       this.doc.selectedSpriteId = sp.id;
       this.doc.saveState();
+      if (this.onCommit) this.onCommit();
     }
 
     commitShape(start, end) {
@@ -3263,8 +3308,106 @@
     }
 
     renderVisualInspector(sprite, layer) {
-      if (!sprite) {
-        return '<div class="ps-empty-layers">선택된 스프라이트가 없습니다. 레이어 창에서 스프라이트를 선택하세요.</div>';
+      const target = sprite || layer;
+      if (!target) {
+        return '<div class="ps-empty-layers">선택된 레이어나 스프라이트가 없습니다. 레이어 창에서 항목을 선택하세요.</div>';
+      }
+
+      const isLayer = !sprite && !!layer;
+      const targetName = isLayer ? `[레이어] ${layer.name}` : `[스프라이트] ${sprite.name}`;
+      const filters = target.filters || { blur: 0, brightness: 100, contrast: 100, saturate: 100, grayscale: 0, sepia: 0, hueRotate: 0, invert: 0, opacity: 100, dropShadow: false };
+
+      const renderFiltersSection = () => `
+        <div class="ps-prop-section">
+          <div class="ps-prop-header" style="justify-content:space-between;">
+            <span>포토샵 그래픽 필터 (${isLayer ? '레이어 전체' : '스프라이트'})</span>
+            <button class="btn btn-secondary btn-sm" id="btnResetFilters" style="font-size:10px;padding:2px 6px;">⟲ 초기화</button>
+          </div>
+          ${isLayer ? '<div style="font-size:10.5px;color:#71717a;margin-bottom:8px;">이 레이어에 속한 모든 요소에 필터 효과가 일괄 적용됩니다.</div>' : ''}
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">가우시안 블러:</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrBlur" min="0" max="60" value="${filters.blur || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">밝기 (Brightness):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrBrightness" min="0" max="300" value="${filters.brightness ?? 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">대비 (Contrast):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrContrast" min="0" max="300" value="${filters.contrast ?? 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">채도 (Saturation):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrSaturate" min="0" max="300" value="${filters.saturate ?? 100}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">흑백 (Grayscale):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrGrayscale" min="0" max="100" value="${filters.grayscale || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">세피아 (Sepia):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrSepia" min="0" max="100" value="${filters.sepia || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">색조 회전 (Hue):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrHue" min="0" max="360" value="${filters.hueRotate || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">반전 (Invert):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="fltrInvert" min="0" max="100" value="${filters.invert || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">드롭 섀도우:</label>
+            <select class="ps-select" id="fltrDropShadow">
+              <option value="false" ${!filters.dropShadow ? 'selected' : ''}>없음 (None)</option>
+              <option value="true" ${filters.dropShadow ? 'selected' : ''}>소프트 그림자 (Drop Shadow)</option>
+            </select>
+          </div>
+        </div>
+      `;
+
+      if (isLayer) {
+        return `
+          <div class="ps-prop-section">
+            <div class="ps-prop-header" style="justify-content:space-between;">
+              <span style="font-weight:700;color:#38bdf8;">📂 ${layer.name}</span>
+              <span style="font-size:10px;color:#71717a;">선택된 레이어</span>
+            </div>
+            <div class="ps-prop-row" style="margin-top:8px;">
+              <label class="ps-prop-label">투명도 (Opacity):</label>
+              <div class="blender-scrub-group">
+                <input type="number" class="blender-scrub-input" id="inpLayerOpacity" step="0.05" min="0" max="1" value="${layer.opacity}">
+              </div>
+            </div>
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">블렌드 모드:</label>
+              <select class="ps-select" id="inpLayerBlend">
+                <option value="source-over" ${layer.blendMode === 'source-over' ? 'selected' : ''}>표준 (Normal)</option>
+                <option value="multiply" ${layer.blendMode === 'multiply' ? 'selected' : ''}>곱하기 (Multiply)</option>
+                <option value="screen" ${layer.blendMode === 'screen' ? 'selected' : ''}>스크린 (Screen)</option>
+                <option value="overlay" ${layer.blendMode === 'overlay' ? 'selected' : ''}>오버레이 (Overlay)</option>
+              </select>
+            </div>
+          </div>
+
+          ${renderFiltersSection()}
+        `;
       }
 
       return `
@@ -4108,6 +4251,19 @@
                 <button class="ps-dropdown-item" id="mSelectAll">전체 선택 <span class="shortcut">Ctrl+A</span></button>
               </div>
             </div>
+            <div class="ps-menu-item"><span>필터(T)</span>
+              <div class="ps-dropdown-menu">
+                <button class="ps-dropdown-item" data-filter-act="blur">🌫️ 가우시안 블러 (Gaussian Blur)...</button>
+                <button class="ps-dropdown-item" data-filter-act="brightness">☀️ 밝기 / 대비 (Brightness & Contrast)...</button>
+                <button class="ps-dropdown-item" data-filter-act="saturate">🎨 색조 / 채도 (Hue & Saturation)...</button>
+                <button class="ps-dropdown-item" data-filter-act="grayscale">🖤 흑백 필터 (Grayscale)</button>
+                <button class="ps-dropdown-item" data-filter-act="sepia">📜 세피아 빈티지 (Sepia)</button>
+                <button class="ps-dropdown-item" data-filter-act="invert">🔄 색상 반전 (Invert)</button>
+                <button class="ps-dropdown-item" data-filter-act="shadow">🌑 드롭 섀도우 (Drop Shadow)</button>
+                <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" data-filter-act="reset">⟲ 선택 대상 필터 초기화</button>
+              </div>
+            </div>
             <div class="ps-menu-item"><span>창(W)</span>
               <div class="ps-dropdown-menu">
                 <button class="ps-dropdown-item" id="wToolbox">${this.windowToggles.toolbox ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}도구 상자 (Toolbox)</button>
@@ -4158,6 +4314,33 @@
     }
 
     bindEvents() {
+      // Photoshop Filter Menu Actions
+      this.el.querySelectorAll('[data-filter-act]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const act = btn.dataset.filterAct;
+          const target = this.doc.getSelectedSprite() || this.doc.getSelectedLayer();
+          if (!target) {
+            alert('필터를 적용할 레이어 또는 스프라이트를 먼저 선택하세요.');
+            return;
+          }
+          if (!target.filters) {
+            target.filters = { blur: 0, brightness: 100, contrast: 100, saturate: 100, grayscale: 0, sepia: 0, hueRotate: 0, invert: 0, opacity: 100, dropShadow: false };
+          }
+          if (act === 'blur') target.filters.blur = (target.filters.blur || 0) + 10;
+          else if (act === 'brightness') target.filters.brightness = 135;
+          else if (act === 'saturate') target.filters.saturate = 150;
+          else if (act === 'grayscale') target.filters.grayscale = 100;
+          else if (act === 'sepia') target.filters.sepia = 80;
+          else if (act === 'invert') target.filters.invert = 100;
+          else if (act === 'shadow') target.filters.dropShadow = true;
+          else if (act === 'reset') {
+            target.filters = { blur: 0, brightness: 100, contrast: 100, saturate: 100, grayscale: 0, sepia: 0, hueRotate: 0, invert: 0, opacity: 100, dropShadow: false };
+          }
+          this.doc.saveState();
+          this.cb.onUpdate();
+        });
+      });
+
       // Window drag start
       this.el.querySelector('#titleDragRegion')?.addEventListener('mousedown', e => {
         if (e.button === 0) {
@@ -6591,6 +6774,15 @@
           innerContent = sprite.text || '';
         } else if (sprite.type === 'image' && sprite.imageUrl) {
           innerContent = `<img src="${sprite.imageUrl}" style="width:100%;height:100%;object-fit:cover;display:block;" />`;
+        } else if (sprite.type === 'brush') {
+          const pts = sprite.brushStrokePoints || [];
+          if (pts.length > 0) {
+            let pathD = `M ${pts[0].x} ${pts[0].y}`;
+            for (let i = 1; i < pts.length; i++) {
+              pathD += ` L ${pts[i].x} ${pts[i].y}`;
+            }
+            innerContent = `<svg viewBox="-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}" style="width:100%;height:100%;overflow:visible;"><path d="${pathD}" stroke="${sprite.stroke || '#ffffff'}" stroke-width="${sprite.brushSize || 6}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+          }
         }
 
         const borderRadius = sprite.type === 'circle' ? '50%' : `${sprite.cornerRadius || 0}px`;
@@ -6824,7 +7016,7 @@
           }
         }
 
-        this.tools.handleMouseDown(mw.x, mw.y, e);
+        this.tools.handleMouseDown(mw.x, mw.y, ms.x, ms.y, e);
       });
 
       window.addEventListener('mousemove', e => {
