@@ -2151,7 +2151,7 @@
   // 11. Layers Panel UI (Hierarchical Layers & Sprites with Drag & Drop)
   // ==========================================================================
   // ==========================================================================
-  // 13. Layers Panel UI (Fabric Sleek Styling, Robust Selection & Modular fx)
+  // 13. Layers Panel UI (Fabric Sleek Styling, Single-Bind Delegation)
   // ==========================================================================
   class LayersPanelUI {
     constructor(el, doc, callbacks) {
@@ -2160,6 +2160,9 @@
       this.cb = callbacks;
       this.activeCategory = 'all';
       this.renamingId = null;
+      this.dragInfo = null;
+
+      this.initEventsOnce();
       this.render();
     }
 
@@ -2247,24 +2250,46 @@
         </div>
       `;
 
-      this.bindEvents();
+      // Handle renaming input autofocus and events
+      const nameInput = this.el.querySelector('.ps-layer-title-input');
+      if (nameInput) {
+        nameInput.focus();
+        nameInput.select();
+        const commit = () => {
+          const val = nameInput.value.trim();
+          if (val && this.renamingId) {
+            for (const l of this.doc.layers) {
+              if (l.id === this.renamingId) { l.name = val; break; }
+              const sp = l.getSprite(this.renamingId);
+              if (sp) { sp.name = val; break; }
+            }
+          }
+          this.renamingId = null;
+          this.cb.onUpdate();
+        };
+        nameInput.addEventListener('keydown', ev => {
+          if (ev.key === 'Enter') commit();
+          if (ev.key === 'Escape') { this.renamingId = null; this.render(); }
+        });
+        nameInput.addEventListener('blur', commit);
+      }
     }
 
-    bindEvents() {
-      // New Layer button
-      this.el.querySelector('#btnNewLayer')?.addEventListener('click', () => {
-        const l = new Layer({ name: `레이어 ${this.doc.layers.length + 1}` });
-        this.doc.addLayer(l);
-        this.cb.onUpdate();
-      });
-
-      // Float button
-      this.el.querySelector('#btnFloatLayers')?.addEventListener('click', () => {
-        this.cb.onToggleFloat('layers');
-      });
-
-      // Layer & Sprite click delegation
+    initEventsOnce() {
+      // 1. Single click delegation on persistent container
       this.el.addEventListener('click', e => {
+        if (e.target.closest('#btnFloatLayers')) {
+          this.cb.onToggleFloat('layers');
+          return;
+        }
+
+        if (e.target.closest('#btnNewLayer')) {
+          const l = new Layer({ name: `레이어 ${this.doc.layers.length + 1}` });
+          this.doc.addLayer(l);
+          this.cb.onUpdate();
+          return;
+        }
+
         const btn = e.target.closest('button, [data-act]');
         const spriteItem = e.target.closest('[data-sprite-id]');
         const layerGroup = e.target.closest('[data-layer-id]');
@@ -2333,6 +2358,7 @@
           if (mod) { mod.enabled = !mod.enabled; this.cb.onUpdate(); }
         } else if (act === 'del-mod' && sprite && modRow) {
           sprite.modules = sprite.modules?.filter(m => m.id !== modId);
+          if (this.doc.selectedModuleId === modId) this.doc.selectedModuleId = null;
           this.cb.onUpdate();
         } else if (act === 'add-sprite-mod' && sprite) {
           this.showModuleLibraryModal(sprite, false);
@@ -2341,7 +2367,7 @@
         }
       });
 
-      // Double-click to rename
+      // 2. Double-click delegation for rename
       this.el.addEventListener('dblclick', e => {
         const titleEl = e.target.closest('.ps-layer-title, .ps-sprite-title');
         if (titleEl) {
@@ -2352,36 +2378,93 @@
         }
       });
 
-      // Inline Rename blur / enter commit
-      const nameInput = this.el.querySelector('.ps-layer-title-input');
-      if (nameInput) {
-        nameInput.focus();
-        nameInput.select();
-        const commit = () => {
-          const val = nameInput.value.trim();
-          if (val && this.renamingId) {
-            for (const l of this.doc.layers) {
-              if (l.id === this.renamingId) { l.name = val; break; }
-              const sp = l.getSprite(this.renamingId);
-              if (sp) { sp.name = val; break; }
+      // 3. Drag and Drop delegation on container
+      this.el.addEventListener('dragstart', e => {
+        const row = e.target.closest('[draggable="true"]');
+        if (!row) return;
+        if (row.classList.contains('ps-layer-row')) {
+          this.dragInfo = { type: 'layer', id: row.dataset.layerId };
+        } else if (row.classList.contains('ps-sprite-sub-item')) {
+          this.dragInfo = { type: 'sprite', id: row.dataset.spriteId, layerId: row.dataset.layerId };
+        } else if (row.classList.contains('ps-layer-module-row')) {
+          this.dragInfo = { type: 'mod', id: row.dataset.modId };
+        }
+        row.classList.add('is-dragging');
+      });
+
+      this.el.addEventListener('dragend', e => {
+        const row = e.target.closest('[draggable="true"]');
+        if (row) row.classList.remove('is-dragging');
+        this.el.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(n => {
+          n.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+        this.dragInfo = null;
+      });
+
+      this.el.addEventListener('dragover', e => {
+        const row = e.target.closest('[draggable="true"]');
+        if (!row || !this.dragInfo) return;
+        e.preventDefault();
+        const r = row.getBoundingClientRect();
+        const isTop = (e.clientY - r.top) < r.height / 2;
+        this.el.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(n => {
+          if (n !== row) n.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+        row.classList.toggle('drag-over-top', isTop);
+        row.classList.toggle('drag-over-bottom', !isTop);
+      });
+
+      this.el.addEventListener('dragleave', e => {
+        const row = e.target.closest('[draggable="true"]');
+        if (row) row.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+
+      this.el.addEventListener('drop', e => {
+        const row = e.target.closest('[draggable="true"]');
+        if (!row || !this.dragInfo) return;
+        e.preventDefault();
+        const r = row.getBoundingClientRect();
+        const isTop = (e.clientY - r.top) < r.height / 2;
+        row.classList.remove('drag-over-top', 'drag-over-bottom');
+
+        const { type, id, layerId: srcLayerId } = this.dragInfo;
+
+        if (type === 'layer' && row.classList.contains('ps-layer-row')) {
+          const targetId = row.dataset.layerId;
+          if (id && targetId && id !== targetId) {
+            const srcIdx = this.doc.layers.findIndex(l => l.id === id);
+            const dstIdx = this.doc.layers.findIndex(l => l.id === targetId);
+            if (srcIdx !== -1 && dstIdx !== -1) {
+              const [moved] = this.doc.layers.splice(srcIdx, 1);
+              this.doc.layers.splice(isTop ? dstIdx : dstIdx + 1, 0, moved);
+              this.doc.sortLayers();
+              this.cb.onUpdate();
             }
           }
-          this.renamingId = null;
-          this.cb.onUpdate();
-        };
-        nameInput.addEventListener('keydown', ev => {
-          if (ev.key === 'Enter') commit();
-          if (ev.key === 'Escape') { this.renamingId = null; this.render(); }
-        });
-        nameInput.addEventListener('blur', commit);
-      }
-
-      this.initDragAndDrop();
+        } else if (type === 'sprite' && row.classList.contains('ps-sprite-sub-item')) {
+          const targetSpriteId = row.dataset.spriteId;
+          const targetLayerId = row.dataset.layerId;
+          const srcLayer = this.doc.getLayer(srcLayerId);
+          const dstLayer = this.doc.getLayer(targetLayerId);
+          if (srcLayer && dstLayer) {
+            const srcIdx = srcLayer.sprites.findIndex(s => s.id === id);
+            const dstIdx = dstLayer.sprites.findIndex(s => s.id === targetSpriteId);
+            if (srcIdx !== -1 && dstIdx !== -1) {
+              const [moved] = srcLayer.sprites.splice(srcIdx, 1);
+              dstLayer.sprites.splice(isTop ? dstIdx : dstIdx + 1, 0, moved);
+              this.cb.onUpdate();
+            }
+          }
+        }
+      });
     }
 
     showModuleLibraryModal(target, isLayer = false) {
       if (!target) return;
       if (!target.modules) target.modules = [];
+
+      // Clean up any lingering modal first
+      document.querySelectorAll('.modal-overlay').forEach(m => m.remove());
 
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
@@ -2462,88 +2545,7 @@
       };
       window.addEventListener('keydown', onKeyDown);
     }
-
-    initDragAndDrop() {
-      let dragType = null;
-      let dragId = null;
-      let dragLayerId = null;
-
-      this.el.querySelectorAll('[draggable="true"]').forEach(el => {
-        el.addEventListener('dragstart', e => {
-          e.stopPropagation();
-          if (el.classList.contains('ps-layer-row')) {
-            dragType = 'layer';
-            dragId = el.dataset.layerId;
-          } else if (el.classList.contains('ps-sprite-sub-item')) {
-            dragType = 'sprite';
-            dragId = el.dataset.spriteId;
-            dragLayerId = el.dataset.layerId;
-          } else if (el.classList.contains('ps-layer-module-row')) {
-            dragType = 'mod';
-            dragId = el.dataset.modId;
-          }
-          el.classList.add('is-dragging');
-        });
-
-        el.addEventListener('dragend', () => {
-          el.classList.remove('is-dragging');
-          this.el.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(node => {
-            node.classList.remove('drag-over-top', 'drag-over-bottom');
-          });
-        });
-
-        el.addEventListener('dragover', e => {
-          e.preventDefault();
-          e.stopPropagation();
-          const r = el.getBoundingClientRect();
-          const isTop = (e.clientY - r.top) < r.height / 2;
-          el.classList.toggle('drag-over-top', isTop);
-          el.classList.toggle('drag-over-bottom', !isTop);
-        });
-
-        el.addEventListener('dragleave', () => {
-          el.classList.remove('drag-over-top', 'drag-over-bottom');
-        });
-
-        el.addEventListener('drop', e => {
-          e.preventDefault();
-          e.stopPropagation();
-          const r = el.getBoundingClientRect();
-          const isTop = (e.clientY - r.top) < r.height / 2;
-          el.classList.remove('drag-over-top', 'drag-over-bottom');
-
-          if (dragType === 'layer' && el.classList.contains('ps-layer-row')) {
-            const targetId = el.dataset.layerId;
-            if (dragId && targetId && dragId !== targetId) {
-              const srcIdx = this.doc.layers.findIndex(l => l.id === dragId);
-              const dstIdx = this.doc.layers.findIndex(l => l.id === targetId);
-              if (srcIdx !== -1 && dstIdx !== -1) {
-                const [moved] = this.doc.layers.splice(srcIdx, 1);
-                this.doc.layers.splice(isTop ? dstIdx : dstIdx + 1, 0, moved);
-                this.doc.sortLayers();
-                this.cb.onUpdate();
-              }
-            }
-          } else if (dragType === 'sprite' && el.classList.contains('ps-sprite-sub-item')) {
-            const targetSpriteId = el.dataset.spriteId;
-            const targetLayerId = el.dataset.layerId;
-            const srcLayer = this.doc.getLayer(dragLayerId);
-            const dstLayer = this.doc.getLayer(targetLayerId);
-            if (srcLayer && dstLayer) {
-              const srcIdx = srcLayer.sprites.findIndex(s => s.id === dragId);
-              const dstIdx = dstLayer.sprites.findIndex(s => s.id === targetSpriteId);
-              if (srcIdx !== -1 && dstIdx !== -1) {
-                const [moved] = srcLayer.sprites.splice(srcIdx, 1);
-                dstLayer.sprites.splice(isTop ? dstIdx : dstIdx + 1, 0, moved);
-                this.cb.onUpdate();
-              }
-            }
-          }
-        });
-      });
-    }
   }
-
   // ==========================================================================
   // 14. InspectorPanelUI (Non-Destructive Live Scrubbing & Module Inspector)
   // ==========================================================================
@@ -3374,7 +3376,7 @@
   }
 
   // ==========================================================================
-  // 17. NodeEditorUI (Blender Shader Node Editor Standard)
+  // 17. NodeEditorUI (Blender Shader Node Editor Standard - GPU Transform Edition)
   // ==========================================================================
   class NodeEditorUI {
     constructor(container, doc, callbacks) {
@@ -3392,22 +3394,47 @@
       this.knifePath = [];
       this.sound = new SoundManager();
 
-      this.initNodes();
-      this.bindEvents();
+      this.syncFromDoc();
+      this.bindEventsOnce();
     }
 
-    initNodes() {
+    updateTransform() {
+      const nodesLayer = this.container.querySelector('#nodesLayer');
+      const svg = this.container.querySelector('#nodeWiresSvg');
+      const knifeSvg = this.container.querySelector('#nodeKnifeSvg');
+      const transformVal = `translate(${this.pan.x}px, ${this.pan.y}px) scale(${this.zoom})`;
+      if (nodesLayer) {
+        nodesLayer.style.transformOrigin = '0 0';
+        nodesLayer.style.transform = transformVal;
+      }
+      if (svg) {
+        svg.style.transformOrigin = '0 0';
+        svg.style.transform = transformVal;
+      }
+      if (knifeSvg) {
+        knifeSvg.style.transformOrigin = '0 0';
+        knifeSvg.style.transform = transformVal;
+      }
+    }
+
+    syncFromDoc() {
+      const existingPositions = new Map();
+      for (const n of this.nodes) {
+        existingPositions.set(n.id, { x: n.x, y: n.y });
+      }
+
       this.nodes = [];
-      this.wires = [];
+      const newWires = [];
 
       // Output Master Node (Red Header)
+      const masterPos = existingPositions.get('output_master') || { x: 800, y: 120 };
       this.nodes.push({
         id: 'output_master',
         category: 'output',
         type: 'output_master',
-        title: '출력 노드 (OUTPUT)',
+        title: '최종 출력 (OUTPUT)',
         badge: 'MASTER',
-        x: 750, y: 150,
+        x: masterPos.x, y: masterPos.y,
         inputs: [{ name: 'In', type: 'flow' }],
         outputs: [],
         params: {}
@@ -3417,6 +3444,7 @@
       for (const layer of this.doc.layers) {
         for (const sprite of layer.sprites) {
           const spNodeId = 'sp_' + sprite.id;
+          const spPos = existingPositions.get(spNodeId) || { x: 80, y: curY };
           this.nodes.push({
             id: spNodeId,
             category: 'output',
@@ -3424,7 +3452,7 @@
             spriteId: sprite.id,
             title: sprite.name,
             badge: 'SPRITE',
-            x: 80, y: curY,
+            x: spPos.x, y: spPos.y,
             inputs: [],
             outputs: [
               { name: 'Transform', type: 'vector' },
@@ -3438,6 +3466,7 @@
           let prevModNodeId = spNodeId;
           for (const mod of (sprite.modules || [])) {
             const mNodeId = 'node_' + mod.id;
+            const mPos = existingPositions.get(mNodeId) || { x: modX, y: curY };
             const def = MODULE_REGISTRY[mod.type] || {};
             const cat = def.category || 'motion';
             this.nodes.push({
@@ -3448,7 +3477,7 @@
               spriteId: sprite.id,
               title: mod.name,
               badge: def.icon || 'MOD',
-              x: modX, y: curY,
+              x: mPos.x, y: mPos.y,
               inputs: [
                 { name: 'In', type: 'flow' },
                 { name: 'Value', type: 'float' }
@@ -3460,7 +3489,7 @@
               params: mod.params || {}
             });
 
-            this.wires.push({
+            newWires.push({
               id: 'w_' + Math.random().toString(36).substr(2, 7),
               fromNode: prevModNodeId, fromPort: 'Flow',
               toNode: mNodeId, toPort: 'In'
@@ -3470,7 +3499,7 @@
           }
 
           if (prevModNodeId !== spNodeId) {
-            this.wires.push({
+            newWires.push({
               id: 'w_' + Math.random().toString(36).substr(2, 7),
               fromNode: prevModNodeId, fromPort: 'Out',
               toNode: 'output_master', toPort: 'In'
@@ -3480,23 +3509,37 @@
           curY += 200;
         }
       }
+
+      // Keep existing manual wires if valid, otherwise seed newWires
+      if (this.wires.length === 0) {
+        this.wires = newWires;
+      } else {
+        const validNodeIds = new Set(this.nodes.map(n => n.id));
+        this.wires = this.wires.filter(w => validNodeIds.has(w.fromNode) && validNodeIds.has(w.toNode));
+        for (const nw of newWires) {
+          if (!this.wires.some(w => w.toNode === nw.toNode)) {
+            this.wires.push(nw);
+          }
+        }
+      }
     }
 
     getActiveModuleIds() {
       const activeMods = new Set();
-      const visited = new Set();
+      const visited = new Set(['output_master']);
       const queue = ['output_master'];
 
       while (queue.length > 0) {
         const curId = queue.shift();
-        if (visited.has(curId)) continue;
-        visited.add(curId);
-
         for (const w of this.wires) {
           if (w.toNode === curId) {
-            queue.push(w.fromNode);
-            const node = this.nodes.find(n => n.id === w.fromNode);
+            const fromId = w.fromNode;
+            const node = this.nodes.find(n => n.id === fromId);
             if (node && node.modId) activeMods.add(node.modId);
+            if (!visited.has(fromId)) {
+              visited.add(fromId);
+              queue.push(fromId);
+            }
           }
         }
       }
@@ -3506,10 +3549,9 @@
     render() {
       const area = this.container.querySelector('#nodeGraphArea');
       const nodesLayer = this.container.querySelector('#nodesLayer');
-      const svg = this.container.querySelector('#nodeWiresSvg');
-      if (!area || !nodesLayer || !svg) return;
+      if (!area || !nodesLayer) return;
 
-      nodesLayer.style.transform = `translate(${this.pan.x}px, ${this.pan.y}px) scale(${this.zoom})`;
+      this.updateTransform();
 
       const activeMods = this.getActiveModuleIds();
 
@@ -3526,49 +3568,44 @@
               </span>
               <div style="display:flex;align-items:center;gap:6px;">
                 <span style="font-size:9px;font-weight:700;color:${isActive ? '#22c55e' : '#71717a'};">${isActive ? '● ON' : '○ OFF'}</span>
-                ${n.type !== 'output_master' ? `<button class="ps-btn-del-item" data-act="del-node" data-node-id="${n.id}" title="노드 삭제">✕</button>` : ''}
+                ${n.type !== 'output_master' && n.type !== 'output_sprite' ? `<button class="graph-node-close" data-act="del-node" data-node-id="${n.id}">✕</button>` : ''}
               </div>
             </div>
             
             <div class="graph-node-body">
+              <div class="graph-ports-col graph-inputs">
+                ${(n.inputs || []).map(p => `
+                  <div class="graph-port-row">
+                    <div class="graph-port graph-port-input port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type || 'flow'})"></div>
+                    <span class="graph-port-label">${p.name}</span>
+                  </div>
+                `).join('')}
+              </div>
+
+              <div class="graph-ports-col graph-outputs">
+                ${(n.outputs || []).map(p => `
+                  <div class="graph-port-row" style="justify-content:flex-end;">
+                    <span class="graph-port-label">${p.name}</span>
+                    <div class="graph-port graph-port-output port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type || 'flow'})"></div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Inline Blender-like On-Node Controls -->
+            <div class="graph-node-controls">
               ${this.renderNodeInlineControls(n)}
-              
-              <!-- Sockets -->
-              ${n.inputs.map(p => `
-                <div class="graph-ports-row">
-                  <div class="graph-port graph-port-input port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type})"></div>
-                  <span class="graph-port-label">${p.name}</span>
-                </div>
-              `).join('')}
-              ${n.outputs.map(p => `
-                <div class="graph-ports-row" style="justify-content:flex-end;">
-                  <span class="graph-port-label">${p.name}</span>
-                  <div class="graph-port graph-port-output port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type})"></div>
-                </div>
-              `).join('')}
             </div>
           </div>
         `;
       }).join('');
 
-      this.renderWires(svg);
-      this.bindNodeControls();
+      this.renderWires();
     }
 
     renderNodeInlineControls(n) {
-      if (n.type === 'math_op' || n.category === 'logic') {
+      if (n.category === 'logic' || n.type === 'math_op') {
         return `
-          <div class="node-inline-control">
-            <span class="node-inline-label">연산:</span>
-            <select class="node-inline-select" data-node-ctrl="op">
-              <option value="add" ${n.params.op==='add'?'selected':''}>더하기 (Add)</option>
-              <option value="sub" ${n.params.op==='sub'?'selected':''}>빼기 (Subtract)</option>
-              <option value="mul" ${n.params.op==='mul'?'selected':''}>곱하기 (Multiply)</option>
-              <option value="div" ${n.params.op==='div'?'selected':''}>나누기 (Divide)</option>
-              <option value="sin" ${n.params.op==='sin'?'selected':''}>사인 (Sin)</option>
-              <option value="cos" ${n.params.op==='cos'?'selected':''}>코사인 (Cos)</option>
-            </select>
-          </div>
           <div class="node-inline-control">
             <span class="node-inline-label">값 A:</span>
             <input type="number" class="node-inline-input" data-node-ctrl="valA" value="${n.params.valA || 0}">
@@ -3606,49 +3643,10 @@
       return '';
     }
 
-    bindNodeControls() {
-      const nodesLayer = this.container.querySelector('#nodesLayer');
-      if (!nodesLayer) return;
+    renderWires() {
+      const svg = this.container.querySelector('#nodeWiresSvg');
+      if (!svg) return;
 
-      nodesLayer.querySelectorAll('[data-node-ctrl]').forEach(input => {
-        const nodeEl = input.closest('.graph-node');
-        if (!nodeEl) return;
-        const node = this.nodes.find(n => n.id === nodeEl.id);
-        if (!node) return;
-
-        const ctrlKey = input.dataset.nodeCtrl;
-        input.addEventListener('change', e => {
-          if (!node.params) node.params = {};
-          node.params[ctrlKey] = input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
-          if (node.modId) {
-            const sp = this.doc.getSelectedSprite();
-            const mod = sp?.modules?.find(m => m.id === node.modId);
-            if (mod) mod.params[ctrlKey] = node.params[ctrlKey];
-          }
-          this.cb.onUpdate();
-        });
-      });
-
-      // Node delete buttons
-      nodesLayer.querySelectorAll('[data-act="del-node"]').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          const nId = btn.dataset.nodeId;
-          this.deleteNode(nId);
-        });
-      });
-    }
-
-    deleteNode(nId) {
-      if (nId === 'output_master') return;
-      this.nodes = this.nodes.filter(n => n.id !== nId);
-      this.wires = this.wires.filter(w => w.fromNode !== nId && w.toNode !== nId);
-      this.sound.play('pop');
-      this.render();
-      this.cb.onUpdate();
-    }
-
-    renderWires(svg) {
       const activeMods = this.getActiveModuleIds();
       let paths = '';
 
@@ -3657,45 +3655,98 @@
         const toN = this.nodes.find(n => n.id === w.toNode);
         if (!fromN || !toN) continue;
 
-        const x1 = (fromN.x + 220) * this.zoom + this.pan.x;
-        const y1 = (fromN.y + 45) * this.zoom + this.pan.y;
-        const x2 = toN.x * this.zoom + this.pan.x;
-        const y2 = (toN.y + 45) * this.zoom + this.pan.y;
+        // Render in local node space (0 to width) because SVG has identical CSS transform
+        const x1 = fromN.x + 220;
+        const y1 = fromN.y + 45;
+        const x2 = toN.x;
+        const y2 = toN.y + 45;
 
-        const dx = Math.max(50, Math.abs(x2 - x1) * 0.5);
+        const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
         const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
         const isAct = toN.id === 'output_master' || (toN.modId && activeMods.has(toN.modId));
 
-        paths += `<path d="${d}" class="graph-wire ${isAct ? 'wire-active' : ''}" data-wire-id="${w.id}" title="클릭하여 연결 끊기" />`;
-      }
-
-      if (this.connectingWire) {
-        const { startX, startY, currentX, currentY } = this.connectingWire;
-        const dx = Math.max(40, Math.abs(currentX - startX) * 0.5);
-        const d = `M ${startX} ${startY} C ${startX + dx} ${startY}, ${currentX - dx} ${currentY}, ${currentX} ${currentY}`;
-        paths += `<path d="${d}" class="graph-wire" style="stroke:#fbbf24;stroke-dasharray:4,4;stroke-width:2.5;" />`;
+        paths += `<path id="wire_${w.id}" d="${d}" class="graph-wire ${isAct ? 'wire-active' : ''}" data-wire-id="${w.id}" data-from="${w.fromNode}" data-to="${w.toNode}" title="클릭하여 연결 끊기" />`;
       }
 
       svg.innerHTML = paths;
+    }
 
-      // Click wire to sever
-      svg.querySelectorAll('.graph-wire[data-wire-id]').forEach(wireEl => {
-        wireEl.addEventListener('click', () => {
-          const wId = wireEl.dataset.wireId;
-          this.wires = this.wires.filter(w => w.id !== wId);
-          this.sound.play('cut');
-          this.render();
-          this.cb.onUpdate();
-        });
+    updateNodeWires(nodeId) {
+      const node = this.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+      const svg = this.container.querySelector('#nodeWiresSvg');
+      if (!svg) return;
+
+      svg.querySelectorAll(`.graph-wire[data-from="${nodeId}"]`).forEach(pathEl => {
+        const wId = pathEl.dataset.wireId;
+        const w = this.wires.find(wire => wire.id === wId);
+        if (!w) return;
+        const toN = this.nodes.find(n => n.id === w.toNode);
+        if (!toN) return;
+        const x1 = node.x + 220, y1 = node.y + 45;
+        const x2 = toN.x, y2 = toN.y + 45;
+        const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
+        pathEl.setAttribute('d', `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`);
+      });
+
+      svg.querySelectorAll(`.graph-wire[data-to="${nodeId}"]`).forEach(pathEl => {
+        const wId = pathEl.dataset.wireId;
+        const w = this.wires.find(wire => wire.id === wId);
+        if (!w) return;
+        const fromN = this.nodes.find(n => n.id === w.fromNode);
+        if (!fromN) return;
+        const x1 = fromN.x + 220, y1 = fromN.y + 45;
+        const x2 = node.x, y2 = node.y + 45;
+        const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
+        pathEl.setAttribute('d', `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`);
       });
     }
 
-    bindEvents() {
+    updateTempWire(startX, startY, curX, curY) {
+      const svg = this.container.querySelector('#nodeWiresSvg');
+      if (!svg) return;
+      let temp = svg.querySelector('#tempConnectingWire');
+      if (!temp) {
+        temp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        temp.id = 'tempConnectingWire';
+        temp.setAttribute('class', 'graph-wire');
+        temp.style.stroke = '#fbbf24';
+        temp.style.strokeDasharray = '4,4';
+        temp.style.strokeWidth = '2.5';
+        svg.appendChild(temp);
+      }
+      const dx = Math.max(30, Math.abs(curX - startX) * 0.5);
+      temp.setAttribute('d', `M ${startX} ${startY} C ${startX + dx} ${startY}, ${curX - dx} ${curY}, ${curX} ${curY}`);
+    }
+
+    removeTempWire() {
+      const temp = this.container.querySelector('#tempConnectingWire');
+      if (temp) temp.remove();
+    }
+
+    deleteNode(nId) {
+      if (nId === 'output_master' || nId.startsWith('sp_')) return;
+      const node = this.nodes.find(n => n.id === nId);
+      if (node && node.modId) {
+        for (const l of this.doc.layers) {
+          for (const s of l.sprites) {
+            s.modules = (s.modules || []).filter(m => m.id !== node.modId);
+          }
+        }
+      }
+      this.nodes = this.nodes.filter(n => n.id !== nId);
+      this.wires = this.wires.filter(w => w.fromNode !== nId && w.toNode !== nId);
+      this.sound.play('pop');
+      this.render();
+      this.cb.onUpdate();
+    }
+
+    bindEventsOnce() {
       const area = this.container.querySelector('#nodeGraphArea');
       const nodesLayer = this.container.querySelector('#nodesLayer');
-      const searchMenu = this.container.querySelector('#nodeSearchMenu');
-      const searchInput = this.container.querySelector('#nsmSearchInput');
+      const svg = this.container.querySelector('#nodeWiresSvg');
       const knifeSvg = this.container.querySelector('#nodeKnifeSvg');
+      if (!area || !nodesLayer || !svg) return;
 
       // Return to Studio Button
       this.container.querySelector('#btnNodeClose')?.addEventListener('click', () => {
@@ -3710,24 +3761,68 @@
 
       // Auto Layout
       this.container.querySelector('#btnNodeAutoLayout')?.addEventListener('click', () => {
-        this.initNodes();
+        this.syncFromDoc();
         this.render();
       });
 
-      // Knife Cut Mode Toggle Button
+      // Knife Cut Mode Toggle Button Info
       this.container.querySelector('#btnNodeCutKnife')?.addEventListener('click', () => {
         alert('나이프 자르기 사용법: Ctrl 키를 누른 상태에서 우클릭 드래그로 전선을 자릅니다.');
       });
 
-      // Port mousedown: Connection OR Socket Detach!
+      // Single-point delegation for clicking wires to sever
+      svg.addEventListener('click', e => {
+        const wireEl = e.target.closest('.graph-wire[data-wire-id]');
+        if (wireEl) {
+          const wId = wireEl.dataset.wireId;
+          this.wires = this.wires.filter(w => w.id !== wId);
+          this.sound.play('cut');
+          this.renderWires();
+          this.cb.onUpdate();
+        }
+      });
+
+      // Inline controls & close buttons delegation on nodesLayer
+      nodesLayer.addEventListener('change', e => {
+        const input = e.target.closest('[data-node-ctrl]');
+        if (!input) return;
+        const nodeEl = input.closest('.graph-node');
+        if (!nodeEl) return;
+        const node = this.nodes.find(n => n.id === nodeEl.id);
+        if (!node) return;
+
+        const ctrlKey = input.dataset.nodeCtrl;
+        if (!node.params) node.params = {};
+        node.params[ctrlKey] = input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+        if (node.modId) {
+          const sp = this.doc.getSelectedSprite();
+          const mod = sp?.modules?.find(m => m.id === node.modId);
+          if (mod) mod.params[ctrlKey] = node.params[ctrlKey];
+        }
+        this.cb.onUpdate();
+      });
+
+      nodesLayer.addEventListener('click', e => {
+        const delBtn = e.target.closest('[data-act="del-node"]');
+        if (delBtn) {
+          e.stopPropagation();
+          this.deleteNode(delBtn.dataset.nodeId);
+        }
+      });
+
+      // Port Dragging & Node Selection / Dragging on nodesLayer
       nodesLayer.addEventListener('mousedown', e => {
         const port = e.target.closest('.graph-port');
         if (port) {
           e.stopPropagation();
-          const r = port.getBoundingClientRect();
           const isInput = port.classList.contains('graph-port-input');
           const nId = port.dataset.node;
           const pName = port.dataset.port;
+
+          const rArea = area.getBoundingClientRect();
+          let startNodeId = nId;
+          let startPortName = pName;
+          let startX = 0, startY = 0;
 
           // Socket Detach: If dragging an input port that already has a connection, unplug it!
           if (isInput) {
@@ -3735,86 +3830,47 @@
             if (existingWire) {
               this.wires = this.wires.filter(w => w.id !== existingWire.id);
               const fromN = this.nodes.find(n => n.id === existingWire.fromNode);
-              const fromX = (fromN ? fromN.x + 220 : 0) * this.zoom + this.pan.x;
-              const fromY = (fromN ? fromN.y + 45 : 0) * this.zoom + this.pan.y;
-
-              this.connectingWire = {
-                fromNode: existingWire.fromNode,
-                fromPort: existingWire.fromPort,
-                startX: fromX,
-                startY: fromY,
-                currentX: e.clientX,
-                currentY: e.clientY
-              };
+              startNodeId = existingWire.fromNode;
+              startPortName = existingWire.fromPort;
+              startX = fromN ? fromN.x + 220 : 0;
+              startY = fromN ? fromN.y + 45 : 0;
               this.sound.play('pop');
-              this.render();
-
-              const onPortMove = ev => {
-                this.connectingWire.currentX = ev.clientX;
-                this.connectingWire.currentY = ev.clientY;
-                this.renderWires(this.container.querySelector('#nodeWiresSvg'));
-              };
-              const onPortUp = ev => {
-                const targetPort = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.graph-port-input');
-                if (targetPort && targetPort.dataset.node !== this.connectingWire.fromNode) {
-                  this.wires.push({
-                    id: 'w_' + Math.random().toString(36).substr(2, 7),
-                    fromNode: this.connectingWire.fromNode,
-                    fromPort: this.connectingWire.fromPort,
-                    toNode: targetPort.dataset.node,
-                    toPort: targetPort.dataset.port
-                  });
-                  this.sound.play('coin');
-                }
-                this.connectingWire = null;
-                window.removeEventListener('mousemove', onPortMove);
-                window.removeEventListener('mouseup', onPortUp);
-                this.render();
-                this.cb.onUpdate();
-              };
-              window.addEventListener('mousemove', onPortMove);
-              window.addEventListener('mouseup', onPortUp);
-              return;
+              this.renderWires();
+            } else {
+              return; // Input port with no wire cannot drag out
             }
+          } else {
+            const fromN = this.nodes.find(n => n.id === nId);
+            startX = fromN ? fromN.x + 220 : 0;
+            startY = fromN ? fromN.y + 45 : 0;
           }
 
-          // Normal output port connection
-          this.connectingWire = {
-            fromNode: nId,
-            fromPort: pName,
-            startX: r.left + r.width / 2,
-            startY: r.top + r.height / 2,
-            currentX: e.clientX,
-            currentY: e.clientY
+          const onPortMove = ev => {
+            const curX = (ev.clientX - rArea.left - this.pan.x) / this.zoom;
+            const curY = (ev.clientY - rArea.top - this.pan.y) / this.zoom;
+            this.updateTempWire(startX, startY, curX, curY);
           };
 
-          const onPortMove = ev => {
-            this.connectingWire.currentX = ev.clientX;
-            this.connectingWire.currentY = ev.clientY;
-            this.renderWires(this.container.querySelector('#nodeWiresSvg'));
-          };
           const onPortUp = ev => {
-            const targetPort = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.graph-port-input');
-            if (targetPort) {
-              const toNode = targetPort.dataset.node;
-              const toPort = targetPort.dataset.port;
-              if (toNode !== this.connectingWire.fromNode) {
-                this.wires.push({
-                  id: 'w_' + Math.random().toString(36).substr(2, 7),
-                  fromNode: this.connectingWire.fromNode,
-                  fromPort: this.connectingWire.fromPort,
-                  toNode: toNode,
-                  toPort: toPort
-                });
-                this.sound.play('coin');
-              }
-            }
-            this.connectingWire = null;
+            this.removeTempWire();
             window.removeEventListener('mousemove', onPortMove);
             window.removeEventListener('mouseup', onPortUp);
-            this.render();
-            this.cb.onUpdate();
+
+            const targetPort = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.graph-port-input');
+            if (targetPort && targetPort.dataset.node !== startNodeId) {
+              this.wires.push({
+                id: 'w_' + Math.random().toString(36).substr(2, 7),
+                fromNode: startNodeId,
+                fromPort: startPortName,
+                toNode: targetPort.dataset.node,
+                toPort: targetPort.dataset.port
+              });
+              this.sound.play('coin');
+              this.renderWires();
+              this.cb.onUpdate();
+            }
           };
+
           window.addEventListener('mousemove', onPortMove);
           window.addEventListener('mouseup', onPortUp);
           return;
@@ -3828,6 +3884,9 @@
           if (!node) return;
           this.doc.selectedNodeId = node.id;
           if (node.modId) this.doc.selectedModuleId = node.modId;
+          
+          // Fast selection class update without innerHTML
+          nodesLayer.querySelectorAll('.graph-node').forEach(el => el.classList.toggle('selected', el.id === node.id));
           this.cb.onUpdate();
 
           const startMx = e.clientX, startMy = e.clientY;
@@ -3838,27 +3897,38 @@
             node.y = origY + (ev.clientY - startMy) / this.zoom;
             nodeEl.style.left = `${node.x}px`;
             nodeEl.style.top = `${node.y}px`;
-            this.renderWires(this.container.querySelector('#nodeWiresSvg'));
+            this.updateNodeWires(node.id);
           };
+
           const onNodeUp = () => {
             window.removeEventListener('mousemove', onNodeMove);
             window.removeEventListener('mouseup', onNodeUp);
           };
+
           window.addEventListener('mousemove', onNodeMove);
           window.addEventListener('mouseup', onNodeUp);
         }
       });
 
-      // Canvas Panning & Knife Cutting
+      // Canvas Panning & Knife Cutting on area
       area.addEventListener('mousedown', e => {
         // Knife Cut Tool: Ctrl + Right Click drag
         if (e.ctrlKey && e.button === 2) {
           e.preventDefault();
           this.knifeCutting = true;
-          this.knifePath = [{ x: e.clientX, y: e.clientY }];
+          const rArea = area.getBoundingClientRect();
+          const p0 = {
+            x: (e.clientX - rArea.left - this.pan.x) / this.zoom,
+            y: (e.clientY - rArea.top - this.pan.y) / this.zoom
+          };
+          this.knifePath = [p0];
 
           const onKnifeMove = ev => {
-            this.knifePath.push({ x: ev.clientX, y: ev.clientY });
+            const p = {
+              x: (ev.clientX - rArea.left - this.pan.x) / this.zoom,
+              y: (ev.clientY - rArea.top - this.pan.y) / this.zoom
+            };
+            this.knifePath.push(p);
             if (this.knifePath.length > 1) {
               const p1 = this.knifePath[0];
               const p2 = this.knifePath[this.knifePath.length - 1];
@@ -3866,7 +3936,7 @@
             }
           };
 
-          const onKnifeUp = ev => {
+          const onKnifeUp = () => {
             this.knifeCutting = false;
             knifeSvg.innerHTML = '';
             window.removeEventListener('mousemove', onKnifeMove);
@@ -3884,7 +3954,7 @@
           return;
         }
 
-        // Panning canvas
+        // Panning canvas: Middle click or background click
         if (e.button === 1 || e.target === area || e.target.id === 'nodesLayer' || e.target.id === 'nodeWiresSvg') {
           this.isPanning = true;
           this.panStart = { x: e.clientX - this.pan.x, y: e.clientY - this.pan.y };
@@ -3899,24 +3969,26 @@
         }
       });
 
+      // Pan mousemove: Only update transform (0ms CPU, 60fps)
       window.addEventListener('mousemove', e => {
         if (this.isPanning) {
           this.pan.x = e.clientX - this.panStart.x;
           this.pan.y = e.clientY - this.panStart.y;
-          this.render();
+          this.updateTransform();
         }
       });
+
       window.addEventListener('mouseup', () => { this.isPanning = false; });
 
-      // Canvas Zooming
+      // Canvas Zooming: Only update transform (0ms CPU, 60fps)
       area.addEventListener('wheel', e => {
         e.preventDefault();
         const factor = e.deltaY < 0 ? 1.1 : 0.9;
-        this.zoom = Math.max(0.4, Math.min(2.5, this.zoom * factor));
-        this.render();
-      });
+        this.zoom = Math.max(0.3, Math.min(2.5, this.zoom * factor));
+        this.updateTransform();
+      }, { passive: false });
 
-      // Shift+A Key to open search menu & Delete key to delete node
+      // Global hotkeys in Node Mode
       window.addEventListener('keydown', e => {
         if (!this.container || this.container.classList.contains('hidden')) return;
 
@@ -3936,25 +4008,21 @@
         }
       });
 
-      // Search Menu filtering and creation
       this.initSearchMenu();
     }
 
     severWiresIntersecting(p1, p2) {
       let severedCount = 0;
-      const initialCount = this.wires.length;
-
       this.wires = this.wires.filter(w => {
         const fromN = this.nodes.find(n => n.id === w.fromNode);
         const toN = this.nodes.find(n => n.id === w.toNode);
         if (!fromN || !toN) return true;
 
-        const x1 = (fromN.x + 220) * this.zoom + this.pan.x;
-        const y1 = (fromN.y + 45) * this.zoom + this.pan.y;
-        const x2 = toN.x * this.zoom + this.pan.x;
-        const y2 = (toN.y + 45) * this.zoom + this.pan.y;
+        const x1 = fromN.x + 220;
+        const y1 = fromN.y + 45;
+        const x2 = toN.x;
+        const y2 = toN.y + 45;
 
-        // Check bounding box intersection first
         const minX = Math.min(x1, x2) - 10, maxX = Math.max(x1, x2) + 10;
         const minY = Math.min(y1, y2) - 10, maxY = Math.max(y1, y2) + 10;
         const kMinX = Math.min(p1.x, p2.x), kMaxX = Math.max(p1.x, p2.x);
@@ -3962,7 +4030,6 @@
 
         if (maxX < kMinX || minX > kMaxX || maxY < kMinY || minY > kMaxY) return true;
 
-        // Line segment intersection test with wire chord
         const hit = this.lineIntersect(p1.x, p1.y, p2.x, p2.y, x1, y1, x2, y2);
         if (hit) {
           severedCount++;
@@ -3973,7 +4040,7 @@
 
       if (severedCount > 0) {
         this.sound.play('cut');
-        this.render();
+        this.renderWires();
         this.cb.onUpdate();
       }
     }
@@ -4112,10 +4179,28 @@
       const spawnX = Math.round((-this.pan.x + 300) / this.zoom);
       const spawnY = Math.round((-this.pan.y + 200) / this.zoom);
 
+      // Create functional module on selected sprite if available
+      const sp = this.doc.getSelectedSprite() || this.doc.layers[0]?.sprites[0];
+      let newModId = null;
+      if (sp && p.cat !== 'output') {
+        if (!sp.modules) sp.modules = [];
+        const newMod = {
+          id: 'mod_' + Math.random().toString(36).substr(2, 9),
+          type: p.type,
+          name: p.name,
+          enabled: true,
+          params: {}
+        };
+        sp.modules.push(newMod);
+        newModId = newMod.id;
+      }
+
       this.nodes.push({
         id: nId,
         category: p.cat,
         type: p.type,
+        modId: newModId,
+        spriteId: sp?.id,
         title: p.name,
         badge: p.icon,
         x: spawnX, y: spawnY,
@@ -4124,12 +4209,22 @@
         params: {}
       });
 
+      // Automatically wire to output master if possible
+      if (this.nodes.some(n => n.id === 'output_master')) {
+        this.wires.push({
+          id: 'w_' + Math.random().toString(36).substr(2, 7),
+          fromNode: nId,
+          fromPort: (p.out && p.out[0]) ? p.out[0].name : 'Flow',
+          toNode: 'output_master',
+          toPort: 'In'
+        });
+      }
+
       this.sound.play('coin');
       this.render();
       this.cb.onUpdate();
     }
   }
-
   class SettingsModalUI {
     constructor(pluginManager) {
       this.pm = pluginManager;
@@ -4419,15 +4514,10 @@
       this.nodeEditor = new NodeEditorUI(document.getElementById('nodeEditorContainer'), this.doc, {
         onUpdate: () => {
           this.moduleEngine.activeModuleIds = this.nodeEditor.getActiveModuleIds();
-          this.refreshUI();
+          this.renderCanvas();
         },
         onToggleNodeMode: () => this.toggleNodeMode()
       });
-
-      // Global Expose
-      window.JSPen = {
-        registerPlugin: def => this.pluginManager.register(def)
-      };
 
       this.handleResize();
       this.initEvents();
@@ -4453,7 +4543,10 @@
       const vpCont = document.getElementById('viewportContainer');
       if (nodeCont) nodeCont.classList.toggle('hidden', !this.isNodeMode);
       if (vpCont) vpCont.style.display = this.isNodeMode ? 'none' : '';
-      if (this.isNodeMode) this.nodeEditor.render();
+      if (this.isNodeMode) {
+        this.nodeEditor.syncFromDoc();
+        this.nodeEditor.render();
+      }
       this.menuBar.render();
     }
 
@@ -4489,11 +4582,14 @@
       el.classList.add('is-floating');
       el.style.left = `${x}px`;
       el.style.top = `${y}px`;
-      el.style.width = panelName === 'timeline' ? '500px' : (panelName === 'toolbox' ? '70px' : '320px');
-      el.style.height = panelName === 'timeline' ? '220px' : '420px';
+      if (panelName === 'inspector') { el.style.width = '300px'; el.style.height = '420px'; }
+      else if (panelName === 'layers') { el.style.width = '300px'; el.style.height = '420px'; }
+      else if (panelName === 'timeline') { el.style.width = '700px'; el.style.height = '240px'; }
+      else if (panelName === 'toolbox') { el.style.width = '50px'; el.style.height = '480px'; }
+      this.handleResize();
     }
 
-    dockPanel(panelName, targetZone = null) {
+    dockPanel(panelName, zone = null) {
       const idMap = {
         inspector: '#inspectorContainer',
         layers: '#layersContainer',
@@ -4718,52 +4814,25 @@
         }
 
         if (this.tools.activeTool === 'move') {
-          const sel = this.doc.getSelectedSprite();
-          const hit = sel ? this.transformBox.hitTest(mw.x, mw.y, sel) : null;
+          const hit = this.transformBox.hitTest(mw.x, mw.y, this.transformBox.getTarget());
           if (hit) {
-            this.transformBox.startDrag(mw.x, mw.y, hit, sel);
+            this.transformBox.startDrag(hit, mw.x, mw.y);
             return;
           }
 
-          // Pick sprite under cursor
-          let found = null, foundLayer = null;
-          for (let i = this.doc.layers.length - 1; i >= 0; i--) {
-            const l = this.doc.layers[i];
-            if (!l.visible || l.locked) continue;
-            for (let j = l.sprites.length - 1; j >= 0; j--) {
-              const s = l.sprites[j];
-              if (!s.visible || s.locked) continue;
-              if (this.moduleEngine.isPointInside(mw.x, mw.y, s)) {
-                found = s; foundLayer = l; break;
-              }
-            }
-            if (found) break;
-          }
-
-          if (found) {
-            this.doc.selectedLayerId = foundLayer.id;
-            this.doc.selectedSpriteId = found.id;
+          const clickedSprite = this.doc.hitTestSprite(mw.x, mw.y);
+          if (clickedSprite) {
+            const ownerLayer = this.doc.layers.find(l => l.sprites.some(s => s.id === clickedSprite.id));
+            if (ownerLayer) this.doc.selectedLayerId = ownerLayer.id;
+            this.doc.selectedSpriteId = clickedSprite.id;
             this.doc.selectedModuleId = null;
             this.refreshUI();
-            const nh = this.transformBox.hitTest(mw.x, mw.y, found);
-            if (nh) this.transformBox.startDrag(mw.x, mw.y, nh, found);
-          } else {
-            this.doc.selectedSpriteId = null;
-            this.refreshUI();
+            this.transformBox.startDrag('body', mw.x, mw.y);
+            return;
           }
-          return;
         }
 
-        this.tools.handleMouseDown(mw.x, mw.y, ms.x, ms.y, e);
-      });
-
-      this.canvas.addEventListener('contextmenu', e => {
-        if (this.tools.activeTool === 'zoom') {
-          e.preventDefault();
-          const r = this.canvas.getBoundingClientRect();
-          this.tools.zoomAt(e.clientX - r.left, e.clientY - r.top, 0.8);
-          this.renderCanvas();
-        }
+        this.tools.handleMouseDown(mw.x, mw.y, e);
       });
 
       window.addEventListener('mousemove', e => {
@@ -4771,26 +4840,23 @@
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         mw = this.renderer.screenToWorld(ms.x, ms.y);
 
-        // Eyedropper Live Loupe
-        if (this.tools.activeTool === 'eyedropper' && loupe) {
-          if (ms.x >= 0 && ms.y >= 0 && ms.x <= this.canvas.width && ms.y <= this.canvas.height) {
-            loupe.classList.remove('hidden');
-            loupe.style.left = `${e.clientX}px`;
-            loupe.style.top = `${e.clientY}px`;
-            try {
-              const pix = this.renderer.ctx.getImageData(ms.x, ms.y, 1, 1).data;
-              const hex = '#' + ((1 << 24) + (pix[0] << 16) + (pix[1] << 8) + pix[2]).toString(16).slice(1).toUpperCase();
-              if (loupeSwatch) loupeSwatch.style.backgroundColor = hex;
-              if (loupeHex) loupeHex.textContent = hex;
-            } catch (err) {}
-          } else {
-            loupe.classList.add('hidden');
-          }
-        } else if (loupe) {
-          loupe.classList.add('hidden');
+        if (this.renderer.mode === 'preview') {
+          const m = this.moduleEngine.bus.mouse;
+          m.x = mw.x; m.y = mw.y; m.rawX = ms.x; m.rawY = ms.y;
+          return;
         }
 
-        if (this.renderer.mode === 'preview') return;
+        // Eyedropper Live Loupe Swatch
+        if (this.tools.activeTool === 'eyedropper' && loupe) {
+          loupe.classList.remove('hidden');
+          loupe.style.left = `${e.clientX + 16}px`;
+          loupe.style.top = `${e.clientY + 16}px`;
+          const hex = this.renderer.samplePixelColor(ms.x, ms.y);
+          if (loupeSwatch) loupeSwatch.style.background = hex;
+          if (loupeHex) loupeHex.textContent = hex;
+        } else if (loupe && !loupe.classList.contains('hidden')) {
+          loupe.classList.add('hidden');
+        }
 
         if (isPanning) {
           this.renderer.panX = initPan.x + (e.clientX - panStart.x);
@@ -4800,21 +4866,12 @@
         }
 
         if (this.transformBox.mode) {
-          this.transformBox.drag(mw.x, mw.y, e.shiftKey);
+          this.transformBox.drag(mw.x, mw.y, e.shiftKey, e.altKey);
           return;
         }
 
-        if (['brush', 'shape'].includes(this.tools.activeTool)) {
-          this.tools.handleMouseMove(mw.x, mw.y);
-          return;
-        }
-
-        if (this.tools.activeTool === 'move') {
-          const sel = this.doc.getSelectedSprite();
-          const hit = sel ? this.transformBox.hitTest(mw.x, mw.y, sel) : null;
-          this.canvas.style.cursor = this.transformBox.getCursor(hit);
-        } else {
-          this.canvas.style.cursor = 'crosshair';
+        if (isDown) {
+          this.tools.handleMouseMove(mw.x, mw.y, e);
         }
       });
 
@@ -4898,6 +4955,12 @@
       const loop = (now) => {
         const dt = Math.min((now - last) / 1000, 0.1);
         last = now;
+
+        // When Node Graph full screen mode is active, pause canvas rendering for zero CPU usage!
+        if (this.isNodeMode) {
+          requestAnimationFrame(loop);
+          return;
+        }
 
         if (this.doc.isPlaying) {
           frameAcc += dt;
