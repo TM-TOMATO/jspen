@@ -4,6 +4,144 @@
  */
 
 (function () {
+
+  // ==========================================================================
+  // Studio Modal & Toast Engine (Replacing all native browser dialogs)
+  // ==========================================================================
+  class StudioModal {
+    static alert(msg, title = '알림') {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'studio-modal-overlay';
+        overlay.innerHTML = `
+          <div class="studio-modal-box">
+            <div class="studio-modal-header">
+              <span class="studio-modal-title">${title}</span>
+              <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
+            </div>
+            <div class="studio-modal-body">
+              <div class="studio-modal-msg">${msg}</div>
+            </div>
+            <div class="studio-modal-footer">
+              <button class="btn btn-primary btn-sm" id="btnStudioModalOk" style="min-width:70px;">확인</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+        const close = () => {
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+          resolve(true);
+        };
+        overlay.querySelector('#btnStudioModalOk').onclick = close;
+        overlay.querySelector('#btnStudioModalClose').onclick = close;
+        overlay.addEventListener('keydown', e => {
+          if (e.key === 'Escape' || e.key === 'Enter') {
+            e.stopPropagation();
+            close();
+          }
+        });
+        overlay.querySelector('#btnStudioModalOk').focus();
+      });
+    }
+
+    static confirm(msg, title = '확인') {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'studio-modal-overlay';
+        overlay.innerHTML = `
+          <div class="studio-modal-box">
+            <div class="studio-modal-header">
+              <span class="studio-modal-title">${title}</span>
+              <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
+            </div>
+            <div class="studio-modal-body">
+              <div class="studio-modal-msg">${msg}</div>
+            </div>
+            <div class="studio-modal-footer">
+              <button class="btn btn-secondary btn-sm" id="btnStudioModalCancel" style="min-width:65px;">취소</button>
+              <button class="btn btn-primary btn-sm" id="btnStudioModalOk" style="min-width:65px;">확인</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+        const done = val => {
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+          resolve(val);
+        };
+        overlay.querySelector('#btnStudioModalOk').onclick = () => done(true);
+        overlay.querySelector('#btnStudioModalCancel').onclick = () => done(false);
+        overlay.querySelector('#btnStudioModalClose').onclick = () => done(false);
+        overlay.addEventListener('keydown', e => {
+          if (e.key === 'Escape') { e.stopPropagation(); done(false); }
+          if (e.key === 'Enter') { e.stopPropagation(); done(true); }
+        });
+        overlay.querySelector('#btnStudioModalOk').focus();
+      });
+    }
+
+    static prompt(msg, defaultVal = '', title = '입력') {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'studio-modal-overlay';
+        overlay.innerHTML = `
+          <div class="studio-modal-box">
+            <div class="studio-modal-header">
+              <span class="studio-modal-title">${title}</span>
+              <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
+            </div>
+            <div class="studio-modal-body">
+              <div class="studio-modal-msg">${msg}</div>
+              <input type="text" class="studio-modal-input" id="studioModalInput" value="${defaultVal || ''}" />
+            </div>
+            <div class="studio-modal-footer">
+              <button class="btn btn-secondary btn-sm" id="btnStudioModalCancel" style="min-width:65px;">취소</button>
+              <button class="btn btn-primary btn-sm" id="btnStudioModalOk" style="min-width:65px;">확인</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+        const input = overlay.querySelector('#studioModalInput');
+        input.focus();
+        input.select();
+        const done = val => {
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+          resolve(val);
+        };
+        overlay.querySelector('#btnStudioModalOk').onclick = () => done(input.value);
+        overlay.querySelector('#btnStudioModalCancel').onclick = () => done(null);
+        overlay.querySelector('#btnStudioModalClose').onclick = () => done(null);
+        input.addEventListener('keydown', e => {
+          e.stopPropagation();
+          if (e.key === 'Enter') done(input.value);
+          if (e.key === 'Escape') done(null);
+        });
+      });
+    }
+  }
+
+  class StudioToast {
+    static show(msg, duration = 2200) {
+      const existing = document.querySelector('.studio-toast');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      const toast = document.createElement('div');
+      toast.className = 'studio-toast';
+      toast.textContent = msg;
+      document.body.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 300);
+      }, duration);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.StudioModal = StudioModal;
+    window.StudioToast = StudioToast;
+    window.alert = (msg) => { StudioToast.show(msg); };
+  }
+
   'use strict';
 
   // ==========================================================================
@@ -21,7 +159,7 @@
   const MODULE_REGISTRY = {
     // 0. Web & Hyperlink Modifier (Blender-Style Modifier Pipeline)
     hyperlink: {
-      category: 'web', name: '하이퍼링크 (Hyperlink)', icon: 'LINK',
+      category: 'web', name: '링크 이동 (Link)', icon: 'LINK',
       description: '스프라이트에 클릭, 호버, 신호 수신 시 외부 웹 URL이나 내부 앵커(#id)로 이동하는 웹 네비게이션 모디파이어를 부여합니다.',
       defaultParams: {
         condition: 'always',
@@ -29,8 +167,7 @@
         target: '_blank', // '_blank' | '_self'
         trigger: 'click', // 'click' | 'hover' | 'signal' | 'viewport_enter'
         signalName: '',
-        hoverEffect: 'lift', // 'none' | 'lift' | 'zoom' | 'glow' | 'fade' | 'bounce'
-        anchorId: '',
+                anchorId: '',
         customClass: '',
         enabled: true,
         showInRender: true
@@ -133,7 +270,7 @@
       }
     },
     photoshop_filter: {
-      category: 'motion', name: '포토샵 필터 FX', icon: 'FLTR',
+      category: 'motion', name: '그래픽 필터 (Filter FX)', icon: 'FLTR',
       description: '블러, 밝기, 대비, 채도, 흑백, 세피아, 색조 회전, 알파값(투명도) 등 필터를 정적 또는 신호/트리거/박동에 연동하여 실시간 적용합니다.',
       defaultParams: {
         condition: 'always',
@@ -154,7 +291,7 @@
       }
     },
     substance_mask: {
-      category: 'motion', name: '서브스턴스 마스크', icon: 'MASK',
+      category: 'motion', name: '마스크 (Mask)', icon: 'MASK',
       description: '서브스턴스 페인터 스타일의 마스크: 화이트 마스크(전체 통과), 블랙 마스크(전체 가림), 클리핑 마스크, 반전 마스크를 적용합니다.',
       defaultParams: {
         condition: 'always',
@@ -224,7 +361,7 @@
       defaultParams: { condition: 'always', property: 'x', toValue: 200, duration: 1.0, easing: 'easeOutCubic' }
     },
     path_follower: {
-      category: 'motion', name: '베지어 패스 주행', icon: 'PATH',
+      category: 'motion', name: '패스 주행 (Path)', icon: 'PATH',
       description: '펜 도구로 그린 벡터 곡선 경로를 따라 물체가 부드럽게 주행합니다.',
       defaultParams: { condition: 'always', pathLayerId: null, speed: 1.0, autoRotate: true }
     },
@@ -236,10 +373,10 @@
     particle_emitter: {
       category: 'motion', name: '파티클 분출기', icon: 'FX',
       description: '반짝이, 스파크, 먼지 등의 파티클을 마우스나 위치에서 방출합니다.',
-      defaultParams: { condition: 'always', rate: 10, speed: 80, particleColor: '#38bdf8', lifetime: 0.8 }
+      defaultParams: { condition: 'always', rate: 10, speed: 80, particleColor: '#e4e4e7', lifetime: 0.8 }
     },
     motion_wave: {
-      category: 'motion', name: '부유 진동 효과', icon: 'WAVE',
+      category: 'motion', name: '부유 진동 (Wave)', icon: 'WAVE',
       description: '공중에 떠 있는 것처럼 위아래/좌우로 은은하게 부유 진동합니다.',
       defaultParams: { condition: 'always', amplitude: 12, frequency: 1.5, axis: 'y' }
     },
@@ -926,6 +1063,7 @@
       this.startPos = { x: 0, y: 0 };
       this.origLayer = null;
       this.origPathPoints = null;
+      this.snapGuides = [];
     }
 
     getTarget() {
@@ -1077,8 +1215,50 @@
         const sin = Math.sin(rad);
 
         // Local displacement
-        const ldx = dx * cos + dy * sin;
-        const ldy = -dx * sin + dy * cos;
+        let ldx = dx * cos + dy * sin;
+        let ldy = -dx * sin + dy * cos;
+
+        // Smart Snapping during resizing
+        const snapDist = 7;
+        const guides = [];
+        const artW = this.doc.width, artH = this.doc.height;
+        let snapX = null, snapY = null;
+        if (!shiftKey) {
+          const checkSnap = (val, lineVal, isHoriz) => {
+            if (isHoriz) {
+              if (snapY === null && Math.abs(val - lineVal) < snapDist) {
+                snapY = lineVal;
+                guides.push({ type: 'h', y: lineVal });
+              }
+            } else {
+              if (snapX === null && Math.abs(val - lineVal) < snapDist) {
+                snapX = lineVal;
+                guides.push({ type: 'v', x: lineVal });
+              }
+            }
+          };
+
+          for (const ly of this.doc.layers) {
+            if (!ly.visible) continue;
+            for (const sp of ly.sprites) {
+              if (!sp.visible || sp.id === target.id) continue;
+              const sphw = sp.width / 2, sphh = sp.height / 2;
+              checkSnap(wx, sp.x - sphw, false);
+              checkSnap(wx, sp.x, false);
+              checkSnap(wx, sp.x + sphw, false);
+              checkSnap(wy, sp.y - sphh, true);
+              checkSnap(wy, sp.y, true);
+              checkSnap(wy, sp.y + sphh, true);
+            }
+          }
+          checkSnap(wx, 0, false);
+          checkSnap(wx, artW / 2, false);
+          checkSnap(wx, artW, false);
+          checkSnap(wy, 0, true);
+          checkSnap(wy, artH / 2, true);
+          checkSnap(wy, artH, true);
+        }
+        this.snapGuides = guides;
 
         let uOpp = 0, vOpp = 0;
         let uOppNew = 0, vOppNew = 0;
@@ -1181,6 +1361,7 @@
     endDrag() {
       if (!this.mode) return;
       this.mode = null;
+      this.snapGuides = [];
       this.doc.saveState();
       // Commit state and update Inspector inputs
       if (this.onTransformEnd) this.onTransformEnd();
@@ -1324,8 +1505,8 @@
             }
             if (otherSp) {
               ctx.save();
-              ctx.strokeStyle = '#38bdf8';
-              ctx.lineWidth = 1 / this.zoom;
+              ctx.strokeStyle = '#e4e4e7';
+              ctx.lineWidth = 1.2 / this.zoom;
               ctx.setLineDash([4 / this.zoom, 3 / this.zoom]);
               const ohw = (otherSp.width * (otherSp.scaleX || 1)) / 2;
               const ohh = (otherSp.height * (otherSp.scaleY || 1)) / 2;
@@ -1335,6 +1516,23 @@
               ctx.restore();
             }
           }
+
+          // Visual Feedback HUD Badge
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          const badgeText = `선택된 스프라이트: ${this.doc.selectedSpriteIds.size}개`;
+          ctx.font = 'bold 11px sans-serif';
+          const tw = ctx.measureText(badgeText).width;
+          ctx.fillStyle = 'rgba(24, 24, 27, 0.9)';
+          ctx.strokeStyle = '#52525b';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.roundRect(16, 16, tw + 20, 24, 4);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = '#f4f4f5';
+          ctx.fillText(badgeText, 26, 32);
+          ctx.restore();
         }
 
         // Pen Overlay
@@ -1347,7 +1545,7 @@
           this.drawCurveOverlay(ctx, activeCurvePoints);
         }
 
-        // Real-time Brush Tool Stroke Overlay
+        // Real-time Brush Tool Stroke Overlay with Quadratic Smoothing
         if (activeBrushStroke && activeBrushStroke.length > 0) {
           ctx.save();
           ctx.lineCap = 'round';
@@ -1356,8 +1554,14 @@
           ctx.lineWidth = (window.jspenApp?.tools?.brushSize || 6);
           ctx.beginPath();
           ctx.moveTo(activeBrushStroke[0].x, activeBrushStroke[0].y);
-          for (let i = 1; i < activeBrushStroke.length; i++) {
-            ctx.lineTo(activeBrushStroke[i].x, activeBrushStroke[i].y);
+          for (let i = 1; i < activeBrushStroke.length - 1; i++) {
+            const xc = (activeBrushStroke[i].x + activeBrushStroke[i + 1].x) / 2;
+            const yc = (activeBrushStroke[i].y + activeBrushStroke[i + 1].y) / 2;
+            ctx.quadraticCurveTo(activeBrushStroke[i].x, activeBrushStroke[i].y, xc, yc);
+          }
+          if (activeBrushStroke.length > 1) {
+            const last = activeBrushStroke[activeBrushStroke.length - 1];
+            ctx.lineTo(last.x, last.y);
           }
           ctx.stroke();
           ctx.restore();
@@ -1584,20 +1788,26 @@
         if (fltrs.length > 0) ctx.filter = fltrs.join(' ');
       }
 
-      // Draw Brush Strokes
+      // Draw Brush Strokes with Quadratic Midpoint Smoothing
       if (sprite.strokes && sprite.strokes.length > 0) {
         for (const st of sprite.strokes) {
           if (!st.points || st.points.length === 0) continue;
           ctx.save();
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
-          ctx.strokeStyle = st.color || '#38bdf8';
+          ctx.strokeStyle = st.color || '#e4e4e7';
           ctx.lineWidth = st.size || 4;
           if (st.opacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * st.opacity));
           ctx.beginPath();
           ctx.moveTo(st.points[0].x, st.points[0].y);
-          for (let i = 1; i < st.points.length; i++) {
-            ctx.lineTo(st.points[i].x, st.points[i].y);
+          for (let i = 1; i < st.points.length - 1; i++) {
+            const xc = (st.points[i].x + st.points[i + 1].x) / 2;
+            const yc = (st.points[i].y + st.points[i + 1].y) / 2;
+            ctx.quadraticCurveTo(st.points[i].x, st.points[i].y, xc, yc);
+          }
+          if (st.points.length > 1) {
+            const last = st.points[st.points.length - 1];
+            ctx.lineTo(last.x, last.y);
           }
           ctx.stroke();
           ctx.restore();
@@ -1701,6 +1911,41 @@
         if (sprite.text) {
           this.drawSpriteLabelText(ctx, sprite, hw, hh, lop);
         }
+      } else if (sprite.type === 'star') {
+        const outerR = Math.min(hw, hh);
+        const innerR = outerR * (sprite.starInnerRatio || 0.45);
+        const points = sprite.starPoints || 5;
+        const totalPts = points * 2;
+        const step = Math.PI / points;
+        ctx.beginPath();
+        for (let i = 0; i < totalPts; i++) {
+          const r = (i % 2 === 0) ? outerR : innerR;
+          const a = i * step - Math.PI / 2;
+          const px = Math.cos(a) * r;
+          const py = Math.sin(a) * r;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+
+        if (sprite.fillType !== 'none' && sprite.fill !== 'transparent') {
+          ctx.save();
+          ctx.fillStyle = sprite.fill;
+          if (sprite.fillOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.fillOpacity));
+          ctx.fill();
+          ctx.restore();
+        }
+        if (sprite.strokeWidth > 0 && sprite.stroke) {
+          ctx.save();
+          ctx.strokeStyle = sprite.stroke;
+          ctx.lineWidth = sprite.strokeWidth;
+          if (sprite.strokeOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.strokeOpacity));
+          ctx.stroke();
+          ctx.restore();
+        }
+        if (sprite.text) {
+          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop);
+        }
       } else if (sprite.type === 'brush') {
         const pts = sprite.brushStrokePoints || [];
         if (pts.length > 0) {
@@ -1738,9 +1983,29 @@
             const cp2y = cur.cp1y !== undefined ? cur.cp1y : cur.y;
             ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, cur.x, cur.y);
           }
-          if (sprite.isClosedPath || sprite.pathClosed) ctx.closePath();
+          if (sprite.isClosedPath || sprite.pathClosed) {
+            const last = sprite.pathPoints[sprite.pathPoints.length - 1];
+            const first = sprite.pathPoints[0];
+            if (last && first) {
+              const cp1x = last.cp2x !== undefined ? last.cp2x : last.x;
+              const cp1y = last.cp2y !== undefined ? last.cp2y : last.y;
+              const cp2x = first.cp1x !== undefined ? first.cp1x : first.x;
+              const cp2y = first.cp1y !== undefined ? first.cp1y : first.y;
+              ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, first.x, first.y);
+            }
+            ctx.closePath();
+          }
 
-          // Paths from Bezier & Pen have no fill
+          if (sprite.isClosedPath || sprite.pathClosed) {
+            if (sprite.fill && sprite.fill !== 'transparent' && sprite.fillType !== 'none') {
+              ctx.save();
+              ctx.fillStyle = sprite.fill;
+              if (sprite.fillOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.fillOpacity));
+              ctx.fill();
+              ctx.restore();
+            }
+          }
+
           if (sprite.strokeWidth > 0 && sprite.stroke) {
             ctx.save();
             ctx.strokeStyle = sprite.stroke;
@@ -2032,7 +2297,42 @@
       const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
       if (!activeLayer) return;
 
+      if (this.activeTool === 'bucket') {
+        const sp = this.doc.hitTestSprite(wx, wy) || this.doc.getSelectedSprite();
+        if (sp) {
+          sp.fill = this.doc.foregroundColor || '#ffffff';
+          sp.fillType = 'color';
+          this.doc.saveState();
+          if (this.onCommit) this.onCommit();
+        }
+        return;
+      }
+
+      if (this.activeTool === 'gradient') {
+        this.gradientStart = { x: wx, y: wy };
+        return;
+      }
+
       if (this.activeTool === 'brush') {
+        let activeLayer = this.doc.getSelectedLayer();
+        if (!activeLayer || !activeLayer.isBrushLayer) {
+          let bLayer = this.doc.layers.find(l => l.isBrushLayer);
+          if (!bLayer) {
+            bLayer = this.doc.addLayer('브러시 레이어');
+            bLayer.isBrushLayer = true;
+            if (typeof StudioToast !== 'undefined') {
+              StudioToast.show('브러시 전용 레이어가 생성되었습니다.');
+            }
+          } else {
+            if (typeof StudioToast !== 'undefined') {
+              StudioToast.show(`브러시 전용 레이어(${bLayer.name})로 전환되었습니다.`);
+            }
+          }
+          this.doc.selectedLayerId = bLayer.id;
+          activeLayer = bLayer;
+          if (this.onCommit) this.onCommit();
+        }
+
         this.activeBrushStroke = [{ x: wx, y: wy }];
         if (this.onCanvasRender) this.onCanvasRender();
         return;
@@ -2120,20 +2420,19 @@
       }
 
       if (this.activeTool === 'text') {
-        const text = prompt('텍스트 내용을 입력하세요:', 'Interactive Text');
-        if (text) {
-          const sp = activeLayer.addSprite({
-            name: '텍스트: ' + text.slice(0, 10),
-            type: 'text',
-            text: text,
-            x: wx, y: wy,
-            fontSize: 24,
-            fill: this.doc.foregroundColor
-          });
-          this.doc.selectedSpriteId = sp.id;
-          this.doc.saveState();
-          if (this.onCommit) this.onCommit();
-        }
+        const text = '텍스트';
+        const sp = activeLayer.addSprite({
+          name: '텍스트: ' + text,
+          type: 'text',
+          text: text,
+          x: wx, y: wy,
+          fontSize: 24,
+          fill: '#ffffff'
+        });
+        this.doc.selectedSpriteId = sp.id;
+        this.doc.saveState();
+        if (typeof StudioToast !== 'undefined') StudioToast.show('텍스트 스프라이트가 추가되었습니다.');
+        if (this.onCommit) this.onCommit();
         return;
       }
     }
@@ -2191,6 +2490,24 @@
         return;
       }
 
+      if (this.activeTool === 'gradient' && this.gradientStart) {
+        const sp = this.doc.hitTestSprite(wx, wy) || this.doc.getSelectedSprite();
+        if (sp) {
+          sp.fillType = 'linear-gradient';
+          sp.gradient = {
+            type: 'linear',
+            stops: [
+              { offset: 0, color: this.doc.foregroundColor || '#ffffff' },
+              { offset: 1, color: this.doc.backgroundColor || '#27272a' }
+            ]
+          };
+          this.doc.saveState();
+          if (this.onCommit) this.onCommit();
+        }
+        this.gradientStart = null;
+        return;
+      }
+
       if (this.activeTool === 'brush' && this.activeBrushStroke) {
         this.commitBrushStroke();
         if (this.onCommit) this.onCommit();
@@ -2211,40 +2528,52 @@
         this.activeBrushStroke = null;
         return;
       }
-      const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
-      if (!activeLayer) return;
+      let activeLayer = this.doc.getSelectedLayer();
+      if (!activeLayer || !activeLayer.isBrushLayer) {
+        activeLayer = this.doc.layers.find(l => l.isBrushLayer);
+        if (!activeLayer) {
+          activeLayer = this.doc.addLayer('브러시 레이어');
+          activeLayer.isBrushLayer = true;
+        }
+        this.doc.selectedLayerId = activeLayer.id;
+      }
 
       const pts = this.activeBrushStroke;
       if (pts.length === 1) {
         pts.push({ x: pts[0].x + 0.1, y: pts[0].y + 0.1 });
       }
 
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      pts.forEach(p => {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
-      });
+      let brushSprite = activeLayer.sprites.find(s => s.type === 'brush' && s.isBrushCanvas);
+      if (!brushSprite) {
+        brushSprite = activeLayer.addSprite({
+          name: '브러시 아트워크',
+          type: 'brush',
+          isBrushCanvas: true,
+          x: this.doc.width / 2,
+          y: this.doc.height / 2,
+          width: this.doc.width,
+          height: this.doc.height,
+          fill: 'transparent',
+          strokeWidth: 0,
+          strokes: []
+        });
+      }
 
-      const cx = (minX + maxX) / 2;
-      const cy = (minY + maxY) / 2;
-      const relPts = pts.map(p => ({ x: Math.round(p.x - cx), y: Math.round(p.y - cy) }));
+      if (!brushSprite.strokes) brushSprite.strokes = [];
 
-      const sp = activeLayer.addSprite({
-        name: `브러쉬 스트로크 ${activeLayer.sprites.length + 1}`,
-        type: 'brush',
-        x: cx, y: cy,
-        width: Math.max(20, maxX - minX),
-        height: Math.max(20, maxY - minY),
-        brushSize: this.brushSize || 6,
-        brushStrokePoints: relPts,
-        stroke: this.doc.foregroundColor || '#ffffff',
-        fill: 'transparent'
+      const relPts = pts.map(p => ({
+        x: Math.round(p.x - brushSprite.x),
+        y: Math.round(p.y - brushSprite.y)
+      }));
+
+      brushSprite.strokes.push({
+        points: relPts,
+        size: this.brushSize || 6,
+        color: this.doc.foregroundColor || '#ffffff'
       });
 
       this.activeBrushStroke = null;
-      this.doc.selectedSpriteId = sp.id;
+      this.doc.selectedSpriteId = brushSprite.id;
       this.doc.saveState();
       if (this.onCommit) this.onCommit();
     }
@@ -2260,20 +2589,22 @@
 
       if (w < 5 && h < 5) return;
 
-      if (this.activeShapeType === 'circle') {
+      if (this.activeShapeType === 'circle' || this.activeShapeType === 'star') {
         const side = Math.max(w, h);
         w = side;
         h = side;
       }
 
       const sp = activeLayer.addSprite({
-        name: `${this.activeShapeType === 'rect' ? '사각형' : '원형'} 스프라이트`,
+        name: `${this.activeShapeType === 'rect' ? '사각형' : (this.activeShapeType === 'star' ? '별' : '원형')} 스프라이트`,
         type: this.activeShapeType,
         x: x, y: y,
         width: w, height: h,
         fill: this.doc.foregroundColor,
         stroke: '#ffffff',
         strokeWidth: 2,
+        starPoints: 5,
+        starInnerRatio: 0.45,
         cornerRadius: this.shapeBevel,
         bevelChamfer: this.shapeBevel
       });
@@ -2586,6 +2917,53 @@
             const p = mod.params || {};
 
             switch (mod.type) {
+              case 'path_follower': {
+                let pathSp = null;
+                const pathId = p.pathSpriteId || p.pathLayerId;
+                if (pathId) {
+                  for (const ly of this.doc.layers) {
+                    pathSp = ly.getSprite(pathId);
+                    if (pathSp) break;
+                  }
+                }
+                if (!pathSp) {
+                  for (const ly of this.doc.layers) {
+                    pathSp = ly.sprites.find(s => s.type === 'path' && s.id !== sprite.id);
+                    if (pathSp) break;
+                  }
+                }
+                if (pathSp && pathSp.pathPoints && pathSp.pathPoints.length > 1) {
+                  const pts = pathSp.pathPoints;
+                  const speed = Number(p.speed) || 1.0;
+                  const loopMode = p.loopMode || 'loop';
+                  const tCycle = (this.bus.time * speed * 0.25);
+                  let t = 0;
+                  if (loopMode === 'pingpong') {
+                    const frac = tCycle % 2;
+                    t = frac > 1 ? 2 - frac : frac;
+                  } else if (loopMode === 'once') {
+                    t = Math.min(1, tCycle);
+                  } else {
+                    t = tCycle % 1;
+                  }
+                  const segCount = pts.length - 1;
+                  const totalIdx = t * segCount;
+                  const curIdx = Math.min(segCount - 1, Math.floor(totalIdx));
+                  const segT = totalIdx - curIdx;
+                  const p0 = pts[curIdx];
+                  const p1 = pts[curIdx + 1];
+                  const posX = p0.x + (p1.x - p0.x) * segT;
+                  const posY = p0.y + (p1.y - p0.y) * segT;
+                  sprite.runtime.x = pathSp.x + posX;
+                  sprite.runtime.y = pathSp.y + posY;
+                  if (p.autoRotate !== false) {
+                    const angle = Math.atan2(p1.y - p0.y, p1.x - p0.x) * (180 / Math.PI);
+                    sprite.runtime.rotation = angle;
+                  }
+                }
+                break;
+              }
+
               case 'hyperlink': {
                 const hUrl = p.url || sprite.linkUrl || '';
                 const hTarget = p.target || sprite.linkTarget || '_blank';
@@ -3072,6 +3450,24 @@
           ctx.ellipse(0, 0, Math.max(1, hw), Math.max(1, hh), 0, 0, Math.PI * 2);
           if (s.fill !== 'transparent') ctx.fill();
           if (s.strokeWidth > 0) ctx.stroke();
+        } else if (s.type === 'star') {
+          const outerR = Math.min(hw, hh);
+          const innerR = outerR * (s.starInnerRatio || 0.45);
+          const points = s.starPoints || 5;
+          const totalPts = points * 2;
+          const step = Math.PI / points;
+          ctx.beginPath();
+          for (let i = 0; i < totalPts; i++) {
+            const r = (i % 2 === 0) ? outerR : innerR;
+            const a = i * step - Math.PI / 2;
+            const px = Math.cos(a) * r;
+            const py = Math.sin(a) * r;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          if (s.fill !== 'transparent') ctx.fill();
+          if (s.strokeWidth > 0) ctx.stroke();
         } else if (s.type === 'path' && s.pathPoints) {
           ctx.beginPath();
           ctx.moveTo(s.pathPoints[0].x, s.pathPoints[0].y);
@@ -3080,8 +3476,15 @@
             if (p.type === 'C') ctx.bezierCurveTo(p.cp1x, p.cp1y, p.cp2x, p.cp2y, p.x, p.y);
             else ctx.lineTo(p.x, p.y);
           }
-          if (s.isClosedPath) ctx.closePath();
-          if (s.fill !== 'transparent') ctx.fill();
+          if (s.isClosedPath || s.pathClosed) {
+            const last = s.pathPoints[s.pathPoints.length - 1];
+            const first = s.pathPoints[0];
+            if (last && first && (last.type === 'C' || first.type === 'C')) {
+              ctx.bezierCurveTo(last.cp2x ?? last.x, last.cp2y ?? last.y, first.cp1x ?? first.x, first.cp1y ?? first.y, first.x, first.y);
+            }
+            ctx.closePath();
+          }
+          if (s.fill && s.fill !== 'transparent' && s.fillType !== 'none') ctx.fill();
           if (s.strokeWidth > 0) ctx.stroke();
         }
         ctx.restore();
@@ -3136,6 +3539,8 @@
           <button class="ps-tool-btn ${t==='curve'?'active':''}" data-t="curve" title="베지어 곡선 도구 (C)"><span class="ps-tool-icon" style="font-weight:900;">⤹</span></button>
           <button class="ps-tool-btn ${t==='pen'?'active':''}" data-t="pen" title="펜 도구 (P)"><span class="ps-tool-icon">✒</span></button>
           <button class="ps-tool-btn ${t==='brush'?'active':''}" data-t="brush" title="브러시 도구 (B)"><span class="ps-tool-icon">✎</span></button>
+          <button class="ps-tool-btn ${t==='gradient'?'active':''}" data-t="gradient" title="그라데이션 도구 (G)"><span class="ps-tool-icon">▨</span></button>
+          <button class="ps-tool-btn ${t==='bucket'?'active':''}" data-t="bucket" title="페인트 통 / 채우기 (K)"><span class="ps-tool-icon">◩</span></button>
           <div class="ps-tool-sep"></div>
           <button class="ps-tool-btn ${t==='shape'?'active':''}" data-t="shape" title="도형 도구 (U)"><span class="ps-tool-icon">▭</span></button>
           <button class="ps-tool-btn ${t==='text'?'active':''}" data-t="text" title="문자 도구 (T)"><span class="ps-tool-icon" style="font-weight:700;">T</span></button>
@@ -3202,7 +3607,7 @@
           <button class="btn btn-primary btn-sm" id="btnOptNodeMode" style="height:24px;font-size:11px;padding:2px 10px;display:flex;align-items:center;gap:5px;font-weight:600;" title="모듈 노드 모드 / 스튜디오 전환 (Shift+Tab)">
             ${window.jspenApp?.isNodeMode ? '스튜디오로 복귀 (Shift+Tab)' : '모듈 노드 모드 (Shift+Tab)'}
           </button>
-          <button class="btn btn-secondary btn-sm" id="btnOptWebPreview" style="height:24px;font-size:11px;padding:2px 8px;color:#38bdf8;border-color:#38bdf8;display:flex;align-items:center;gap:4px;" title="새 창에서 실시간 웹 미리보기 (Alt+W / Ctrl+Space)">
+          <button class="btn btn-secondary btn-sm" id="btnOptWebPreview" style="height:24px;font-size:11px;padding:2px 8px;color:#e4e4e7;border-color:#e4e4e7;display:flex;align-items:center;gap:4px;" title="새 창에서 실시간 웹 미리보기 (Alt+W / Ctrl+Space)">
             웹 미리보기
           </button>
         </div>
@@ -3221,6 +3626,25 @@
             </button>
           </div>
         `;
+      } else if (t === 'curve' || t === 'pen') {
+        html += `
+          <div class="ps-option-group">
+            <button class="btn btn-secondary btn-sm" id="btnFinishOpenPath" title="현재 곡선을 열린 상태로 완료 (Enter / Esc)">열린 패스 완료</button>
+            <button class="btn btn-secondary btn-sm" id="btnFinishClosedPath" title="첫 점과 연결하여 닫힌 도형으로 완료">닫힌 도형 완료</button>
+          </div>
+        `;
+      } else if (t === 'gradient') {
+        html += `
+          <div class="ps-option-group">
+            <span class="ps-option-label">스프라이트를 드래그하여 전경/배경 그라데이션 적용</span>
+          </div>
+        `;
+      } else if (t === 'bucket') {
+        html += `
+          <div class="ps-option-group">
+            <span class="ps-option-label">클릭한 스프라이트에 전경색(${this.tools.doc.foregroundColor}) 채우기</span>
+          </div>
+        `;
       } else if (t === 'shape') {
         html += `
           <div class="ps-option-group">
@@ -3229,6 +3653,7 @@
               <option value="rect" ${this.tools.activeShapeType === 'rect' ? 'selected' : ''}>직사각형</option>
               <option value="bevel_rect" ${this.tools.activeShapeType === 'bevel_rect' ? 'selected' : ''}>베벨(모따기) 사각형</option>
               <option value="circle" ${this.tools.activeShapeType === 'circle' ? 'selected' : ''}>원형 / 타원</option>
+              <option value="star" ${this.tools.activeShapeType === 'star' ? 'selected' : ''}>별(Star) 벡터 도형</option>
             </select>
           </div>
         `;
@@ -3253,6 +3678,18 @@
       });
       this.el.querySelector('#optShapeType')?.addEventListener('change', e => {
         this.tools.activeShapeType = e.target.value;
+      });
+
+      this.el.querySelector('#btnFinishOpenPath')?.addEventListener('click', () => {
+        if (this.tools.activeTool === 'curve') this.tools.commitCurvePath(false);
+        else if (this.tools.activeTool === 'pen') this.tools.commitPenPath(false);
+        if (this.onUpdate) this.onUpdate();
+      });
+
+      this.el.querySelector('#btnFinishClosedPath')?.addEventListener('click', () => {
+        if (this.tools.activeTool === 'curve') this.tools.commitCurvePath(true);
+        else if (this.tools.activeTool === 'pen') this.tools.commitPenPath(true);
+        if (this.onUpdate) this.onUpdate();
       });
       this.el.querySelector('#btnZoomReset')?.addEventListener('click', () => {
         this.tools.renderer.zoom = 1.0;
@@ -3340,7 +3777,7 @@
 
                 <span class="ps-layer-count-badge">${l.sprites.length}개</span>
                 <button class="ps-btn-layer-add-sp" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+스프라이트</button>
-                <button class="ps-btn-layer-add-sp" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#38bdf8;color:#38bdf8;">+트리거</button>
+                <button class="ps-btn-layer-add-sp" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#e4e4e7;color:#e4e4e7;">+트리거</button>
                 <button class="ps-btn-add-module ${(l.modules && l.modules.length > 0) ? 'has-modules' : ''}" data-act="add-layer-mod" title="레이어 모듈 추가">+fx</button>
                 <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
                 <button class="ps-btn-del-item" data-act="delete-layer" title="레이어 삭제">✕</button>
@@ -3354,7 +3791,7 @@
                     const isFolded = s.collapsed === true;
                     return `
                     <div class="ps-sprite-item-wrap">
-                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : ''}" data-act="select-sprite" data-sprite-id="${s.id}" data-layer-id="${l.id}" draggable="true">
+                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : (this.doc.selectedSpriteIds && this.doc.selectedSpriteIds.has(s.id) ? 'multi-selected' : '')}" data-act="select-sprite" data-sprite-id="${s.id}" data-layer-id="${l.id}" draggable="true">
                         <button class="ps-sp-fold-btn" data-act="toggle-sprite-fold" title="모듈 접기/펼치기" style="${hasMods ? '' : 'visibility:hidden;'}">
                           ${isFolded ? '▶' : '▼'}
                         </button>
@@ -3383,7 +3820,7 @@
                       ${(hasMods && !isFolded) ? `
                         <div class="ps-layer-sub-modules">
                           ${s.modules.map((m, mIdx) => `
-                            <div class="ps-layer-module-row ${m.id === this.doc.selectedModuleId ? 'selected-mod' : ''}" data-mod-id="${m.id}" data-sprite-id="${s.id}" data-mod-idx="${mIdx}">
+                            <div class="ps-layer-module-row ${m.id === this.doc.selectedModuleId ? 'selected-mod' : ''}" data-mod-id="${m.id}" data-sprite-id="${s.id}" data-mod-idx="${mIdx}" draggable="true">
                               <span class="mod-indent">↳</span>
                               <span class="mod-badge">${MODULE_REGISTRY[m.type]?.icon || 'MOD'}</span>
                               <span class="mod-name" data-act="select-mod" title="클릭하여 모듈 설정">${m.name}</span>
@@ -3516,7 +3953,7 @@
           this.cb.onUpdate();
         } else if (act === 'delete-layer' && layer) {
           if (this.doc.layers.length <= 1) {
-            alert('최소 1개의 레이어가 유지되어야 합니다.');
+            StudioToast.show('최소 1개의 레이어가 유지되어야 합니다.');
             return;
           }
           this.doc.removeLayer(layer.id);
@@ -3600,7 +4037,7 @@
         } else if (row.classList.contains('ps-sprite-sub-item')) {
           this.dragInfo = { type: 'sprite', id: row.dataset.spriteId, layerId: row.dataset.layerId };
         } else if (row.classList.contains('ps-layer-module-row')) {
-          this.dragInfo = { type: 'mod', id: row.dataset.modId };
+          this.dragInfo = { type: 'mod', id: row.dataset.modId, spriteId: row.dataset.spriteId };
         }
         row.classList.add('is-dragging');
       });
@@ -3691,6 +4128,58 @@
                 this.doc.selectedSpriteId = moved.id;
                 this.doc.saveState();
                 this.cb.onUpdate();
+              }
+            }
+          }
+        } else if (type === 'mod') {
+          const modRow = row.closest('.ps-layer-module-row');
+          const spriteRow = row.closest('.ps-sprite-sub-item');
+          let targetSpriteId = null;
+          let targetModId = null;
+
+          if (modRow) {
+            targetModId = modRow.dataset.modId;
+            targetSpriteId = modRow.dataset.spriteId;
+          } else if (spriteRow) {
+            targetSpriteId = spriteRow.dataset.spriteId;
+          }
+
+          if (targetSpriteId) {
+            let srcSprite = null;
+            let movedMod = null;
+            for (const ly of this.doc.layers) {
+              for (const sp of ly.sprites) {
+                if (sp.modules) {
+                  const mIdx = sp.modules.findIndex(m => m.id === id);
+                  if (mIdx !== -1) {
+                    srcSprite = sp;
+                    movedMod = sp.modules.splice(mIdx, 1)[0];
+                    break;
+                  }
+                }
+              }
+              if (movedMod) break;
+            }
+
+            if (movedMod) {
+              let dstSprite = null;
+              for (const ly of this.doc.layers) {
+                dstSprite = ly.getSprite(targetSpriteId);
+                if (dstSprite) break;
+              }
+
+              if (dstSprite) {
+                if (!dstSprite.modules) dstSprite.modules = [];
+                if (targetModId && targetModId !== id) {
+                  const dstIdx = dstSprite.modules.findIndex(m => m.id === targetModId);
+                  dstSprite.modules.splice(isTop ? dstIdx : dstIdx + 1, 0, movedMod);
+                } else {
+                  dstSprite.modules.push(movedMod);
+                }
+                this.doc.selectedSpriteId = dstSprite.id;
+                this.doc.selectedModuleId = movedMod.id;
+                this.doc.saveState();
+                if (this.cb.onUpdate) this.cb.onUpdate();
               }
             }
           }
@@ -3845,7 +4334,7 @@
       return `
         <div class="ps-prop-section">
           <div class="ps-prop-header" style="justify-content:space-between;">
-            <span style="font-weight:700;color:#38bdf8;">레이어: ${layer.name}</span>
+            <span style="font-weight:700;color:#e4e4e7;">레이어: ${layer.name}</span>
             <span class="ps-val-tag">레이어</span>
           </div>
           <div class="ps-prop-row" style="margin-top:8px;">
@@ -3892,7 +4381,7 @@
         <!-- Sprite Header -->
         <div class="ps-prop-section">
           <div class="ps-prop-header" style="justify-content:space-between;">
-            <span style="font-weight:700;color:#38bdf8;">스프라이트: ${sprite.name}</span>
+            <span style="font-weight:700;color:#e4e4e7;">스프라이트: ${sprite.name}</span>
             <span class="ps-val-tag">${layerName ? layerName : sprite.type}</span>
           </div>
           <div class="ps-prop-row" style="margin-top:6px;">
@@ -4050,7 +4539,46 @@
 
       let typeSpecificHtml = '';
 
-      if (mod.type === 'substance_mask') {
+      if (mod.type === 'path_follower') {
+        const pathSprites = [];
+        for (const ly of this.doc.layers) {
+          for (const sp of ly.sprites) {
+            if (sp.type === 'path' && sp.id !== sprite.id) {
+              pathSprites.push({ id: sp.id, name: `${sp.name} (${ly.name})` });
+            }
+          }
+        }
+        typeSpecificHtml = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">주행 경로 (Path):</label>
+            <select class="ps-select" data-param-key="pathSpriteId">
+              <option value="">-- 경로 스프라이트 선택 --</option>
+              ${pathSprites.map(p => `<option value="${p.id}" ${(params.pathSpriteId || params.pathLayerId) === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">주행 속도:</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="speed" step="0.1" min="0.1" max="10" value="${params.speed !== undefined ? params.speed : 1}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">진행 방향 자동 회전:</label>
+            <select class="ps-select" data-param-key="autoRotate">
+              <option value="true" ${params.autoRotate !== false ? 'selected' : ''}>사용 (곡선 탄젠트 각도 회전)</option>
+              <option value="false" ${params.autoRotate === false ? 'selected' : ''}>사용 안 함</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">반복 모드:</label>
+            <select class="ps-select" data-param-key="loopMode">
+              <option value="loop" ${(params.loopMode || 'loop') === 'loop' ? 'selected' : ''}>무한 반복 (Loop)</option>
+              <option value="pingpong" ${params.loopMode === 'pingpong' ? 'selected' : ''}>왕복 (Ping-Pong)</option>
+              <option value="once" ${params.loopMode === 'once' ? 'selected' : ''}>1회 주행 후 정지</option>
+            </select>
+          </div>
+        `;
+      } else if (mod.type === 'substance_mask') {
         typeSpecificHtml = `
           <div class="ps-prop-row">
             <label class="ps-prop-label">마스크 종류:</label>
@@ -4175,23 +4703,13 @@
               <option value="_self" ${params.target === '_self' ? 'selected' : ''}>현재 창에서 열기 (_self)</option>
             </select>
           </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">호버 효과:</label>
-            <select class="ps-select" data-param-key="hoverEffect">
-              <option value="none" ${params.hoverEffect === 'none' ? 'selected' : ''}>없음 (None)</option>
-              <option value="lift" ${(params.hoverEffect || 'lift') === 'lift' ? 'selected' : ''}>살짝 뜨기 (Lift Up -3px)</option>
-              <option value="zoom" ${params.hoverEffect === 'zoom' ? 'selected' : ''}>부드럽게 확대 (Zoom 1.05x)</option>
-              <option value="glow" ${params.hoverEffect === 'glow' ? 'selected' : ''}>화려한 발광 (Cyan Glow)</option>
-              <option value="fade" ${params.hoverEffect === 'fade' ? 'selected' : ''}>투명도 전환 (Fade 80%)</option>
-              <option value="bounce" ${params.hoverEffect === 'bounce' ? 'selected' : ''}>통통 튀기 (Bounce)</option>
-            </select>
-          </div>
+          
           <div class="ps-prop-row">
             <label class="ps-prop-label">인페이지 앵커 ID:</label>
             <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${params.anchorId || ''}">
           </div>
           <div class="ps-prop-row" style="margin-top:6px;">
-            <button class="btn btn-secondary btn-sm" id="btnTestModDetailLink" style="width:100%;justify-content:center;color:#38bdf8;border-color:#38bdf8;gap:6px;" ${!params.url ? 'disabled' : ''}>
+            <button class="btn btn-secondary btn-sm" id="btnTestModDetailLink" style="width:100%;justify-content:center;color:#e4e4e7;border-color:#e4e4e7;gap:6px;" ${!params.url ? 'disabled' : ''}>
               브라우저에서 링크 바로 열기 (테스트)
             </button>
           </div>
@@ -4243,12 +4761,10 @@
         <div class="ps-prop-section" style="border-left: 3px solid #38bdf8;">
           <div class="ps-prop-header" style="justify-content:space-between; align-items:center;">
             <div style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;">
-              <span class="ps-val-tag" style="background:#0f172a;color:#38bdf8;padding:2px 6px;font-weight:bold;">${def.icon || 'MOD'}</span>
+              <span class="ps-val-tag" style="background:#0f172a;color:#e4e4e7;padding:2px 6px;font-weight:bold;">${def.icon || 'MOD'}</span>
               <span style="font-weight:700;color:#f1f5f9;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${mod.name}</span>
             </div>
-            <button class="btn btn-secondary btn-sm" id="btnBackToVisual" style="font-size:10px;padding:2px 8px;color:#94a3b8;" title="스프라이트 기본 속성으로 이동">
-              스프라이트 ➔
-            </button>
+            
           </div>
 
           <div class="ps-prop-row" style="margin-top:8px;">
@@ -5081,7 +5597,7 @@
                 <button class="ps-dropdown-item" id="mWExport">완성 웹사이트 (HTML 파일) 다운로드...</button>
                 <button class="ps-dropdown-item" id="mWCopy">HTML/CSS 소스 코드 복사</button>
                 <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#38bdf8;">웹 컴포넌트 템플릿 원클릭 삽입</div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#e4e4e7;">웹 컴포넌트 템플릿 원클릭 삽입</div>
                 <button class="ps-dropdown-item" data-web-tpl="full_landing">[풀 패키지] 완성형 랜딩페이지 전체 삽입</button>
                 <button class="ps-dropdown-item" data-web-tpl="navbar">상단 네비게이션 헤더 (Navbar)</button>
                 <button class="ps-dropdown-item" data-web-tpl="hero">메인 히어로 섹션 (Hero)</button>
@@ -5199,7 +5715,7 @@
           const act = btn.dataset.filterAct;
           const target = this.doc.getSelectedSprite() || this.doc.getSelectedLayer();
           if (!target) {
-            alert('필터를 적용할 레이어 또는 스프라이트를 먼저 선택하세요.');
+            StudioToast.show('필터를 적용할 대상(레이어/스프라이트)을 선택하세요.');
             return;
           }
           if (!target.filters) {
@@ -5212,8 +5728,13 @@
           else if (act === 'sepia') target.filters.sepia = 80;
           else if (act === 'invert') target.filters.invert = 100;
           else if (act === 'opacity') {
-            const val = prompt('알파값 / 불투명도 입력 (0 ~ 100):', target.filters.opacity !== undefined ? target.filters.opacity : 100);
-            if (val !== null) target.filters.opacity = Math.max(0, Math.min(100, parseFloat(val) || 0));
+            StudioModal.prompt('불투명도 입력 (0 ~ 100):', target.filters.opacity !== undefined ? target.filters.opacity : 100, '투명도').then(val => {
+              if (val !== null) {
+                target.filters.opacity = Math.max(0, Math.min(100, parseFloat(val) || 0));
+                this.doc.saveState();
+                if (this.onUpdate) this.onUpdate();
+              }
+            });
           }
           else if (act === 'mask') {
             if (target instanceof Sprite || target.sprites === undefined) {
@@ -5294,18 +5815,21 @@
       this.el.querySelector('#mCustomCanvasSize')?.addEventListener('click', () => {
         const curW = this.doc.width || 1440;
         const curH = this.doc.height || 900;
-        const wStr = prompt('캔버스 가로 너비(px)를 입력하세요:', curW);
-        if (!wStr) return;
-        const hStr = prompt('캔버스 세로 높이(px)를 입력하세요 (긴 페이지는 3000~8000 가능):', curH);
-        if (!hStr) return;
-        const w = parseInt(wStr, 10);
-        const h = parseInt(hStr, 10);
-        if (w > 0 && h > 0) {
-          this.doc.width = w;
-          this.doc.height = h;
-          this.doc.saveState();
-          this.cb.onCanvasResize();
-        }
+        StudioModal.prompt('캔버스 가로 너비(px)를 입력하세요:', curW, '캔버스 크기').then(wStr => {
+          if (!wStr) return;
+          StudioModal.prompt('캔버스 세로 높이(px)를 입력하세요:', curH, '캔버스 크기').then(hStr => {
+            if (!hStr) return;
+            const w = parseInt(wStr, 10);
+            const h = parseInt(hStr, 10);
+            if (w > 0 && h > 0) {
+              this.doc.width = w;
+              this.doc.height = h;
+              this.doc.saveState();
+              if (this.onAction) this.onAction('resize');
+              StudioToast.show(`캔버스 크기가 ${w}x${h}px로 변경되었습니다.`);
+            }
+          });
+        });
       });
 
       this.el.querySelector('#winClose')?.addEventListener('click', () => {
@@ -5326,8 +5850,9 @@
       // File actions
       this.el.querySelector('#mExp')?.addEventListener('click', () => this.cb.onExport());
       this.el.querySelector('#mSettings')?.addEventListener('click', () => this.cb.onOpenSettings());
-      this.el.querySelector('#mNew')?.addEventListener('click', () => {
-        if (confirm('새 도큐먼트를 생성하시겠습니까? 저장되지 않은 작업은 유실됩니다.')) {
+      this.el.querySelector('#mNew')?.addEventListener('click', async () => {
+        const ok = await StudioModal.confirm('새 도큐먼트를 생성하시겠습니까? 저장되지 않은 작업은 유실됩니다.', '새 도큐먼트');
+        if (ok) {
           location.reload();
         }
       });
@@ -5980,7 +6505,7 @@
 
       // Knife Cut Mode Toggle Button Info
       this.container.querySelector('#btnNodeCutKnife')?.addEventListener('click', () => {
-        alert('나이프 자르기 사용법: Ctrl 키를 누른 상태에서 우클릭 드래그로 전선을 자릅니다.');
+        StudioToast.show('나이프: Ctrl + 우클릭 드래그로 전선을 자릅니다.');
       });
 
       // Single-point delegation for clicking wires to sever
@@ -6516,7 +7041,7 @@
         <div class="modal-card" style="max-width:700px;height:540px;display:flex;flex-direction:column;">
           <div class="modal-header">
             <div class="modal-title-group">
-              <span class="modal-icon" style="font-size:12px;font-weight:700;color:#38bdf8;">⚙</span>
+              <span class="modal-icon" style="font-size:12px;font-weight:700;color:#e4e4e7;">⚙</span>
               <div>
                 <h2 class="modal-title">환경 설정 (Settings)</h2>
                 <p class="modal-desc">원하는 키로 단축키를 자유롭게 수정하거나 오픈소스 플러그인을 관리합니다.</p>
@@ -6548,7 +7073,7 @@
         this.el.querySelector('#btnInstallPlugin')?.addEventListener('click', () => {
           const code = this.el.querySelector('#txtPluginCode').value;
           if (this.pm.loadFromCode(code)) {
-            alert('오픈소스 플러그인이 성공적으로 등록되었습니다!');
+            StudioToast.show('오픈소스 플러그인이 등록되었습니다!');
             this.render();
           }
         });
@@ -6594,11 +7119,13 @@
     }
 
     bindShortcutsTabEvents() {
-      this.el.querySelector('#btnResetShortcuts')?.addEventListener('click', () => {
-        if (confirm('모든 단축키를 기본값으로 되돌리시겠습니까?')) {
+      this.el.querySelector('#btnResetShortcuts')?.addEventListener('click', async () => {
+        const ok = await StudioModal.confirm('모든 단축키를 기본값으로 되돌리시겠습니까?', '단축키 초기화');
+        if (ok) {
           localStorage.removeItem('jspen_custom_shortcuts');
           this.shortcuts = JSON.parse(JSON.stringify(this.defaultShortcuts));
           this.render();
+          StudioToast.show('단축키가 초기화되었습니다.');
         }
       });
 
@@ -6654,7 +7181,7 @@
     renderPluginsTab() {
       return `
         <div style="font-size:11.5px;color:#a1a1aa;margin-bottom:12px;">
-          JSPen Studio는 오픈소스 생태계를 위해 <code style="color:#38bdf8;">window.JSPen.registerPlugin</code> API를 지원합니다.<br>
+          JSPen Studio는 오픈소스 생태계를 위해 <code style="color:#e4e4e7;">window.JSPen.registerPlugin</code> API를 지원합니다.<br>
           커스텀 모듈 및 도구를 누구나 자바스크립트로 제작하여 추가할 수 있습니다.
         </div>
 
@@ -6719,7 +7246,7 @@
         });
         return true;
       } catch (e) {
-        alert('플러그인 실행 오류:\n' + e.message);
+        StudioToast.show('플러그인 실행 오류: ' + e.message);
         return false;
       }
     }
@@ -6737,7 +7264,7 @@
         <div class="modal-card">
           <div class="modal-header">
             <div class="modal-title-group">
-              <span class="modal-icon" style="font-size:12px;font-weight:700;color:#38bdf8;">&lt;/&gt;</span>
+              <span class="modal-icon" style="font-size:12px;font-weight:700;color:#e4e4e7;">&lt;/&gt;</span>
               <div>
                 <h2 class="modal-title">순수 자바스크립트 코드 출력</h2>
                 <p class="modal-desc">외부 라이브러리 없는 순수 HTML5 Canvas 2D 코드가 자동 생성되었습니다.</p>
@@ -8245,7 +8772,7 @@
       const clone = document.documentElement.cloneNode(true);
       navigator.clipboard.writeText('<!DOCTYPE html>
 ' + clone.outerHTML).then(() => {
-        alert('HTML 코드가 클립보드에 복사되었습니다! 실제 웹 프로젝트에 붙여넣기 하세요.');
+        StudioToast.show('HTML 코드가 클립보드에 복사되었습니다!');
       });
     }
   </script>
@@ -8269,7 +8796,7 @@
     copyWebsiteCode() {
       const exportHtml = this.generateWebsiteHTML(true);
       navigator.clipboard.writeText(exportHtml).then(() => {
-        alert('웹사이트 전체 HTML 코드가 클립보드에 복사되었습니다!');
+        StudioToast.show('웹사이트 전체 HTML 코드가 클립보드에 복사되었습니다!');
       }).catch(() => {
         const ta = document.createElement('textarea');
         ta.value = exportHtml;
@@ -8277,7 +8804,7 @@
         ta.select();
         document.execCommand('copy');
         document.body.removeChild(ta);
-        alert('웹사이트 전체 HTML 코드가 클립보드에 복사되었습니다!');
+        StudioToast.show('웹사이트 전체 HTML 코드가 클립보드에 복사되었습니다!');
       });
     }
 
@@ -8367,6 +8894,16 @@
         if (e.ctrlKey) {
           e.preventDefault();
         }
+      }, { passive: false });
+
+      this.canvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        const r = this.canvas.getBoundingClientRect();
+        const sx = e.clientX - r.left;
+        const sy = e.clientY - r.top;
+        const factor = e.deltaY < 0 ? 1.1 : 0.9;
+        this.tools.zoomAt(sx, sy, factor);
+        if (this.optionBar) this.optionBar.render();
       }, { passive: false });
 
       window.addEventListener('keydown', e => {
@@ -8532,7 +9069,14 @@
 
       // Global Keydown Shortcuts - Undo / Redo FIRST!
       window.addEventListener('keydown', e => {
-        const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+        const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+        if (isInput) return; // Requirement 18: Typing priority!
+
+        // Requirement 12: tab키 눌러서 선택 기능 제거 (Prevent Tab key cycling buttons)
+        if (e.key === 'Tab' && !e.shiftKey) {
+          e.preventDefault();
+          return;
+        }
 
         const undoKey = this.settingsModal?.getShortcutKey('undo') || 'Ctrl + Z';
         const redoKey = this.settingsModal?.getShortcutKey('redo') || 'Ctrl + Y';
@@ -8657,6 +9201,8 @@
         else if (k === 'c') this.tools.setTool('curve');
         else if (k === 'p') this.tools.setTool('pen');
         else if (k === 'b') this.tools.setTool('brush');
+        else if (k === 'g') this.tools.setTool('gradient');
+        else if (k === 'k') this.tools.setTool('bucket');
         else if (k === 'u') this.tools.setTool('shape');
         else if (k === 't') this.tools.setTool('text');
         else if (k === 'i') this.tools.setTool('eyedropper');
@@ -8677,7 +9223,11 @@
         else if (e.key === 'Enter' || e.key === 'Escape') {
           if (this.tools.activeTool === 'curve' && this.tools.activeCurvePoints.length > 1) {
             e.preventDefault();
-            this.tools.commitCurvePath(e.key === 'Enter');
+            this.tools.commitCurvePath(false);
+            this.refreshUI();
+          } else if (this.tools.activeTool === 'pen' && this.tools.activePenPoints.length > 1) {
+            e.preventDefault();
+            this.tools.commitPenPath(false);
             this.refreshUI();
           }
         }
