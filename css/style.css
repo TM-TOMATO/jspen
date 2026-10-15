@@ -2849,6 +2849,24 @@ input:focus, select:focus, textarea:focus {
   height: 100% !important;
 }
 
+.krita-dock-split-col {
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  height: 100% !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  gap: 2px !important;
+  background-color: #121214 !important;
+  overflow: hidden !important;
+}
+.krita-dock-split-col > .krita-docker {
+  flex: 1 1 50% !important;
+  height: 50% !important;
+  min-height: 0 !important;
+  width: 100% !important;
+}
+
 .krita-docker.is-dragging-ghost {
   position: fixed !important;
   z-index: 999999 !important;

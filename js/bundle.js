@@ -4636,7 +4636,7 @@
   // 18. Main Application Controller
   // ==========================================================================
   // ==========================================================================
-  // 18. Krita Docker Manager (Side-by-Side 50% Split Docking, Live Drag, Window Menu Sync)
+  // 18. Krita Docker Manager (4-Way 50% Split Docking: Left/Right/Top/Bottom, Live Drag, Window Menu Sync)
   // ==========================================================================
   class KritaDockerManager {
     constructor(app) {
@@ -4649,7 +4649,8 @@
           state: 'docked', // 'docked' or 'floating'
           dockArea: 'right', // 'right' or 'bottom'
           dockSlot: 'top', // 'top' or 'bottom'
-          split: null, // null, 'left', 'right'
+          splitDir: null, // null, 'row', 'col'
+          splitPos: 0,
           floatingRect: { x: window.innerWidth - 320, y: 70, w: 290, h: 420 },
           collapsed: false,
           hidden: false
@@ -4661,7 +4662,8 @@
           state: 'docked',
           dockArea: 'right',
           dockSlot: 'bottom',
-          split: null,
+          splitDir: null,
+          splitPos: 0,
           floatingRect: { x: window.innerWidth - 320, y: 500, w: 290, h: 360 },
           collapsed: false,
           hidden: false
@@ -4673,7 +4675,8 @@
           state: 'docked',
           dockArea: 'bottom',
           dockSlot: 'bottom',
-          split: null,
+          splitDir: null,
+          splitPos: 0,
           floatingRect: { x: 50, y: window.innerHeight - 240, w: 760, h: 220 },
           collapsed: false,
           hidden: false
@@ -4709,12 +4712,14 @@
       if (!d) return;
       if (d.state === 'docked') {
         d.state = 'floating';
-        d.split = null;
+        d.splitDir = null;
+        d.splitPos = 0;
         d.floatingRect.x = Math.max(80, window.innerWidth - 340);
         d.floatingRect.y = dockerId === 'inspector' ? 70 : (dockerId === 'layers' ? 480 : 200);
       } else {
         d.state = 'docked';
-        d.split = null;
+        d.splitDir = null;
+        d.splitPos = 0;
         if (dockerId === 'inspector') { d.dockArea = 'right'; d.dockSlot = 'top'; }
         else if (dockerId === 'layers') { d.dockArea = 'right'; d.dockSlot = 'bottom'; }
         else if (dockerId === 'timeline') { d.dockArea = 'bottom'; d.dockSlot = 'bottom'; }
@@ -4737,14 +4742,14 @@
       const splitInner = document.getElementById('kritaSplitterRightInner');
       const splitBottom = document.getElementById('kritaSplitterBottom');
 
-      // Unwrap any existing split rows so elements can be cleanly reorganized
-      document.querySelectorAll('.krita-dock-split-row').forEach(row => {
-        const p = row.parentElement;
+      // Unwrap any existing split rows or cols so elements can be cleanly reorganized
+      document.querySelectorAll('.krita-dock-split-row, .krita-dock-split-col').forEach(wrapper => {
+        const p = wrapper.parentElement;
         if (p) {
-          while (row.firstChild) {
-            p.insertBefore(row.firstChild, row);
+          while (wrapper.firstChild) {
+            p.insertBefore(wrapper.firstChild, wrapper);
           }
-          row.remove();
+          wrapper.remove();
         }
       });
 
@@ -4759,7 +4764,7 @@
         }
       });
 
-      // 1. Right Dock
+      // 1. Right Dock Column
       const rightDockers = visibleDockers.filter(d => d.state === 'docked' && d.dockArea === 'right');
       if (rightDockers.length > 0) {
         if (rightCol) rightCol.classList.remove('hidden');
@@ -4782,7 +4787,8 @@
 
           if (slotGroup.length === 1) {
             const d = slotGroup[0];
-            d.split = null;
+            d.splitDir = null;
+            d.splitPos = 0;
             if (slotName === 'top' && splitInner && splitInner.parentElement === rightCol) {
               rightCol.insertBefore(d.el, splitInner);
             } else {
@@ -4803,31 +4809,42 @@
               d.el.style.flex = '1';
             }
           } else {
-            // Side-by-side 50% split docking in this slot!
-            const splitRow = document.createElement('div');
-            splitRow.className = 'krita-dock-split-row';
-            splitRow.dataset.slot = slotName;
+            // Check if horizontal (row) or vertical (col) split!
+            const isCol = slotGroup.some(d => d.splitDir === 'col');
+            const splitWrapper = document.createElement('div');
+            splitWrapper.className = isCol ? 'krita-dock-split-col' : 'krita-dock-split-row';
+            splitWrapper.dataset.slot = slotName;
 
-            slotGroup.sort((a, b) => (a.split === 'right' ? 1 : 0) - (b.split === 'right' ? 1 : 0));
+            slotGroup.sort((a, b) => (a.splitPos || 0) - (b.splitPos || 0));
 
             slotGroup.forEach(d => {
-              splitRow.appendChild(d.el);
+              splitWrapper.appendChild(d.el);
               d.el.classList.remove('is-floating', 'hidden');
               d.el.classList.add('docked-flex');
               d.el.style.position = '';
               d.el.style.left = '';
               d.el.style.top = '';
-              d.el.style.width = '50%';
-              d.el.style.flex = '1 1 50%';
               d.el.style.display = 'flex';
-              d.el.style.minWidth = '0';
-              d.el.style.height = d.collapsed ? '32px' : '100%';
+
+              if (isCol) {
+                // Vertical 50% split: 50% height each
+                d.el.style.width = '100%';
+                d.el.style.height = d.collapsed ? '32px' : '50%';
+                d.el.style.flex = '1 1 50%';
+                d.el.style.minHeight = '0';
+              } else {
+                // Horizontal 50% split: 50% width each
+                d.el.style.width = '50%';
+                d.el.style.height = d.collapsed ? '32px' : '100%';
+                d.el.style.flex = '1 1 50%';
+                d.el.style.minWidth = '0';
+              }
             });
 
             if (slotName === 'top' && splitInner && splitInner.parentElement === rightCol) {
-              rightCol.insertBefore(splitRow, splitInner);
+              rightCol.insertBefore(splitWrapper, splitInner);
             } else {
-              rightCol.appendChild(splitRow);
+              rightCol.appendChild(splitWrapper);
             }
           }
         });
@@ -4836,7 +4853,7 @@
         if (splitRight) splitRight.classList.add('hidden');
       }
 
-      // 2. Bottom Dock
+      // 2. Bottom Dock Row
       const bottomDockers = visibleDockers.filter(d => d.state === 'docked' && d.dockArea === 'bottom');
       if (bottomDockers.length > 0) {
         if (bottomRow) bottomRow.classList.remove('hidden');
@@ -4844,7 +4861,8 @@
 
         if (bottomDockers.length === 1) {
           const d = bottomDockers[0];
-          d.split = null;
+          d.splitDir = null;
+          d.splitPos = 0;
           bottomRow.appendChild(d.el);
           d.el.classList.remove('is-floating', 'hidden');
           d.el.classList.add('docked-flex');
@@ -4861,25 +4879,35 @@
             d.el.style.flex = '1';
           }
         } else {
-          // Side-by-side 50% split docking in bottom!
-          const splitRow = document.createElement('div');
-          splitRow.className = 'krita-dock-split-row';
-          bottomDockers.sort((a, b) => (a.split === 'right' ? 1 : 0) - (b.split === 'right' ? 1 : 0));
+          // Check if horizontal (row) or vertical (col) split in bottom dock!
+          const isCol = bottomDockers.some(d => d.splitDir === 'col');
+          const splitWrapper = document.createElement('div');
+          splitWrapper.className = isCol ? 'krita-dock-split-col' : 'krita-dock-split-row';
+
+          bottomDockers.sort((a, b) => (a.splitPos || 0) - (b.splitPos || 0));
 
           bottomDockers.forEach(d => {
-            splitRow.appendChild(d.el);
+            splitWrapper.appendChild(d.el);
             d.el.classList.remove('is-floating', 'hidden');
             d.el.classList.add('docked-flex');
             d.el.style.position = '';
             d.el.style.left = '';
             d.el.style.top = '';
-            d.el.style.width = '50%';
-            d.el.style.flex = '1 1 50%';
             d.el.style.display = 'flex';
-            d.el.style.minWidth = '0';
-            d.el.style.height = d.collapsed ? '35px' : '100%';
+
+            if (isCol) {
+              d.el.style.width = '100%';
+              d.el.style.height = d.collapsed ? '35px' : '50%';
+              d.el.style.flex = '1 1 50%';
+              d.el.style.minHeight = '0';
+            } else {
+              d.el.style.width = '50%';
+              d.el.style.height = d.collapsed ? '35px' : '100%';
+              d.el.style.flex = '1 1 50%';
+              d.el.style.minWidth = '0';
+            }
           });
-          bottomRow.appendChild(splitRow);
+          bottomRow.appendChild(splitWrapper);
         }
       } else {
         if (bottomRow) bottomRow.classList.add('hidden');
@@ -4958,32 +4986,60 @@
 
               const wsRect = ws.getBoundingClientRect();
 
-              // Hit test other docked dockers for 50% side-by-side split docking
+              // Hit test other docked dockers for 4-way 50% split docking (상하좌우 50% 분할)
               let dropTarget = null;
               for (const other of Object.values(this.dockers)) {
                 if (other.id !== docker.id && other.state === 'docked' && !other.hidden && other.el) {
                   const oRect = other.el.getBoundingClientRect();
                   if (ev.clientX >= oRect.left && ev.clientX <= oRect.right &&
                       ev.clientY >= oRect.top && ev.clientY <= oRect.bottom) {
-                    const isLeftHalf = ev.clientX < (oRect.left + oRect.width * 0.5);
-                    const halfW = Math.floor(oRect.width * 0.5);
-                    const snapLeft = isLeftHalf ? oRect.left : oRect.left + halfW;
+
+                    const relX = (ev.clientX - oRect.left) / oRect.width;
+                    const relY = (ev.clientY - oRect.top) / oRect.height;
+
+                    // 4-Quadrant partition using diagonals
+                    let side = 'top';
+                    if (relY < relX) {
+                      side = (relY < 1 - relX) ? 'top' : 'right';
+                    } else {
+                      side = (relY < 1 - relX) ? 'left' : 'bottom';
+                    }
 
                     dropTarget = {
                       type: 'split',
                       area: other.dockArea,
                       slot: other.dockSlot,
-                      side: isLeftHalf ? 'left' : 'right',
+                      side: side,
                       targetId: other.id
                     };
 
                     if (preview) {
                       preview.style.display = 'flex';
-                      preview.style.left = `${snapLeft - wsRect.left}px`;
-                      preview.style.top = `${oRect.top - wsRect.top}px`;
-                      preview.style.width = `${halfW}px`;
-                      preview.style.height = `${oRect.height}px`;
-                      preview.textContent = isLeftHalf ? '좌측 50% 분할 도킹 (Split Left)' : '우측 50% 분할 도킹 (Split Right)';
+                      if (side === 'top') {
+                        preview.style.left = `${oRect.left - wsRect.left}px`;
+                        preview.style.top = `${oRect.top - wsRect.top}px`;
+                        preview.style.width = `${oRect.width}px`;
+                        preview.style.height = `${Math.floor(oRect.height * 0.5)}px`;
+                        preview.textContent = '상단 50% 분할 도킹 (Split Top)';
+                      } else if (side === 'bottom') {
+                        preview.style.left = `${oRect.left - wsRect.left}px`;
+                        preview.style.top = `${oRect.top - wsRect.top + Math.floor(oRect.height * 0.5)}px`;
+                        preview.style.width = `${oRect.width}px`;
+                        preview.style.height = `${Math.floor(oRect.height * 0.5)}px`;
+                        preview.textContent = '하단 50% 분할 도킹 (Split Bottom)';
+                      } else if (side === 'left') {
+                        preview.style.left = `${oRect.left - wsRect.left}px`;
+                        preview.style.top = `${oRect.top - wsRect.top}px`;
+                        preview.style.width = `${Math.floor(oRect.width * 0.5)}px`;
+                        preview.style.height = `${oRect.height}px`;
+                        preview.textContent = '좌측 50% 분할 도킹 (Split Left)';
+                      } else { // right
+                        preview.style.left = `${oRect.left - wsRect.left + Math.floor(oRect.width * 0.5)}px`;
+                        preview.style.top = `${oRect.top - wsRect.top}px`;
+                        preview.style.width = `${Math.floor(oRect.width * 0.5)}px`;
+                        preview.style.height = `${oRect.height}px`;
+                        preview.textContent = '우측 50% 분할 도킹 (Split Right)';
+                      }
                     }
                     break;
                   }
@@ -5052,20 +5108,93 @@
               const target = this.activeDropTarget || { type: 'float', x: ev.clientX - grabOffsetX, y: ev.clientY - grabOffsetY };
 
               if (target.type === 'split') {
-                docker.state = 'docked';
-                docker.dockArea = target.area;
-                docker.dockSlot = target.slot;
-                docker.split = target.side;
                 const other = this.dockers[target.targetId];
-                if (other) other.split = (target.side === 'left' ? 'right' : 'left');
+                docker.state = 'docked';
+                docker.dockArea = other.dockArea;
+
+                if (other.dockArea === 'right') {
+                  if (target.side === 'top' || target.side === 'bottom') {
+                    // Check if other was the only docker in right dock
+                    const rightDockers = Object.values(this.dockers).filter(d => d.id !== docker.id && d.state === 'docked' && d.dockArea === 'right' && !d.hidden);
+                    if (rightDockers.length === 1) {
+                      // Stack vertically in right dock column using top/bottom slots
+                      if (target.side === 'top') {
+                        docker.dockSlot = 'top';
+                        docker.splitDir = null;
+                        docker.splitPos = 0;
+                        other.dockSlot = 'bottom';
+                        other.splitDir = null;
+                        other.splitPos = 0;
+                      } else {
+                        other.dockSlot = 'top';
+                        other.splitDir = null;
+                        other.splitPos = 0;
+                        docker.dockSlot = 'bottom';
+                        docker.splitDir = null;
+                        docker.splitPos = 0;
+                      }
+                    } else {
+                      // Multiple dockers: split this specific slot vertically!
+                      docker.dockSlot = other.dockSlot;
+                      docker.splitDir = 'col';
+                      other.splitDir = 'col';
+                      if (target.side === 'top') {
+                        docker.splitPos = 0;
+                        other.splitPos = 1;
+                      } else {
+                        other.splitPos = 0;
+                        docker.splitPos = 1;
+                      }
+                    }
+                  } else { // left or right horizontal split
+                    docker.dockSlot = other.dockSlot;
+                    docker.splitDir = 'row';
+                    other.splitDir = 'row';
+                    if (target.side === 'left') {
+                      docker.splitPos = 0;
+                      other.splitPos = 1;
+                    } else {
+                      other.splitPos = 0;
+                      docker.splitPos = 1;
+                    }
+                  }
+                } else { // bottom dock
+                  docker.dockArea = 'bottom';
+                  docker.dockSlot = 'bottom';
+                  other.dockArea = 'bottom';
+                  other.dockSlot = 'bottom';
+                  if (target.side === 'top' || target.side === 'bottom') {
+                    docker.splitDir = 'col';
+                    other.splitDir = 'col';
+                    if (target.side === 'top') {
+                      docker.splitPos = 0;
+                      other.splitPos = 1;
+                    } else {
+                      other.splitPos = 0;
+                      docker.splitPos = 1;
+                    }
+                  } else { // left or right
+                    docker.splitDir = 'row';
+                    other.splitDir = 'row';
+                    if (target.side === 'left') {
+                      docker.splitPos = 0;
+                      other.splitPos = 1;
+                    } else {
+                      other.splitPos = 0;
+                      docker.splitPos = 1;
+                    }
+                  }
+                }
               } else if (target.type === 'dock') {
                 docker.state = 'docked';
                 docker.dockArea = target.area;
                 docker.dockSlot = target.slot;
-                docker.split = null;
+                docker.splitDir = null;
+                docker.splitPos = 0;
               } else {
                 docker.state = 'floating';
-                docker.split = null;
+                docker.splitDir = null;
+                docker.splitPos = 0;
                 docker.floatingRect.x = target.x;
                 docker.floatingRect.y = target.y;
               }
@@ -5356,7 +5485,8 @@
         d.state = 'docked';
         d.collapsed = false;
         d.hidden = false;
-        d.split = null;
+        d.splitDir = null;
+        d.splitPos = 0;
         if (d.id === 'inspector') { d.dockArea = 'right'; d.dockSlot = 'top'; }
         else if (d.id === 'layers') { d.dockArea = 'right'; d.dockSlot = 'bottom'; }
         else if (d.id === 'timeline') { d.dockArea = 'bottom'; d.dockSlot = 'bottom'; }
