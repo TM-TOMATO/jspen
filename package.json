@@ -1,0 +1,19 @@
+{
+  "name": "jspen",
+  "version": "1.0.0",
+  "description": "Visual JavaScript Interactive Canvas Studio",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "javascript",
+    "canvas",
+    "visual-programming",
+    "game-engine",
+    "code-generator"
+  ],
+  "author": "",
+  "license": "MIT"
+}

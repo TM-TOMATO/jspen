@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JSPen Studio</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2240%22 fill=%22%230284c7%22/></svg>">
+</head>
+<body class="ps-theme">
+  <!-- 1. Top Menu Bar (Acts as Frameless Window Title Bar) -->
+  <header id="topMenuBar"></header>
+
+  <!-- 2. Tool Option Bar -->
+  <div id="toolOptionBar"></div>
+
+  <!-- 3. Main Workspace -->
+  <div id="psWorkspace">
+    <!-- Left: Slim Photoshop 1-Column Toolbox -->
+    <aside id="leftToolbox"></aside>
+
+    <!-- Center: Viewport, Fullscreen Node Graph, & Bottom Timeline -->
+    <div id="centerArea">
+      <main id="viewportContainer">
+        <canvas id="viewportCanvas"></canvas>
+      </main>
+
+      <!-- Full-screen Module Node Editor Mode -->
+      <section id="nodeEditorContainer" class="hidden">
+        <div class="node-editor-toolbar">
+          <div class="ne-title-group">
+            <span class="ne-badge">NODE GRAPH</span>
+            <span class="ne-desc">모듈 노드 모드: 출력 노드(OUTPUT)에 연결된 모듈만 실제 작동합니다</span>
+          </div>
+          <div class="ne-actions">
+            <button class="btn btn-secondary btn-sm" id="btnNodeAddMod">+ 모듈 노드</button>
+            <button class="btn btn-secondary btn-sm" id="btnNodeAddCombine">+ 모듈 합치기 노드</button>
+            <button class="btn btn-secondary btn-sm" id="btnNodeAddMath">+ 계산/설정 노드</button>
+            <button class="btn btn-secondary btn-sm" id="btnNodeAutoLayout">자동 정렬</button>
+            <button class="btn btn-accent btn-sm" id="btnNodeClose">스튜디오로 복귀 (Shift+Tab)</button>
+          </div>
+        </div>
+        <div id="nodeGraphArea">
+          <svg id="nodeWiresSvg"></svg>
+          <div id="nodesLayer"></div>
+        </div>
+      </section>
+
+      <!-- Blender Style Bottom Timeline (Dope Sheet) -->
+      <section id="bottomTimeline"></section>
+    </div>
+
+    <!-- Horizontal Resize Splitter for Right Dock -->
+    <div id="dockSplitterH" class="ps-splitter-h" title="드래그하여 패널 너비 조절"></div>
+
+    <!-- Right: Docked Panels (Inspector & Layers) -->
+    <aside id="rightDock">
+      <!-- Upper Section: Inspector (Visual Properties & Attached Modules) -->
+      <section id="inspectorContainer" class="ps-dock-section"></section>
+
+      <!-- Vertical Resize Splitter between Inspector and Layers -->
+      <div id="dockSplitterV" class="ps-splitter-v" title="드래그하여 높이 비율 조절"></div>
+      
+      <!-- Lower Section: Photoshop Layers Panel -->
+      <section id="layersContainer" class="ps-dock-section"></section>
+    </aside>
+  </div>
+
+  <!-- Floating Eyedropper Loupe Swatch -->
+  <div id="eyedropperLoupe" class="eyedropper-loupe hidden">
+    <div class="loupe-swatch" id="loupeSwatch"></div>
+    <span class="loupe-hex" id="loupeHex">#FFFFFF</span>
+  </div>
+
+  <!-- Zero-Server Standalone Bundle -->
+  <script src="js/bundle.js"></script>
+</body>
+</html>
