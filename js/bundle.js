@@ -4654,6 +4654,12 @@
     }
 
     render() {
+      const isToolbox = this.cb.isToolboxVisible ? this.cb.isToolboxVisible() : true;
+      const isOptBar = this.cb.isOptionBarVisible ? this.cb.isOptionBarVisible() : true;
+      const isInspector = this.cb.isDockerVisible ? this.cb.isDockerVisible('inspector') : true;
+      const isLayers = this.cb.isDockerVisible ? this.cb.isDockerVisible('layers') : true;
+      const isTimeline = this.cb.isDockerVisible ? this.cb.isDockerVisible('timeline') : true;
+
       this.el.innerHTML = `
         <div class="ps-menubar-left">
           <div class="ps-app-logo">
@@ -4708,11 +4714,11 @@
             </div>
             <div class="ps-menu-item"><span>창(W)</span>
               <div class="ps-dropdown-menu">
-                <button class="ps-dropdown-item" id="wToolbox">${this.windowToggles.toolbox ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}도구 상자 (Toolbox)</button>
-                <button class="ps-dropdown-item" id="wOptionBar">${this.windowToggles.optionBar ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}옵션 바 (Option Bar)</button>
-                <button class="ps-dropdown-item" id="wInspector">${this.windowToggles.inspector ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}속성 패널 (Inspector)</button>
-                <button class="ps-dropdown-item" id="wLayers">${this.windowToggles.layers ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}레이어 패널 (Layers)</button>
-                <button class="ps-dropdown-item" id="wTimeline">${this.windowToggles.timeline ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}타임라인 (Timeline)</button>
+                <button class="ps-dropdown-item" id="wToolbox">${isToolbox ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}도구 상자 (Toolbox)</button>
+                <button class="ps-dropdown-item" id="wOptionBar">${isOptBar ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}옵션 바 (Option Bar)</button>
+                <button class="ps-dropdown-item" id="wInspector">${isInspector ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}속성 패널 (Inspector)</button>
+                <button class="ps-dropdown-item" id="wLayers">${isLayers ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}레이어 패널 (Layers)</button>
+                <button class="ps-dropdown-item" id="wTimeline">${isTimeline ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}타임라인 (Timeline)</button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="wResetLayout">기본 작업영역 재설정 (Reset Layout)</button>
                 <div class="ps-dropdown-sep"></div>
@@ -4756,6 +4762,52 @@
     }
 
     bindEvents() {
+      // Desktop-grade Menu Interactions (Click to toggle/open, hover-switch, click-outside to close)
+      let activeMenu = null;
+      const closeAllMenus = () => {
+        this.el.querySelectorAll('.ps-menu-item').forEach(m => m.classList.remove('active'));
+        activeMenu = null;
+      };
+
+      this.el.querySelectorAll('.ps-menu-item').forEach(menuItem => {
+        menuItem.addEventListener('click', e => {
+          if (e.target.closest('.ps-dropdown-menu')) return;
+          e.stopPropagation();
+          const wasActive = menuItem.classList.contains('active');
+          closeAllMenus();
+          if (!wasActive) {
+            menuItem.classList.add('active');
+            activeMenu = menuItem;
+          }
+        });
+
+        menuItem.addEventListener('mouseenter', () => {
+          if (activeMenu && activeMenu !== menuItem) {
+            closeAllMenus();
+            menuItem.classList.add('active');
+            activeMenu = menuItem;
+          }
+        });
+      });
+
+      this.el.querySelectorAll('.ps-dropdown-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+          closeAllMenus();
+        });
+      });
+
+      window.addEventListener('mousedown', e => {
+        if (!e.target?.closest || !e.target.closest('#topMenuBar')) {
+          closeAllMenus();
+        }
+      });
+
+      window.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+          closeAllMenus();
+        }
+      });
+
       // Photoshop Filter Menu Actions
       this.el.querySelectorAll('[data-filter-act]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -5918,7 +5970,7 @@
       });
 
       window.addEventListener('mousedown', e => {
-        if (!e.target.closest('#nodeSearchMenu') && !e.target.closest('#btnNodeAddMenu')) {
+        if (!e.target?.closest || (!e.target.closest('#nodeSearchMenu') && !e.target.closest('#btnNodeAddMenu'))) {
           menu.classList.add('hidden');
         }
       });
@@ -7098,6 +7150,7 @@
         onTogglePreview: () => this.openWebPreviewWindow(),
         get isPreview() { return false; }
       });
+      this.dockerManager = new KritaDockerManager(this);
       this.menuBar = new MenuBarUI(document.getElementById('topMenuBar'), this.doc, {
         onExport: () => this.exportModal.show(),
         onOpenSettings: () => this.settingsModal.show(),
@@ -7109,10 +7162,10 @@
         onUpdate: () => this.refreshUI(),
         onToggleToolbox: () => this.toggleToolbox(),
         onToggleOptionBar: () => this.toggleOptionBar(),
-        onToggleDocker: id => this.dockerManager.toggleVisibility(id),
+        onToggleDocker: id => this.dockerManager?.toggleVisibility(id),
         isToolboxVisible: () => !document.getElementById('leftToolbox')?.classList.contains('hidden'),
         isOptionBarVisible: () => !document.getElementById('toolOptionBar')?.classList.contains('hidden'),
-        isDockerVisible: id => this.dockerManager.isVisible(id),
+        isDockerVisible: id => this.dockerManager?.isVisible(id) ?? true,
         get isNodeMode() { return window.jspenApp?.isNodeMode; }
       });
 
@@ -7127,7 +7180,6 @@
         onToggleNodeMode: () => this.toggleNodeMode()
       });
 
-      this.dockerManager = new KritaDockerManager(this);
       this.handleResize();
       this.initEvents();
       this.startLoop();

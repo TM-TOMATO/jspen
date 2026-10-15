@@ -101,14 +101,17 @@ input, select, textarea, button {
   align-items: center;
   justify-content: space-between;
   padding: 0 10px;
-  z-index: 50;
+  z-index: 9999 !important;
   font-size: 11px;
+  position: relative;
+  overflow: visible !important;
 }
 
 .ps-menubar-left, .ps-menubar-center, .ps-menubar-right {
   display: flex;
   align-items: center;
   gap: 12px;
+  overflow: visible !important;
 }
 
 .ps-app-logo {
@@ -133,6 +136,7 @@ input, select, textarea, button {
 .ps-menu-items {
   display: flex;
   align-items: center;
+  overflow: visible !important;
 }
 
 .ps-menu-item {
@@ -142,8 +146,9 @@ input, select, textarea, button {
   cursor: pointer;
   border-radius: 2px;
   transition: all 0.1s ease;
+  overflow: visible !important;
 }
-.ps-menu-item:hover {
+.ps-menu-item:hover, .ps-menu-item.active {
   background-color: var(--ps-bg-hover);
   color: #ffffff;
 }
@@ -157,15 +162,19 @@ input, select, textarea, button {
   background-color: var(--ps-bg-surface);
   border: 1px solid var(--ps-border);
   border-radius: 2px;
-  min-width: 200px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  min-width: 210px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.7);
   padding: 4px 0;
-  z-index: 100;
+  z-index: 100000 !important;
+  pointer-events: auto !important;
+  -webkit-app-region: no-drag !important;
 }
 
-.ps-menu-item:hover .ps-dropdown-menu {
-  display: flex;
-  flex-direction: column;
+.ps-menu-item:hover .ps-dropdown-menu,
+.ps-menu-item.active .ps-dropdown-menu,
+.ps-dropdown-menu.show {
+  display: flex !important;
+  flex-direction: column !important;
 }
 
 .ps-dropdown-item {
@@ -1896,13 +1905,15 @@ input:focus, select:focus, textarea:focus {
    Frameless Title Bar & Native Window Controls
    ========================================================================== */
 #topMenuBar {
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
   user-select: none;
 }
-.ps-menu-items, .ps-dropdown-menu, .btn, .ps-window-controls, input, select {
-  -webkit-app-region: no-drag;
+.ps-menubar-left, .ps-menubar-left *, .ps-menu-items, .ps-menu-item, .ps-dropdown-menu, .ps-dropdown-item, .ps-mode-switch-btn, .ps-app-logo, .btn, .ps-menubar-right, .ps-window-controls, .ps-win-btn, input, select {
+  -webkit-app-region: no-drag !important;
 }
 .ps-menubar-drag-region {
+  -webkit-app-region: drag !important;
+  cursor: move;
   flex: 1;
   height: 100%;
   display: flex;
@@ -3114,8 +3125,16 @@ button, .btn, .btn-sm, .ps-btn, .action-btn, .ps-layer-btn, .ps-mode-switch-btn 
   text-overflow: ellipsis !important;
   box-sizing: border-box !important;
 }
-.ps-menubar-left, .node-editor-toolbar, .ps-dock-header, .ne-actions, .ne-title-group {
+.node-editor-toolbar, .ps-dock-header, .ne-actions, .ne-title-group {
   min-width: 0 !important;
   overflow: hidden !important;
   flex-wrap: nowrap !important;
+}
+
+#topMenuBar, .ps-menubar-left, .ps-menu-items, .ps-menu-item {
+  overflow: visible !important;
+}
+
+.hidden, #toolOptionBar.hidden, #leftToolbox.hidden {
+  display: none !important;
 }
