@@ -29,15 +29,20 @@ class PreviewWindow(QMainWindow):
 
 class DesktopCanvasPage(QWebEnginePage):
     """Custom page disabling browser context menus and handling window.open for web preview."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self, parent_view=None, parent_window=None):
+        super().__init__(parent_view)
+        self.parent_window = parent_window
         self.preview_windows = []
 
     def createWindow(self, type_):
-        win = PreviewWindow(self.view().window() if self.view() else None)
-        self.preview_windows.append(win)
-        win.show()
-        return win.view.page()
+        try:
+            win = PreviewWindow(self.parent_window)
+            self.preview_windows.append(win)
+            win.show()
+            return win.view.page()
+        except Exception as e:
+            print(f"Error creating preview window: {e}", flush=True)
+            return None
 
     # Disable default browser right-click menu (Inspect, Reload, etc.)
     def createStandardContextMenu(self):
@@ -101,7 +106,7 @@ class MainWindow(QMainWindow):
 
         # Initialize Embedded WebEngine View (Zero-Error HTML5 Canvas Engine)
         self.browser = QWebEngineView(self)
-        self.custom_page = DesktopCanvasPage(self.browser)
+        self.custom_page = DesktopCanvasPage(self.browser, self)
         self.browser.setPage(self.custom_page)
         self.setCentralWidget(self.browser)
 

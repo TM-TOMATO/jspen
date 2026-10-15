@@ -653,6 +653,28 @@
       return l && l.sprites.length > 0 ? l.sprites[0] : null;
     }
 
+    hitTestSprite(wx, wy) {
+      const reversedLayers = [...this.layers].reverse();
+      for (const layer of reversedLayers) {
+        if (!layer.visible) continue;
+        const reversedSprites = [...layer.sprites].reverse();
+        for (const sprite of reversedSprites) {
+          if (!sprite.visible) continue;
+          const rad = (-sprite.rotation * Math.PI) / 180;
+          const dx = wx - sprite.x;
+          const dy = wy - sprite.y;
+          const lx = (dx * Math.cos(rad) - dy * Math.sin(rad)) / (sprite.scaleX || 1);
+          const ly = (dx * Math.sin(rad) + dy * Math.cos(rad)) / (sprite.scaleY || 1);
+          const hw = Math.max(8, (sprite.width || 20) / 2);
+          const hh = Math.max(8, (sprite.height || 20) / 2);
+          if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) {
+            return sprite;
+          }
+        }
+      }
+      return null;
+    }
+
     sortLayers() {
       this.layers.forEach((l, i) => { l.zIndex = i; });
     }
@@ -790,7 +812,15 @@
       return null;
     }
 
-    startDrag(wx, wy, mode, target) {
+    startDrag(a, b, c, d) {
+      let wx, wy, mode, target;
+      if (typeof a === 'string') {
+        mode = a; wx = b; wy = c; target = d;
+      } else {
+        wx = a; wy = b; mode = c; target = d;
+      }
+      if (!target) target = this.getTarget();
+      if (!target) return;
       this.mode = mode;
       this.startPos = { x: wx, y: wy };
       this.origLayer = JSON.parse(JSON.stringify(target));
@@ -919,7 +949,7 @@
       };
     }
 
-    render(activeTool, transformBox, activePenPoints, activeGradientDrag, activeCurvePoints, shapeDragStart, shapeDragCurrent) {
+    render(activeTool, transformBox, activePenPoints, activeGradientDrag, activeCurvePoints, shapeDragStart, shapeDragCurrent, activeBrushStroke) {
       const ctx = this.ctx;
       const w = this.canvas.width, h = this.canvas.height;
       ctx.clearRect(0, 0, w, h);
@@ -1007,6 +1037,22 @@
         // Bezier Curve Tool Overlay
         if (activeCurvePoints && activeCurvePoints.length > 0) {
           this.drawCurveOverlay(ctx, activeCurvePoints);
+        }
+
+        // Real-time Brush Tool Stroke Overlay
+        if (activeBrushStroke && activeBrushStroke.length > 0) {
+          ctx.save();
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = this.doc.foregroundColor || '#ffffff';
+          ctx.lineWidth = (window.jspenApp?.tools?.brushSize || 6);
+          ctx.beginPath();
+          ctx.moveTo(activeBrushStroke[0].x, activeBrushStroke[0].y);
+          for (let i = 1; i < activeBrushStroke.length; i++) {
+            ctx.lineTo(activeBrushStroke[i].x, activeBrushStroke[i].y);
+          }
+          ctx.stroke();
+          ctx.restore();
         }
       }
 
@@ -1166,13 +1212,30 @@
           ctx.stroke();
           ctx.restore();
         }
+      } else if (sprite.type === 'brush') {
+        const pts = sprite.brushStrokePoints || [];
+        if (pts.length > 0) {
+          ctx.save();
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = sprite.stroke || sprite.fill || '#ffffff';
+          ctx.lineWidth = sprite.brushSize || 4;
+          if (sprite.strokeOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.strokeOpacity));
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i].x, pts[i].y);
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
       } else if (sprite.type === 'path') {
         if (sprite.pathPoints && sprite.pathPoints.length > 0) {
           ctx.beginPath();
           ctx.moveTo(sprite.pathPoints[0].x, sprite.pathPoints[0].y);
           for (let i = 1; i < sprite.pathPoints.length; i++) {
             const p = sprite.pathPoints[i];
-            if (p.type === 'C' && p.cp1x !== undefined) {
+            if ((p.type === 'C' || p.cp1x !== undefined) && p.cp1x !== undefined) {
               ctx.bezierCurveTo(p.cp1x, p.cp1y, p.cp2x, p.cp2y, p.x, p.y);
             } else if (p.type === 'Q' && p.cpx !== undefined) {
               ctx.quadraticCurveTo(p.cpx, p.cpy, p.x, p.y);
@@ -1180,7 +1243,7 @@
               ctx.lineTo(p.x, p.y);
             }
           }
-          if (sprite.isClosedPath) ctx.closePath();
+          if (sprite.isClosedPath || sprite.pathClosed) ctx.closePath();
 
           if (sprite.fillType !== 'none' && sprite.fill !== 'transparent') {
             ctx.save();
@@ -1423,15 +1486,15 @@
       }
 
       if (this.activeTool === 'curve') {
-        this.activeCurvePoints.push({ x: wx, y: wy, cp1x: wx, cp1y: wy, cp2x: wx, cp2y: wy });
         if (this.activeCurvePoints.length > 1) {
           const first = this.activeCurvePoints[0];
-          if (Math.hypot(wx - first.x, wy - first.y) < 14) {
-            this.activeCurvePoints.pop();
+          if (Math.hypot(wx - first.x, wy - first.y) < 16) {
             this.commitCurvePath(true);
             return;
           }
         }
+        this.activeCurvePoints.push({ type: 'C', x: wx, y: wy, cp1x: wx, cp1y: wy, cp2x: wx, cp2y: wy });
+        this.isDraggingCurveHandle = true;
         if (this.onCanvasRender) this.onCanvasRender();
         return;
       }
@@ -1483,6 +1546,16 @@
     }
 
     handleMouseMove(wx, wy) {
+      if (this.activeTool === 'curve' && this.isDraggingCurveHandle && this.activeCurvePoints.length > 0) {
+        const curPt = this.activeCurvePoints[this.activeCurvePoints.length - 1];
+        curPt.cp2x = wx;
+        curPt.cp2y = wy;
+        curPt.cp1x = 2 * curPt.x - wx;
+        curPt.cp1y = 2 * curPt.y - wy;
+        if (this.onCanvasRender) this.onCanvasRender();
+        return;
+      }
+
       if (this.activeTool === 'brush' && this.activeBrushStroke) {
         let ptX = wx, ptY = wy;
         if (this.brushStabilize && this.activeBrushStroke.length > 0) {
@@ -1503,6 +1576,11 @@
     }
 
     handleMouseUp(wx, wy) {
+      if (this.activeTool === 'curve') {
+        this.isDraggingCurveHandle = false;
+        return;
+      }
+
       if (this.activeTool === 'brush' && this.activeBrushStroke) {
         this.commitBrushStroke();
         if (this.onCommit) this.onCommit();
@@ -1640,18 +1718,21 @@
       const pts = this.activeCurvePoints;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       pts.forEach(p => {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
+        minX = Math.min(minX, p.x, p.cp1x ?? p.x, p.cp2x ?? p.x);
+        minY = Math.min(minY, p.y, p.cp1y ?? p.y, p.cp2y ?? p.y);
+        maxX = Math.max(maxX, p.x, p.cp1x ?? p.x, p.cp2x ?? p.x);
+        maxY = Math.max(maxY, p.y, p.cp1y ?? p.y, p.cp2y ?? p.y);
       });
 
       const cx = (minX + maxX) / 2;
       const cy = (minY + maxY) / 2;
       const relPts = pts.map(p => ({
+        type: 'C',
         x: Math.round(p.x - cx), y: Math.round(p.y - cy),
-        cp1x: Math.round(p.cp1x - cx), cp1y: Math.round(p.cp1y - cy),
-        cp2x: Math.round(p.cp2x - cx), cp2y: Math.round(p.cp2y - cy)
+        cp1x: Math.round((p.cp1x !== undefined ? p.cp1x : p.x) - cx),
+        cp1y: Math.round((p.cp1y !== undefined ? p.cp1y : p.y) - cy),
+        cp2x: Math.round((p.cp2x !== undefined ? p.cp2x : p.x) - cx),
+        cp2y: Math.round((p.cp2y !== undefined ? p.cp2y : p.y) - cy)
       }));
 
       const sp = activeLayer.addSprite({
@@ -1662,6 +1743,7 @@
         height: Math.max(20, maxY - minY),
         pathPoints: relPts,
         pathClosed: closed,
+        isClosedPath: closed,
         fill: closed ? this.doc.foregroundColor : 'transparent',
         stroke: this.doc.foregroundColor,
         strokeWidth: 2
@@ -2219,7 +2301,7 @@
               <!-- Child Sprites (Clearly Nested in Fabric Tree Structure) -->
               ${l.expanded ? `
                 <div class="ps-layer-sub-sprites">
-                  ${l.sprites.length === 0 ? '<div style="font-size:10px;color:#71717a;padding:2px 4px;">스프라이트 없음</div>' : l.sprites.map(s => {
+                  ${l.sprites.length === 0 ? '<div style="font-size:10px;color:#71717a;padding:2px 4px;">스프라이트 없음</div>' : [...l.sprites].reverse().map(s => {
                     const hasMods = s.modules && s.modules.length > 0;
                     const isFolded = s.collapsed === true;
                     return `
@@ -2475,30 +2557,56 @@
 
         const { type, id, layerId: srcLayerId } = this.dragInfo;
 
-        if (type === 'layer' && row.classList.contains('ps-layer-row')) {
-          const targetId = row.dataset.layerId;
+        if (type === 'layer') {
+          const targetRow = row.closest('.ps-layer-row, .ps-layer-group');
+          const targetId = targetRow?.dataset?.layerId;
           if (id && targetId && id !== targetId) {
             const srcIdx = this.doc.layers.findIndex(l => l.id === id);
-            const dstIdx = this.doc.layers.findIndex(l => l.id === targetId);
-            if (srcIdx !== -1 && dstIdx !== -1) {
+            if (srcIdx !== -1) {
               const [moved] = this.doc.layers.splice(srcIdx, 1);
-              this.doc.layers.splice(isTop ? dstIdx : dstIdx + 1, 0, moved);
+              const dstIdx = this.doc.layers.findIndex(l => l.id === targetId);
+              this.doc.layers.splice(isTop ? dstIdx + 1 : dstIdx, 0, moved);
               this.doc.sortLayers();
+              this.doc.saveState();
               this.cb.onUpdate();
             }
           }
-        } else if (type === 'sprite' && row.classList.contains('ps-sprite-sub-item')) {
-          const targetSpriteId = row.dataset.spriteId;
-          const targetLayerId = row.dataset.layerId;
-          const srcLayer = this.doc.getLayer(srcLayerId);
-          const dstLayer = this.doc.getLayer(targetLayerId);
-          if (srcLayer && dstLayer) {
-            const srcIdx = srcLayer.sprites.findIndex(s => s.id === id);
-            const dstIdx = dstLayer.sprites.findIndex(s => s.id === targetSpriteId);
-            if (srcIdx !== -1 && dstIdx !== -1) {
-              const [moved] = srcLayer.sprites.splice(srcIdx, 1);
-              dstLayer.sprites.splice(isTop ? dstIdx : dstIdx + 1, 0, moved);
-              this.cb.onUpdate();
+        } else if (type === 'sprite') {
+          const spriteRow = row.closest('.ps-sprite-sub-item');
+          if (spriteRow) {
+            const targetSpriteId = spriteRow.dataset.spriteId;
+            const targetLayerId = spriteRow.dataset.layerId;
+            const srcLayer = this.doc.getLayer(srcLayerId);
+            const dstLayer = this.doc.getLayer(targetLayerId);
+            if (srcLayer && dstLayer) {
+              const srcIdx = srcLayer.sprites.findIndex(s => s.id === id);
+              if (srcIdx !== -1) {
+                const [moved] = srcLayer.sprites.splice(srcIdx, 1);
+                const dstIdx = dstLayer.sprites.findIndex(s => s.id === targetSpriteId);
+                dstLayer.sprites.splice(isTop ? dstIdx + 1 : dstIdx, 0, moved);
+                dstLayer.expanded = true;
+                this.doc.selectedLayerId = dstLayer.id;
+                this.doc.selectedSpriteId = moved.id;
+                this.doc.saveState();
+                this.cb.onUpdate();
+              }
+            }
+          } else {
+            const layerGroup = row.closest('[data-layer-id]');
+            const targetLayerId = layerGroup?.dataset?.layerId;
+            const srcLayer = this.doc.getLayer(srcLayerId);
+            const dstLayer = this.doc.getLayer(targetLayerId);
+            if (srcLayer && dstLayer) {
+              const srcIdx = srcLayer.sprites.findIndex(s => s.id === id);
+              if (srcIdx !== -1) {
+                const [moved] = srcLayer.sprites.splice(srcIdx, 1);
+                dstLayer.sprites.push(moved);
+                dstLayer.expanded = true;
+                this.doc.selectedLayerId = dstLayer.id;
+                this.doc.selectedSpriteId = moved.id;
+                this.doc.saveState();
+                this.cb.onUpdate();
+              }
             }
           }
         }
@@ -2647,6 +2755,86 @@
       const def = MODULE_REGISTRY[mod.type] || {};
       const params = mod.params || {};
 
+      const allSprites = [];
+      const allLayers = [];
+      const allModules = [];
+      for (const ly of this.doc.layers) {
+        allLayers.push({ id: ly.id, name: ly.name });
+        if (ly.modules) {
+          for (const m of ly.modules) {
+            allModules.push({ id: m.id, name: `[레이어] ${m.name} (${ly.name})` });
+          }
+        }
+        for (const sp of ly.sprites) {
+          allSprites.push({ id: sp.id, name: `${sp.name} (${ly.name})`, type: sp.type });
+          if (sp.modules) {
+            for (const m of sp.modules) {
+              allModules.push({ id: m.id, name: `[스프라이트] ${m.name} (${sp.name})` });
+            }
+          }
+        }
+      }
+
+      const renderParamInput = (key, val) => {
+        const kLow = key.toLowerCase();
+        if (kLow.includes('sprite') || (kLow.includes('target') && !kLow.includes('key') && !kLow.includes('layer') && !kLow.includes('mod'))) {
+          return `
+            <select class="ps-select" data-param-key="${key}">
+              <option value="">(선택 안 됨 - 대상 없음)</option>
+              ${allSprites.map(s => `
+                <option value="${s.id}" ${val === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
+              `).join('')}
+            </select>
+          `;
+        }
+        if (kLow.includes('layer')) {
+          return `
+            <select class="ps-select" data-param-key="${key}">
+              <option value="">(선택 안 됨 - 대상 없음)</option>
+              ${allLayers.map(l => `
+                <option value="${l.id}" ${val === l.id ? 'selected' : ''}>${l.name}</option>
+              `).join('')}
+            </select>
+          `;
+        }
+        if (kLow.includes('mod')) {
+          return `
+            <select class="ps-select" data-param-key="${key}">
+              <option value="">(선택 안 됨 - 대상 없음)</option>
+              ${allModules.map(m => `
+                <option value="${m.id}" ${val === m.id ? 'selected' : ''}>${m.name}</option>
+              `).join('')}
+            </select>
+          `;
+        }
+        if (kLow.includes('key')) {
+          const KEYS = ['Space', 'Enter', 'ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyZ', 'KeyX', 'Shift', 'Control', 'Alt'];
+          return `
+            <select class="ps-select" data-param-key="${key}">
+              ${KEYS.map(k => `
+                <option value="${k}" ${val === k ? 'selected' : ''}>${k}</option>
+              `).join('')}
+            </select>
+          `;
+        }
+        if (typeof val === 'number') {
+          return `
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="${key}" value="${val}">
+            </div>
+          `;
+        }
+        if (typeof val === 'boolean') {
+          return `
+            <select class="ps-select" data-param-key="${key}">
+              <option value="true" ${val ? 'selected' : ''}>true (활성)</option>
+              <option value="false" ${!val ? 'selected' : ''}>false (비활성)</option>
+            </select>
+          `;
+        }
+        return `<input type="text" class="ps-input" data-param-key="${key}" value="${val}">`;
+      };
+
       return `
         <div class="ps-prop-section">
           <div class="ps-prop-header" style="justify-content:space-between;">
@@ -2654,13 +2842,13 @@
               <span class="mod-badge" >${def.icon||'MOD'}</span>
               <span style="font-weight:700;color:#fff;">${mod.name}</span>
             </div>
-            <button class="btn btn-secondary btn-sm" id="btnBackToVisual">스프라이트 속성 보기</button>
+            <button class="btn btn-secondary btn-sm" id="btnBackToVisual">아트 속성 창</button>
           </div>
           
           <div class="ps-prop-row" style="margin-top:10px;">
             <label class="ps-prop-label">작동 조건 (Condition):</label>
             <select class="ps-select" id="modCond">
-              <option value="always" ${params.condition==='always'?'selected':''}>상시 실행 (Always)</option>
+              <option value="always" ${params.condition==='always'?'selected':''}>항상 작동 (Always)</option>
               <option value="on_click" ${params.condition==='on_click'?'selected':''}>마우스 클릭 시 (On Click)</option>
               <option value="on_hover" ${params.condition==='on_hover'?'selected':''}>마우스 호버 시 (On Hover)</option>
               <option value="key_press" ${params.condition==='key_press'?'selected':''}>키보드 입력 시 (Key Press)</option>
@@ -2668,17 +2856,31 @@
             </select>
           </div>
 
+          <!-- Target Entity Selector (Sprite / Layer / Module) -->
+          <div class="ps-prop-row" style="margin-top:8px;">
+            <label class="ps-prop-label">타겟 스프라이트:</label>
+            <select class="ps-select" data-param-key="targetSpriteId">
+              <option value="">(선택 안 됨 - 대상 없음)</option>
+              ${allSprites.map(s => `
+                <option value="${s.id}" ${params.targetSpriteId === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
+              `).join('')}
+            </select>
+          </div>
+          <div class="ps-prop-row" style="margin-top:8px;">
+            <label class="ps-prop-label">타겟 모듈/레이어:</label>
+            <select class="ps-select" data-param-key="targetModuleId">
+              <option value="">(선택 안 됨 - 대상 없음)</option>
+              ${allModules.map(m => `
+                <option value="${m.id}" ${params.targetModuleId === m.id ? 'selected' : ''}>${m.name}</option>
+              `).join('')}
+            </select>
+          </div>
+
           <div style="margin-top:12px;font-size:11px;font-weight:700;color:#a1a1aa;">모듈 파라미터 (사용자 수동 제어)</div>
-          ${Object.keys(params).filter(k => k !== 'condition').map(key => `
+          ${Object.keys(params).filter(k => k !== 'condition' && k !== 'targetSpriteId' && k !== 'targetModuleId').map(key => `
             <div class="ps-prop-row" style="margin-top:8px;">
               <label class="ps-prop-label">${key}:</label>
-              ${typeof params[key] === 'number' ? `
-                <div class="blender-scrub-group">
-                  <input type="number" class="blender-scrub-input" data-param-key="${key}" value="${params[key]}">
-                </div>
-              ` : `
-                <input type="text" class="ps-input" data-param-key="${key}" value="${params[key]}">
-              `}
+              ${renderParamInput(key, params[key])}
             </div>
           `).join('')}
         </div>
@@ -2851,7 +3053,15 @@
           const key = input.dataset.paramKey;
           input.addEventListener('change', e => {
             if (!mod.params) mod.params = {};
-            mod.params[key] = input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+            let val = e.target.value;
+            if (input.type === 'number') {
+              val = parseFloat(val);
+            } else if (val === 'true') {
+              val = true;
+            } else if (val === 'false') {
+              val = false;
+            }
+            mod.params[key] = val;
             this.doc.saveState();
             this.cb.onUpdate();
           });
@@ -2959,7 +3169,7 @@
           <div class="tl-controls-center">
             <div class="tl-frame-box">
               <input type="number" id="tlCurFrame" class="tl-frame-num" value="${current}" min="0" max="${total}">
-              <span class="tl-frame-total">/ ${total}</span>
+              <span style="color:#71717a;font-size:11px;margin:0 2px;">/</span><input type="number" id="tlTotalFrames" class="tl-frame-num" value="${total}" min="10" max="9999" style="width:52px;" title="타임라인 총 프레임 길이">
             </div>
             <select class="tl-select" id="tlFps">
               <option value="24" ${this.doc.fps === 24 ? 'selected' : ''}>24 fps</option>
@@ -3034,6 +3244,13 @@
         this.doc.setFrame(parseInt(e.target.value, 10) || 0);
         this.onSeek();
       });
+      this.el.querySelector('#tlTotalFrames')?.addEventListener('change', e => {
+        const val = Math.max(10, Math.min(9999, parseInt(e.target.value, 10) || 120));
+        this.doc.totalFrames = val;
+        if (this.doc.currentFrame > val) this.doc.setFrame(val);
+        this.render();
+        if (window.jspenApp) window.jspenApp.refreshUI();
+      });
       this.el.querySelector('#tlFps')?.addEventListener('change', e => {
         this.doc.fps = parseInt(e.target.value, 10) || 30;
       });
@@ -3081,13 +3298,18 @@
 
       const rw = rArea.clientWidth, rh = rArea.clientHeight;
       const gw = gArea.clientWidth, gh = gArea.clientHeight;
+      if (rw <= 0 || gw <= 0) return;
 
       const rcv = this.el.querySelector('#tlRulerCanvas');
       const gcv = this.el.querySelector('#tlGridCanvas');
       if (!rcv || !gcv) return;
 
-      rcv.width = rw; rcv.height = rh;
-      gcv.width = gw; gcv.height = gh;
+      if (rcv.width !== rw || rcv.height !== rh) {
+        rcv.width = rw; rcv.height = rh;
+      }
+      if (gcv.width !== gw || gcv.height !== gh) {
+        gcv.width = gw; gcv.height = gh;
+      }
 
       this.drawRuler(rcv.getContext('2d'), rw, rh);
       this.drawGrid(gcv.getContext('2d'), gw, gh);
@@ -5721,7 +5943,8 @@
         this.tools.activeGradientDrag,
         this.tools.activeCurvePoints,
         this.tools.shapeDragStart,
-        this.tools.shapeDragCurrent
+        this.tools.shapeDragCurrent,
+        this.tools.activeBrushStroke
       );
       if (this.timeline) this.timeline.updatePlayheadPosition();
     }
@@ -5743,6 +5966,10 @@
       this.canvas.height = p.clientHeight;
       this.renderer.centerArtboard();
       this.renderCanvas();
+      if (this.timeline) {
+        this.timeline.renderCanvases();
+        this.timeline.updatePlayheadPosition();
+      }
     }
 
     initEvents() {
@@ -5803,9 +6030,10 @@
         }
 
         if (this.tools.activeTool === 'move') {
-          const hit = this.transformBox.hitTest(mw.x, mw.y, this.transformBox.getTarget());
+          const curTarget = this.transformBox.getTarget();
+          const hit = curTarget ? this.transformBox.hitTest(mw.x, mw.y, curTarget) : null;
           if (hit) {
-            this.transformBox.startDrag(hit, mw.x, mw.y);
+            this.transformBox.startDrag(mw.x, mw.y, hit, curTarget);
             return;
           }
 
@@ -5816,7 +6044,7 @@
             this.doc.selectedSpriteId = clickedSprite.id;
             this.doc.selectedModuleId = null;
             this.refreshUI();
-            this.transformBox.startDrag('body', mw.x, mw.y);
+            this.transformBox.startDrag(mw.x, mw.y, 'body', clickedSprite);
             return;
           }
         }
@@ -5854,7 +6082,8 @@
         }
 
         if (this.transformBox.mode) {
-          this.transformBox.drag(mw.x, mw.y);
+          this.transformBox.drag(mw.x, mw.y, e.shiftKey);
+          this.renderCanvas();
           return;
         }
 
@@ -5866,6 +6095,7 @@
         if (isPanning) isPanning = false;
         if (this.transformBox.mode) {
           this.transformBox.endDrag();
+          this.refreshUI();
           return;
         }
         this.tools.handleMouseUp(mw.x, mw.y);
@@ -5956,11 +6186,38 @@
         else if (k === 't') this.tools.setTool('text');
         else if (k === 'i') this.tools.setTool('eyedropper');
         else if (k === 'z') this.tools.setTool('zoom');
-        else if (e.code === 'Space') this.tools.setTool('hand');
+        else if (e.code === 'Space' && !e.ctrlKey) {
+          e.preventDefault();
+          if (document.activeElement && document.activeElement !== document.body) {
+            document.activeElement.blur();
+          }
+          this.doc.isPlaying = !this.doc.isPlaying;
+          this.timeline.render();
+          return;
+        }
+        else if (k === 'h') this.tools.setTool('hand');
         else if (e.ctrlKey && k === 'e') { e.preventDefault(); this.exportModal.show(); }
         else if (e.ctrlKey && k === 's') { e.preventDefault(); document.title = 'cmd:save'; setTimeout(() => { document.title = 'JSPen Studio'; }, 100); }
         else if (e.ctrlKey && k === 'o') { e.preventDefault(); document.title = 'cmd:open'; setTimeout(() => { document.title = 'JSPen Studio'; }, 100); }
+        else if (e.key === 'Enter' || e.key === 'Escape') {
+          if (this.tools.activeTool === 'curve' && this.tools.activeCurvePoints.length > 1) {
+            e.preventDefault();
+            this.tools.commitCurvePath(e.key === 'Enter');
+            this.refreshUI();
+          }
+        }
       });
+
+      // Prevent clicked buttons from retaining focus and triggering on Spacebar
+      window.addEventListener('click', e => {
+        if (e.target.closest('button')) {
+          setTimeout(() => {
+            if (document.activeElement && document.activeElement.tagName === 'BUTTON') {
+              document.activeElement.blur();
+            }
+          }, 30);
+        }
+      }, true);
     }
 
     startLoop() {
