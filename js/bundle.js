@@ -5579,6 +5579,846 @@
     }
   }
 
+  class PluginManager {
+    constructor() {
+      this.plugins = [];
+      this.initBuiltins();
+    }
+
+    initBuiltins() {
+      this.register({
+        id: 'neon_fx',
+        name: '네온 발광 효과 (Neon FX)',
+        version: '1.0.0',
+        author: 'JSPen OpenSource',
+        description: '스프라이트에 부드러운 네온 빛과 발광 효과를 추가하는 샘플 오픈소스 플러그인입니다.',
+        init: (api) => {}
+      });
+    }
+
+    register(def) {
+      if (this.plugins.some(p => p.id === def.id)) return;
+      this.plugins.push(def);
+      if (typeof def.init === 'function') {
+        def.init({
+          MODULE_REGISTRY,
+          registerModule: (id, modDef) => { MODULE_REGISTRY[id] = modDef; }
+        });
+      }
+    }
+
+    loadFromCode(jsCode) {
+      try {
+        const fn = new Function('JSPen', jsCode);
+        fn({
+          registerPlugin: def => this.register(def),
+          MODULE_REGISTRY: MODULE_REGISTRY
+        });
+        return true;
+      } catch (e) {
+        alert('플러그인 실행 오류:\n' + e.message);
+        return false;
+      }
+    }
+  }
+
+  // ==========================================================================
+  // 17. Export Modal
+  // ==========================================================================
+  class ExportModalUI {
+    constructor(doc) {
+      this.doc = doc;
+      this.el = document.createElement('div');
+      this.el.className = 'modal-overlay hidden';
+      this.el.innerHTML = `
+        <div class="modal-card">
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <span class="modal-icon" style="font-size:12px;font-weight:700;color:#38bdf8;">&lt;/&gt;</span>
+              <div>
+                <h2 class="modal-title">순수 자바스크립트 코드 출력</h2>
+                <p class="modal-desc">외부 라이브러리 없는 순수 HTML5 Canvas 2D 코드가 자동 생성되었습니다.</p>
+              </div>
+            </div>
+            <button class="modal-close-btn" id="mClose">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="code-container">
+              <div class="code-header">
+                <span>Vanilla JS (HTML5 Canvas 2D)</span>
+                <div class="code-actions">
+                  <button class="btn btn-secondary btn-sm" id="btnCopy">코드 복사</button>
+                  <button class="btn btn-primary btn-sm" id="btnDl">파일 다운로드</button>
+                  <button class="btn btn-accent btn-sm" id="btnRun">새 창에서 바로 실행</button>
+                </div>
+              </div>
+              <pre class="code-pre"><code id="codeText"></code></pre>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(this.el);
+      this.el.querySelector('#mClose').addEventListener('click', () => this.hide());
+      this.el.addEventListener('click', e => { if (e.target === this.el) this.hide(); });
+      this.el.querySelector('#btnCopy').addEventListener('click', () => {
+        navigator.clipboard.writeText(PhotoshopJSExporter.generateJS(this.doc)).then(() => {
+          const b = this.el.querySelector('#btnCopy'); b.textContent = '복사 완료!';
+          setTimeout(() => b.textContent = '코드 복사', 1500);
+        });
+      });
+      this.el.querySelector('#btnDl').addEventListener('click', () => {
+        const b = new Blob([PhotoshopJSExporter.generateHTML(this.doc)], { type: 'text/html' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'index.html'; a.click();
+      });
+      this.el.querySelector('#btnRun')?.addEventListener('click', () => {
+        const win = window.open();
+        win.document.write(PhotoshopJSExporter.generateHTML(this.doc));
+        win.document.close();
+      });
+    }
+    show() {
+      this.el.querySelector('#codeText').textContent = PhotoshopJSExporter.generateJS(this.doc);
+      this.el.classList.remove('hidden');
+    }
+    hide() { this.el.classList.add('hidden'); }
+  }
+
+  // ==========================================================================
+  // 18. Main Application Controller
+  // ==========================================================================
+  // ==========================================================================
+  // 18. Krita Docker Manager (4-Way 50% Split Docking: Left/Right/Top/Bottom, Live Drag, Window Menu Sync)
+  // ==========================================================================
+  class KritaDockerManager {
+    constructor(app) {
+      this.app = app;
+      this.dockers = {
+        inspector: {
+          id: 'inspector',
+          title: '속성 (Inspector)',
+          el: document.getElementById('inspectorContainer'),
+          state: 'docked', // 'docked' or 'floating'
+          dockArea: 'right', // 'right' or 'bottom'
+          dockSlot: 'top', // 'top' or 'bottom'
+          splitDir: null, // null, 'row', 'col'
+          splitPos: 0,
+          floatingRect: { x: window.innerWidth - 320, y: 70, w: 290, h: 420 },
+          collapsed: false,
+          hidden: false
+        },
+        layers: {
+          id: 'layers',
+          title: '레이어 (Layers)',
+          el: document.getElementById('layersContainer'),
+          state: 'docked',
+          dockArea: 'right',
+          dockSlot: 'bottom',
+          splitDir: null,
+          splitPos: 0,
+          floatingRect: { x: window.innerWidth - 320, y: 500, w: 290, h: 360 },
+          collapsed: false,
+          hidden: false
+        },
+        timeline: {
+          id: 'timeline',
+          title: '타임라인 (Timeline)',
+          el: document.getElementById('bottomTimeline'),
+          state: 'docked',
+          dockArea: 'bottom',
+          dockSlot: 'bottom',
+          splitDir: null,
+          splitPos: 0,
+          floatingRect: { x: 50, y: window.innerHeight - 240, w: 760, h: 220 },
+          collapsed: false,
+          hidden: false
+        }
+      };
+
+      this.activeDropTarget = null;
+      this.init();
+    }
+
+    init() {
+      this.renderDockers();
+      this.bindTitlebars();
+      this.bindSplitters();
+      this.attachFloatingResizeHandles();
+    }
+
+    isVisible(id) {
+      return this.dockers[id] ? !this.dockers[id].hidden : true;
+    }
+
+    toggleVisibility(dockerId) {
+      const d = this.dockers[dockerId];
+      if (!d) return;
+      d.hidden = !d.hidden;
+      this.renderDockers();
+      this.app.handleResize();
+      if (this.app.menuBar) this.app.menuBar.render();
+    }
+
+    toggleFloat(dockerId) {
+      const d = this.dockers[dockerId];
+      if (!d) return;
+      if (d.state === 'docked') {
+        d.state = 'floating';
+        d.splitDir = null;
+        d.splitPos = 0;
+        d.floatingRect.x = Math.max(80, window.innerWidth - 340);
+        d.floatingRect.y = dockerId === 'inspector' ? 70 : (dockerId === 'layers' ? 480 : 200);
+      } else {
+        d.state = 'docked';
+        d.splitDir = null;
+        d.splitPos = 0;
+        if (dockerId === 'inspector') { d.dockArea = 'right'; d.dockSlot = 'top'; }
+        else if (dockerId === 'layers') { d.dockArea = 'right'; d.dockSlot = 'bottom'; }
+        else if (dockerId === 'timeline') { d.dockArea = 'bottom'; d.dockSlot = 'bottom'; }
+      }
+      this.renderDockers();
+    }
+
+    toggleCollapse(dockerId) {
+      const d = this.dockers[dockerId];
+      if (!d) return;
+      d.collapsed = !d.collapsed;
+      this.renderDockers();
+    }
+
+    renderDockers() {
+      const rightCol = document.getElementById('kritaDockRight');
+      const bottomRow = document.getElementById('kritaDockBottom');
+      const floatLayer = document.getElementById('kritaFloatingLayer');
+      const splitRight = document.getElementById('kritaSplitterRight');
+      const splitInner = document.getElementById('kritaSplitterRightInner');
+      const splitBottom = document.getElementById('kritaSplitterBottom');
+
+      // Unwrap any existing split rows or cols so elements can be cleanly reorganized
+      document.querySelectorAll('.krita-dock-split-row, .krita-dock-split-col').forEach(wrapper => {
+        const p = wrapper.parentElement;
+        if (p) {
+          while (wrapper.firstChild) {
+            p.insertBefore(wrapper.firstChild, wrapper);
+          }
+          wrapper.remove();
+        }
+      });
+
+      const visibleDockers = Object.values(this.dockers).filter(d => !d.hidden);
+      const hiddenDockers = Object.values(this.dockers).filter(d => d.hidden);
+
+      // Hide toggled-off dockers
+      hiddenDockers.forEach(d => {
+        if (d.el) {
+          d.el.classList.add('hidden');
+          d.el.style.display = 'none';
+        }
+      });
+
+      // 1. Right Dock Column
+      const rightDockers = visibleDockers.filter(d => d.state === 'docked' && d.dockArea === 'right');
+      if (rightDockers.length > 0) {
+        if (rightCol) rightCol.classList.remove('hidden');
+        if (splitRight) splitRight.classList.remove('hidden');
+
+        const slots = { top: [], bottom: [] };
+        rightDockers.forEach(d => {
+          const s = d.dockSlot === 'top' ? 'top' : 'bottom';
+          slots[s].push(d);
+        });
+
+        // Show inner horizontal splitter only when both slots are occupied
+        if (splitInner) {
+          splitInner.classList.toggle('hidden', slots.top.length === 0 || slots.bottom.length === 0);
+        }
+
+        ['top', 'bottom'].forEach(slotName => {
+          const slotGroup = slots[slotName];
+          if (slotGroup.length === 0) return;
+
+          if (slotGroup.length === 1) {
+            const d = slotGroup[0];
+            d.splitDir = null;
+            d.splitPos = 0;
+            if (slotName === 'top' && splitInner && splitInner.parentElement === rightCol) {
+              rightCol.insertBefore(d.el, splitInner);
+            } else {
+              rightCol.appendChild(d.el);
+            }
+            d.el.classList.remove('is-floating', 'hidden');
+            d.el.classList.add('docked-flex');
+            d.el.style.position = '';
+            d.el.style.left = '';
+            d.el.style.top = '';
+            d.el.style.width = '100%';
+            d.el.style.display = 'flex';
+            if (d.collapsed) {
+              d.el.style.height = '32px';
+              d.el.style.flex = 'none';
+            } else {
+              d.el.style.height = '';
+              d.el.style.flex = '1';
+            }
+          } else {
+            // Check if horizontal (row) or vertical (col) split!
+            const isCol = slotGroup.some(d => d.splitDir === 'col');
+            const splitWrapper = document.createElement('div');
+            splitWrapper.className = isCol ? 'krita-dock-split-col' : 'krita-dock-split-row';
+            splitWrapper.dataset.slot = slotName;
+
+            slotGroup.sort((a, b) => (a.splitPos || 0) - (b.splitPos || 0));
+
+            slotGroup.forEach(d => {
+              splitWrapper.appendChild(d.el);
+              d.el.classList.remove('is-floating', 'hidden');
+              d.el.classList.add('docked-flex');
+              d.el.style.position = '';
+              d.el.style.left = '';
+              d.el.style.top = '';
+              d.el.style.display = 'flex';
+
+              if (isCol) {
+                // Vertical 50% split: 50% height each
+                d.el.style.width = '100%';
+                d.el.style.height = d.collapsed ? '32px' : '50%';
+                d.el.style.flex = '1 1 50%';
+                d.el.style.minHeight = '0';
+              } else {
+                // Horizontal 50% split: 50% width each
+                d.el.style.width = '50%';
+                d.el.style.height = d.collapsed ? '32px' : '100%';
+                d.el.style.flex = '1 1 50%';
+                d.el.style.minWidth = '0';
+              }
+            });
+
+            if (slotName === 'top' && splitInner && splitInner.parentElement === rightCol) {
+              rightCol.insertBefore(splitWrapper, splitInner);
+            } else {
+              rightCol.appendChild(splitWrapper);
+            }
+          }
+        });
+      } else {
+        if (rightCol) rightCol.classList.add('hidden');
+        if (splitRight) splitRight.classList.add('hidden');
+      }
+
+      // 2. Bottom Dock Row
+      const bottomDockers = visibleDockers.filter(d => d.state === 'docked' && d.dockArea === 'bottom');
+      if (bottomDockers.length > 0) {
+        if (bottomRow) bottomRow.classList.remove('hidden');
+        if (splitBottom) splitBottom.classList.remove('hidden');
+
+        if (bottomDockers.length === 1) {
+          const d = bottomDockers[0];
+          d.splitDir = null;
+          d.splitPos = 0;
+          bottomRow.appendChild(d.el);
+          d.el.classList.remove('is-floating', 'hidden');
+          d.el.classList.add('docked-flex');
+          d.el.style.position = '';
+          d.el.style.left = '';
+          d.el.style.top = '';
+          d.el.style.width = '100%';
+          d.el.style.display = 'flex';
+          if (d.collapsed) {
+            d.el.style.height = '35px';
+            d.el.style.flex = 'none';
+          } else {
+            d.el.style.height = '';
+            d.el.style.flex = '1';
+          }
+        } else {
+          // Check if horizontal (row) or vertical (col) split in bottom dock!
+          const isCol = bottomDockers.some(d => d.splitDir === 'col');
+          const splitWrapper = document.createElement('div');
+          splitWrapper.className = isCol ? 'krita-dock-split-col' : 'krita-dock-split-row';
+
+          bottomDockers.sort((a, b) => (a.splitPos || 0) - (b.splitPos || 0));
+
+          bottomDockers.forEach(d => {
+            splitWrapper.appendChild(d.el);
+            d.el.classList.remove('is-floating', 'hidden');
+            d.el.classList.add('docked-flex');
+            d.el.style.position = '';
+            d.el.style.left = '';
+            d.el.style.top = '';
+            d.el.style.display = 'flex';
+
+            if (isCol) {
+              d.el.style.width = '100%';
+              d.el.style.height = d.collapsed ? '35px' : '50%';
+              d.el.style.flex = '1 1 50%';
+              d.el.style.minHeight = '0';
+            } else {
+              d.el.style.width = '50%';
+              d.el.style.height = d.collapsed ? '35px' : '100%';
+              d.el.style.flex = '1 1 50%';
+              d.el.style.minWidth = '0';
+            }
+          });
+          bottomRow.appendChild(splitWrapper);
+        }
+      } else {
+        if (bottomRow) bottomRow.classList.add('hidden');
+        if (splitBottom) splitBottom.classList.add('hidden');
+      }
+
+      // 3. Floating Layer
+      const floatingDockers = visibleDockers.filter(d => d.state === 'floating');
+      floatingDockers.forEach(d => {
+        if (d.el && floatLayer) {
+          floatLayer.appendChild(d.el);
+          d.el.classList.add('is-floating');
+          d.el.classList.remove('docked-flex', 'hidden');
+          d.el.style.display = 'flex';
+          d.el.style.position = 'absolute';
+          d.el.style.left = `${d.floatingRect.x}px`;
+          d.el.style.top = `${d.floatingRect.y}px`;
+          d.el.style.width = `${d.floatingRect.w}px`;
+          d.el.style.height = d.collapsed ? '32px' : `${d.floatingRect.h}px`;
+        }
+      });
+
+      this.attachFloatingResizeHandles();
+      this.app.handleResize();
+    }
+
+    bindTitlebars() {
+      const ws = document.getElementById('psWorkspace');
+      const preview = document.getElementById('kritaDropPreview');
+      if (!ws) return;
+
+      Object.values(this.dockers).forEach(docker => {
+        const el = docker.el;
+        if (!el) return;
+
+        this.ensureTitlebar(docker);
+
+        const titlebar = el.querySelector('.krita-docker-titlebar, .timeline-header, .ps-dock-header');
+        if (!titlebar) return;
+
+        titlebar.addEventListener('mousedown', e => {
+          if (e.target.closest('button, input, select, .ps-win-btn, .win-resize-handle')) return;
+          e.preventDefault();
+
+          if (e.detail === 2) {
+            this.toggleFloat(docker.id);
+            return;
+          }
+
+          const startX = e.clientX;
+          const startY = e.clientY;
+          const initRect = el.getBoundingClientRect();
+          let grabOffsetX = Math.min(e.clientX - initRect.left, 160);
+          let grabOffsetY = Math.min(e.clientY - initRect.top, 24);
+          let isDragging = false;
+
+          const onMove = ev => {
+            const dx = ev.clientX - startX;
+            const dy = ev.clientY - startY;
+
+            if (!isDragging && Math.hypot(dx, dy) > 4) {
+              isDragging = true;
+              el.classList.add('is-dragging-ghost');
+              el.style.position = 'fixed';
+              el.style.zIndex = '999999';
+              el.style.pointerEvents = 'none';
+              el.style.width = `${Math.min(initRect.width, 320)}px`;
+              el.style.height = `${Math.min(initRect.height, 280)}px`;
+              if (preview) preview.classList.remove('hidden');
+            }
+
+            if (isDragging) {
+              // Window follows mouse directly!
+              el.style.left = `${ev.clientX - grabOffsetX}px`;
+              el.style.top = `${ev.clientY - grabOffsetY}px`;
+
+              const wsRect = ws.getBoundingClientRect();
+
+              // Hit test other docked dockers for 4-way 50% split docking (상하좌우 50% 분할)
+              let dropTarget = null;
+              for (const other of Object.values(this.dockers)) {
+                if (other.id !== docker.id && other.state === 'docked' && !other.hidden && other.el) {
+                  const oRect = other.el.getBoundingClientRect();
+                  if (ev.clientX >= oRect.left && ev.clientX <= oRect.right &&
+                      ev.clientY >= oRect.top && ev.clientY <= oRect.bottom) {
+
+                    const relX = (ev.clientX - oRect.left) / oRect.width;
+                    const relY = (ev.clientY - oRect.top) / oRect.height;
+
+                    // 4-Quadrant partition using diagonals
+                    let side = 'top';
+                    if (relY < relX) {
+                      side = (relY < 1 - relX) ? 'top' : 'right';
+                    } else {
+                      side = (relY < 1 - relX) ? 'left' : 'bottom';
+                    }
+
+                    dropTarget = {
+                      type: 'split',
+                      area: other.dockArea,
+                      slot: other.dockSlot,
+                      side: side,
+                      targetId: other.id
+                    };
+
+                    if (preview) {
+                      preview.style.display = 'flex';
+                      if (side === 'top') {
+                        preview.style.left = `${oRect.left - wsRect.left}px`;
+                        preview.style.top = `${oRect.top - wsRect.top}px`;
+                        preview.style.width = `${oRect.width}px`;
+                        preview.style.height = `${Math.floor(oRect.height * 0.5)}px`;
+                        preview.textContent = '상단 50% 분할 도킹 (Split Top)';
+                      } else if (side === 'bottom') {
+                        preview.style.left = `${oRect.left - wsRect.left}px`;
+                        preview.style.top = `${oRect.top - wsRect.top + Math.floor(oRect.height * 0.5)}px`;
+                        preview.style.width = `${oRect.width}px`;
+                        preview.style.height = `${Math.floor(oRect.height * 0.5)}px`;
+                        preview.textContent = '하단 50% 분할 도킹 (Split Bottom)';
+                      } else if (side === 'left') {
+                        preview.style.left = `${oRect.left - wsRect.left}px`;
+                        preview.style.top = `${oRect.top - wsRect.top}px`;
+                        preview.style.width = `${Math.floor(oRect.width * 0.5)}px`;
+                        preview.style.height = `${oRect.height}px`;
+                        preview.textContent = '좌측 50% 분할 도킹 (Split Left)';
+                      } else { // right
+                        preview.style.left = `${oRect.left - wsRect.left + Math.floor(oRect.width * 0.5)}px`;
+                        preview.style.top = `${oRect.top - wsRect.top}px`;
+                        preview.style.width = `${Math.floor(oRect.width * 0.5)}px`;
+                        preview.style.height = `${oRect.height}px`;
+                        preview.textContent = '우측 50% 분할 도킹 (Split Right)';
+                      }
+                    }
+                    break;
+                  }
+                }
+              }
+
+              // Hit test dock areas if not hovering over another docker
+              if (!dropTarget) {
+                const W = wsRect.width;
+                const H = wsRect.height;
+                const mx = ev.clientX - wsRect.left;
+                const my = ev.clientY - wsRect.top;
+
+                if (mx > W - 280 && mx <= W) {
+                  const isTop = my < H * 0.5;
+                  dropTarget = { type: 'dock', area: 'right', slot: isTop ? 'top' : 'bottom' };
+                  if (preview) {
+                    preview.style.display = 'flex';
+                    preview.style.left = `${W - 290}px`;
+                    preview.style.top = `${isTop ? 4 : Math.floor(H * 0.5)}px`;
+                    preview.style.width = '286px';
+                    preview.style.height = `${Math.floor(H * 0.48)}px`;
+                    preview.textContent = isTop ? '우측 상단 도킹 (Dock Top)' : '우측 하단 도킹 (Dock Bottom)';
+                  }
+                } else if (my > H - 190 && my <= H && mx > 40 && mx < W - 280) {
+                  dropTarget = { type: 'dock', area: 'bottom', slot: 'bottom' };
+                  if (preview) {
+                    preview.style.display = 'flex';
+                    preview.style.left = '40px';
+                    preview.style.top = `${H - 190}px`;
+                    preview.style.width = `${W - 330}px`;
+                    preview.style.height = '186px';
+                    preview.textContent = '하단 도킹 (Dock Bottom)';
+                  }
+                } else {
+                  dropTarget = {
+                    type: 'float',
+                    x: Math.max(40, ev.clientX - grabOffsetX),
+                    y: Math.max(40, ev.clientY - grabOffsetY)
+                  };
+                  if (preview) preview.style.display = 'none';
+                }
+              }
+
+              this.activeDropTarget = dropTarget;
+            }
+          };
+
+          const onUp = ev => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+
+            if (preview) {
+              preview.classList.add('hidden');
+              preview.style.display = 'none';
+            }
+
+            if (isDragging) {
+              el.classList.remove('is-dragging-ghost');
+              el.style.position = '';
+              el.style.pointerEvents = '';
+              el.style.zIndex = '';
+              el.style.width = '';
+              el.style.height = '';
+
+              const target = this.activeDropTarget || { type: 'float', x: ev.clientX - grabOffsetX, y: ev.clientY - grabOffsetY };
+
+              if (target.type === 'split') {
+                const other = this.dockers[target.targetId];
+                docker.state = 'docked';
+                docker.dockArea = other.dockArea;
+
+                if (other.dockArea === 'right') {
+                  if (target.side === 'top' || target.side === 'bottom') {
+                    // Check if other was the only docker in right dock
+                    const rightDockers = Object.values(this.dockers).filter(d => d.id !== docker.id && d.state === 'docked' && d.dockArea === 'right' && !d.hidden);
+                    if (rightDockers.length === 1) {
+                      // Stack vertically in right dock column using top/bottom slots
+                      if (target.side === 'top') {
+                        docker.dockSlot = 'top';
+                        docker.splitDir = null;
+                        docker.splitPos = 0;
+                        other.dockSlot = 'bottom';
+                        other.splitDir = null;
+                        other.splitPos = 0;
+                      } else {
+                        other.dockSlot = 'top';
+                        other.splitDir = null;
+                        other.splitPos = 0;
+                        docker.dockSlot = 'bottom';
+                        docker.splitDir = null;
+                        docker.splitPos = 0;
+                      }
+                    } else {
+                      // Multiple dockers: split this specific slot vertically!
+                      docker.dockSlot = other.dockSlot;
+                      docker.splitDir = 'col';
+                      other.splitDir = 'col';
+                      if (target.side === 'top') {
+                        docker.splitPos = 0;
+                        other.splitPos = 1;
+                      } else {
+                        other.splitPos = 0;
+                        docker.splitPos = 1;
+                      }
+                    }
+                  } else { // left or right horizontal split
+                    docker.dockSlot = other.dockSlot;
+                    docker.splitDir = 'row';
+                    other.splitDir = 'row';
+                    if (target.side === 'left') {
+                      docker.splitPos = 0;
+                      other.splitPos = 1;
+                    } else {
+                      other.splitPos = 0;
+                      docker.splitPos = 1;
+                    }
+                  }
+                } else { // bottom dock
+                  docker.dockArea = 'bottom';
+                  docker.dockSlot = 'bottom';
+                  other.dockArea = 'bottom';
+                  other.dockSlot = 'bottom';
+                  if (target.side === 'top' || target.side === 'bottom') {
+                    docker.splitDir = 'col';
+                    other.splitDir = 'col';
+                    if (target.side === 'top') {
+                      docker.splitPos = 0;
+                      other.splitPos = 1;
+                    } else {
+                      other.splitPos = 0;
+                      docker.splitPos = 1;
+                    }
+                  } else { // left or right
+                    docker.splitDir = 'row';
+                    other.splitDir = 'row';
+                    if (target.side === 'left') {
+                      docker.splitPos = 0;
+                      other.splitPos = 1;
+                    } else {
+                      other.splitPos = 0;
+                      docker.splitPos = 1;
+                    }
+                  }
+                }
+              } else if (target.type === 'dock') {
+                docker.state = 'docked';
+                docker.dockArea = target.area;
+                docker.dockSlot = target.slot;
+                docker.splitDir = null;
+                docker.splitPos = 0;
+              } else {
+                docker.state = 'floating';
+                docker.splitDir = null;
+                docker.splitPos = 0;
+                docker.floatingRect.x = target.x;
+                docker.floatingRect.y = target.y;
+              }
+
+              this.renderDockers();
+            }
+          };
+
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+      });
+    }
+
+    ensureTitlebar(docker) {
+      const el = docker.el;
+      if (!el) return;
+
+      const titlebar = el.querySelector('.ps-dock-header, .timeline-header, .ps-panel-header');
+      if (!titlebar) return;
+
+      titlebar.classList.add('krita-docker-titlebar');
+
+      let actions = titlebar.querySelector('.krita-docker-actions');
+      if (!actions) {
+        actions = document.createElement('div');
+        actions.className = 'krita-docker-actions';
+        titlebar.appendChild(actions);
+
+        actions.innerHTML = `
+          <button class="krita-action-btn" data-docker-act="toggle-collapse" title="접기/펼치기">▼</button>
+          <button class="krita-action-btn" data-docker-act="toggle-float" title="창 분리(Float) / 도킹(Dock)">⧉</button>
+        `;
+
+        actions.querySelector('[data-docker-act="toggle-collapse"]')?.addEventListener('click', e => {
+          e.stopPropagation();
+          this.toggleCollapse(docker.id);
+        });
+
+        actions.querySelector('[data-docker-act="toggle-float"]')?.addEventListener('click', e => {
+          e.stopPropagation();
+          this.toggleFloat(docker.id);
+        });
+      }
+    }
+
+    bindSplitters() {
+      const splitRight = document.getElementById('kritaSplitterRight');
+      const rightCol = document.getElementById('kritaDockRight');
+      if (splitRight && rightCol) {
+        splitRight.addEventListener('mousedown', e => {
+          e.preventDefault();
+          const startX = e.clientX;
+          const startW = rightCol.offsetWidth;
+          splitRight.classList.add('dragging');
+
+          const onMove = ev => {
+            const newW = Math.max(200, Math.min(600, startW - (ev.clientX - startX)));
+            rightCol.style.width = `${newW}px`;
+            this.app.handleResize();
+          };
+          const onUp = () => {
+            splitRight.classList.remove('dragging');
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            this.app.handleResize();
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+      }
+
+      const splitBottom = document.getElementById('kritaSplitterBottom');
+      const bottomRow = document.getElementById('kritaDockBottom');
+      if (splitBottom && bottomRow) {
+        splitBottom.addEventListener('mousedown', e => {
+          e.preventDefault();
+          const startY = e.clientY;
+          const startH = bottomRow.offsetHeight;
+          splitBottom.classList.add('dragging');
+
+          const onMove = ev => {
+            const newH = Math.max(100, Math.min(500, startH - (ev.clientY - startY)));
+            bottomRow.style.height = `${newH}px`;
+            this.app.handleResize();
+          };
+          const onUp = () => {
+            splitBottom.classList.remove('dragging');
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            this.app.handleResize();
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+      }
+    }
+
+    attachFloatingResizeHandles() {
+      const handles = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'];
+      Object.values(this.dockers).forEach(docker => {
+        const el = docker.el;
+        if (!el) return;
+
+        el.querySelectorAll('.win-resize-handle').forEach(h => h.remove());
+
+        if (docker.state === 'floating' && !docker.collapsed) {
+          handles.forEach(dir => {
+            const h = document.createElement('div');
+            h.className = `win-resize-handle handle-${dir}`;
+            el.appendChild(h);
+
+            h.addEventListener('mousedown', e => {
+              e.preventDefault();
+              e.stopPropagation();
+
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const startL = el.offsetLeft;
+              const startT = el.offsetTop;
+              const startW = el.offsetWidth;
+              const startH = el.offsetHeight;
+
+              const onMove = ev => {
+                const dx = ev.clientX - startX;
+                const dy = ev.clientY - startY;
+
+                let newW = startW;
+                let newH = startH;
+                let newL = startL;
+                let newT = startT;
+
+                if (dir.includes('e')) newW = Math.max(200, startW + dx);
+                if (dir.includes('w')) {
+                  newW = Math.max(200, startW - dx);
+                  newL = startL + (startW - newW);
+                }
+                if (dir.includes('s')) newH = Math.max(100, startH + dy);
+                if (dir.includes('n')) {
+                  newH = Math.max(100, startH - dy);
+                  newT = startT + (startH - newH);
+                }
+
+                el.style.left = `${newL}px`;
+                el.style.top = `${newT}px`;
+                el.style.width = `${newW}px`;
+                el.style.height = `${newH}px`;
+
+                docker.floatingRect.x = newL;
+                docker.floatingRect.y = newT;
+                docker.floatingRect.w = newW;
+                docker.floatingRect.h = newH;
+              };
+
+              const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+                this.app.handleResize();
+              };
+
+              window.addEventListener('mousemove', onMove);
+              window.addEventListener('mouseup', onUp);
+            });
+          });
+        }
+      });
+    }
+  }
+
+  // ==========================================================================
+  // 19. Main Application Controller (Decoupled Loop, Anti-Lag, Web Studio)
+  // ==========================================================================
+  
   class App {
     constructor() {
       this.canvas = document.getElementById('viewportCanvas');

@@ -44,6 +44,9 @@ class DesktopCanvasPage(QWebEnginePage):
             print(f"Error creating preview window: {e}", flush=True)
             return None
 
+    def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
+        print(f"[Console {level.name}] {sourceID}:{lineNumber} -> {message}", flush=True)
+
     # Disable default browser right-click menu (Inspect, Reload, etc.)
     def createStandardContextMenu(self):
         return None
