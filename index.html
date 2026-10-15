@@ -33,16 +33,23 @@
             <span class="ne-desc">모듈 노드 모드: 출력 노드(OUTPUT)에 연결된 모듈만 실제 작동합니다</span>
           </div>
           <div class="ne-actions">
-            <button class="btn btn-secondary btn-sm" id="btnNodeAddMod">+ 모듈 노드</button>
-            <button class="btn btn-secondary btn-sm" id="btnNodeAddCombine">+ 모듈 합치기 노드</button>
-            <button class="btn btn-secondary btn-sm" id="btnNodeAddMath">+ 계산/설정 노드</button>
+            <button class="btn btn-primary btn-sm" id="btnNodeAddMenu">+ 노드 추가 (Shift+A)</button>
+            <button class="btn btn-secondary btn-sm" id="btnNodeCutKnife">나이프 자르기 (Ctrl+우클릭)</button>
             <button class="btn btn-secondary btn-sm" id="btnNodeAutoLayout">자동 정렬</button>
             <button class="btn btn-accent btn-sm" id="btnNodeClose">스튜디오로 복귀 (Shift+Tab)</button>
           </div>
         </div>
         <div id="nodeGraphArea">
           <svg id="nodeWiresSvg"></svg>
+          <svg id="nodeKnifeSvg" class="node-knife-svg"></svg>
           <div id="nodesLayer"></div>
+          <!-- Blender Style Add Node Search Menu -->
+          <div id="nodeSearchMenu" class="node-search-menu hidden">
+            <div class="nsm-header">
+              <input type="text" id="nsmSearchInput" placeholder="노드 검색 (Search Nodes)..." autocomplete="off" />
+            </div>
+            <div id="nsmCategories" class="nsm-body"></div>
+          </div>
         </div>
       </section>
 
@@ -64,6 +71,14 @@
       <!-- Lower Section: Photoshop Layers Panel -->
       <section id="layersContainer" class="ps-dock-section"></section>
     </aside>
+
+    <!-- Panel Snapping Overlay Indicators -->
+    <div id="snapZoneOverlay" class="snap-zone-overlay hidden">
+      <div class="snap-indicator snap-left" data-zone="left">도구함 도킹</div>
+      <div class="snap-indicator snap-bottom" data-zone="bottom">타임라인 도킹</div>
+      <div class="snap-indicator snap-right-top" data-zone="right-top">속성 도킹</div>
+      <div class="snap-indicator snap-right-bottom" data-zone="right-bottom">레이어 도킹</div>
+    </div>
   </div>
 
   <!-- Floating Eyedropper Loupe Swatch -->

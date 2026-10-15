@@ -48,6 +48,14 @@
           gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
           osc.start(t);
           osc.stop(t + 0.2);
+        } else if (type === 'cut') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(800, t);
+          osc.frequency.exponentialRampToValueAtTime(120, t + 0.08);
+          gain.gain.setValueAtTime(0.2, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+          osc.start(t);
+          osc.stop(t + 0.08);
         } else {
           osc.type = 'sine';
           osc.frequency.setValueAtTime(400, t);
@@ -707,14 +715,19 @@
   // ==========================================================================
   // 5. TransformBox (Free Transform)
   // ==========================================================================
+  // ==========================================================================
+  // 6. TransformBox (Decoupled Performance: Canvas Repaint vs History Commit)
+  // ==========================================================================
   class TransformBox {
-    constructor(docModel, onTransform) {
+    constructor(docModel, onTransformMove, onTransformEnd) {
       this.doc = docModel;
-      this.onTransform = onTransform;
+      this.onTransformMove = onTransformMove;
+      this.onTransformEnd = onTransformEnd;
       this.handleSize = 8;
-      this.mode = null; // 'move', 'nw', 'ne', 'se', 'sw', 'n', 's', 'e', 'w', 'rot'
+      this.mode = null; // 'body', 'nw', 'ne', 'se', 'sw', 'n', 's', 'e', 'w', 'rot'
       this.startPos = { x: 0, y: 0 };
       this.origLayer = null;
+      this.origPathPoints = null;
     }
 
     getTarget() {
@@ -784,7 +797,6 @@
       const dy = wy - this.startPos.y;
 
       if (this.mode === 'body') {
-        // Warning or note: Layer movement is module-driven
         target.x = this.origLayer.x + dx;
         target.y = this.origLayer.y + dy;
       } else if (this.mode === 'rot') {
@@ -838,34 +850,30 @@
         });
       }
 
-      this.onTransform();
+      // Fast canvas repaint only (no DOM rebuild!)
+      if (this.onTransformMove) this.onTransformMove();
     }
 
     endDrag() {
-      if (this.mode) {
-        this.mode = null;
-        this.doc.saveState();
-        this.onTransform();
-      }
+      if (!this.mode) return;
+      this.mode = null;
+      this.doc.saveState();
+      // Commit state and update Inspector inputs
+      if (this.onTransformEnd) this.onTransformEnd();
     }
 
-    getCursor(hit) {
-      if (!hit) return 'default';
-      if (hit === 'body') return 'move';
-      if (hit === 'rot') return 'grab';
+    getCursor(mode) {
+      if (!mode) return 'default';
+      if (mode === 'body') return 'move';
+      if (mode === 'rot') return 'grab';
       const map = {
-        nw: 'nwse-resize', se: 'nwse-resize',
-        ne: 'nesw-resize', sw: 'nesw-resize',
-        n: 'ns-resize', s: 'ns-resize',
-        w: 'ew-resize', e: 'ew-resize'
+        nw: 'nwse-resize', ne: 'nesw-resize', se: 'nwse-resize', sw: 'nesw-resize',
+        n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize'
       };
-      return map[hit] || 'default';
+      return map[mode] || 'default';
     }
   }
 
-  // ==========================================================================
-  // 6. Photoshop Canvas 2D Engine
-  // ==========================================================================
   class PhotoshopCanvas {
     constructor(canvasEl, docModel) {
       this.canvas = canvasEl;
@@ -1325,11 +1333,15 @@
   // ==========================================================================
   // 7. DrawingTools Controller
   // ==========================================================================
+  // ==========================================================================
+  // 8. DrawingTools (Decoupled Performance: Canvas Repaint vs History Commit)
+  // ==========================================================================
   class DrawingTools {
-    constructor(canvasRenderer, docModel, onUpdate) {
+    constructor(canvasRenderer, docModel, onCanvasRender, onCommit) {
       this.renderer = canvasRenderer;
       this.doc = docModel;
-      this.onUpdate = onUpdate;
+      this.onCanvasRender = onCanvasRender;
+      this.onCommit = onCommit;
       this.activeTool = 'move';
       this.activeShapeType = 'rect';
       this.shapeBevel = 12;
@@ -1354,288 +1366,304 @@
       this.activeTool = t;
       this.activePenPoints = [];
       this.activeCurvePoints = [];
-      this.activeGradientDrag = null;
+      this.activeBrushStroke = null;
       this.shapeDragStart = null;
       this.shapeDragCurrent = null;
-      this.activeBrushStroke = null;
-      this.activePathDragPoint = null;
-      this.onUpdate();
+      if (this.onCommit) this.onCommit();
+    }
+
+    zoomAt(screenX, screenY, factor) {
+      const oldZoom = this.renderer.zoom;
+      const newZoom = Math.max(0.1, Math.min(10, oldZoom * factor));
+      this.renderer.zoom = newZoom;
+      this.renderer.panX = screenX - (screenX - this.renderer.panX) * (newZoom / oldZoom);
+      this.renderer.panY = screenY - (screenY - this.renderer.panY) * (newZoom / oldZoom);
+      if (this.onCanvasRender) this.onCanvasRender();
     }
 
     handleMouseDown(wx, wy, sx, sy, e) {
-      switch (this.activeTool) {
-        case 'brush': {
-          let targetLayer = this.doc.getSelectedLayer();
-          if (!targetLayer) {
-            targetLayer = this.doc.addLayer(new Layer({ name: '브러시 레이어' }));
+      const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
+      if (!activeLayer) return;
+
+      if (this.activeTool === 'brush') {
+        this.activeBrushStroke = [{ x: wx, y: wy }];
+        if (this.onCanvasRender) this.onCanvasRender();
+        return;
+      }
+
+      if (this.activeTool === 'shape') {
+        this.shapeDragStart = { x: wx, y: wy };
+        this.shapeDragCurrent = { x: wx, y: wy };
+        if (this.onCanvasRender) this.onCanvasRender();
+        return;
+      }
+
+      if (this.activeTool === 'pen') {
+        this.activePenPoints.push({ x: wx, y: wy });
+        if (this.activePenPoints.length > 1) {
+          const first = this.activePenPoints[0];
+          if (Math.hypot(wx - first.x, wy - first.y) < 14) {
+            this.activePenPoints.pop();
+            this.commitPenPath(true);
+            return;
           }
-          let targetSprite = this.doc.getSelectedSprite();
-          if (!targetSprite || targetSprite.type !== 'empty') {
-            targetSprite = targetLayer.addSprite(new Sprite({
-              name: '브러시 스트로크',
-              type: 'empty',
-              x: this.doc.width / 2,
-              y: this.doc.height / 2,
-              width: this.doc.width,
-              height: this.doc.height,
-              fill: 'transparent',
-              strokes: []
-            }));
-            this.doc.selectedSpriteId = targetSprite.id;
+        }
+        if (this.onCanvasRender) this.onCanvasRender();
+        return;
+      }
+
+      if (this.activeTool === 'curve') {
+        this.activeCurvePoints.push({ x: wx, y: wy, cp1x: wx, cp1y: wy, cp2x: wx, cp2y: wy });
+        if (this.activeCurvePoints.length > 1) {
+          const first = this.activeCurvePoints[0];
+          if (Math.hypot(wx - first.x, wy - first.y) < 14) {
+            this.activeCurvePoints.pop();
+            this.commitCurvePath(true);
+            return;
           }
-          if (!targetSprite.strokes) targetSprite.strokes = [];
-          const relX = wx - targetSprite.x;
-          const relY = wy - targetSprite.y;
-          this.activeBrushStroke = {
-            color: this.doc.foregroundColor,
-            size: this.brushSize || 6,
-            opacity: 1,
-            points: [{ x: Math.round(relX), y: Math.round(relY) }]
-          };
-          targetSprite.strokes.push(this.activeBrushStroke);
-          this.onUpdate();
-          break;
         }
+        if (this.onCanvasRender) this.onCanvasRender();
+        return;
+      }
 
-        case 'curve': {
-          // Bezier Curve Tool
-          if (this.activeCurvePoints.length > 0) {
-            const first = this.activeCurvePoints[0];
-            if (Math.hypot(wx - first.x, wy - first.y) <= 12 / this.renderer.zoom) {
-              this.commitCurvePath(true);
-              return;
-            }
+      if (this.activeTool === 'zoom') {
+        if (e.altKey) {
+          this.renderer.zoom = 1;
+          this.renderer.centerArtboard();
+        } else {
+          const factor = e.shiftKey ? 0.8 : 1.25;
+          this.zoomAt(sx, sy, factor);
+        }
+        if (this.onCanvasRender) this.onCanvasRender();
+        return;
+      }
+
+      if (this.activeTool === 'eyedropper') {
+        try {
+          const pix = this.renderer.ctx.getImageData(sx, sy, 1, 1).data;
+          const hex = '#' + ((1 << 24) + (pix[0] << 16) + (pix[1] << 8) + pix[2]).toString(16).slice(1);
+          this.doc.foregroundColor = hex;
+          const sel = this.doc.getSelectedSprite();
+          if (sel) {
+            sel.fill = hex;
+            this.doc.saveState();
           }
-          const pt = {
-            x: Math.round(wx), y: Math.round(wy),
-            cp1x: Math.round(wx - 25), cp1y: Math.round(wy),
-            cp2x: Math.round(wx + 25), cp2y: Math.round(wy)
-          };
-          this.activeCurvePoints.push(pt);
-          this.onUpdate();
-          break;
-        }
+        } catch (err) {}
+        if (this.onCommit) this.onCommit();
+        return;
+      }
 
-        case 'pen': {
-          if (this.activePenPoints.length > 0) {
-            const first = this.activePenPoints[0];
-            if (Math.hypot(wx - first.x, wy - first.y) <= 12 / this.renderer.zoom) {
-              this.commitPenPath(true);
-              return;
-            }
-          }
-          this.activePenPoints.push({ x: Math.round(wx), y: Math.round(wy), isCurve: false });
-          this.onUpdate();
-          break;
-        }
-
-        case 'shape': {
-          this.shapeDragStart = { x: wx, y: wy };
-          this.shapeDragCurrent = { x: wx, y: wy };
-          this.onUpdate();
-          break;
-        }
-
-        case 'zoom': {
-          if (e.altKey) {
-            // Alt+Click: Reset zoom to 100%
-            this.renderer.zoom = 1.0;
-            this.renderer.centerArtboard();
-          } else if (e.button === 2) {
-            // Right-click: Zoom Out
-            this.zoomAt(sx, sy, 0.8);
-          } else {
-            // Left-click: Zoom In
-            this.zoomAt(sx, sy, 1.25);
-          }
-          this.onUpdate();
-          break;
-        }
-
-        case 'eyedropper': {
-          this.sampleColor(sx, sy);
-          break;
-        }
-
-        case 'text': {
-          let layer = this.doc.getSelectedLayer();
-          if (!layer) layer = this.doc.addLayer(new Layer({ name: '레이어' }));
-          const sp = layer.addSprite({
-            name: '텍스트 스프라이트', type: 'text', text: '텍스트', x: wx, y: wy, fill: this.doc.foregroundColor
+      if (this.activeTool === 'text') {
+        const text = prompt('텍스트 내용을 입력하세요:', 'Interactive Text');
+        if (text) {
+          const sp = activeLayer.addSprite({
+            name: '텍스트: ' + text.slice(0, 10),
+            type: 'text',
+            text: text,
+            x: wx, y: wy,
+            fontSize: 24,
+            fill: this.doc.foregroundColor
           });
           this.doc.selectedSpriteId = sp.id;
-          this.setTool('move');
-          break;
+          this.doc.saveState();
+          if (this.onCommit) this.onCommit();
         }
+        return;
       }
     }
 
     handleMouseMove(wx, wy) {
       if (this.activeTool === 'brush' && this.activeBrushStroke) {
-        const selSprite = this.doc.getSelectedSprite();
-        if (selSprite) {
-          const rawX = wx - selSprite.x;
-          const rawY = wy - selSprite.y;
-          const pts = this.activeBrushStroke.points;
-          let newX = rawX, newY = rawY;
-          if (this.brushStabilize && pts.length > 0) {
-            const last = pts[pts.length - 1];
-            newX = last.x * 0.4 + rawX * 0.6;
-            newY = last.y * 0.4 + rawY * 0.6;
-          }
-          pts.push({ x: Math.round(newX), y: Math.round(newY) });
-          this.onUpdate();
+        let ptX = wx, ptY = wy;
+        if (this.brushStabilize && this.activeBrushStroke.length > 0) {
+          const last = this.activeBrushStroke[this.activeBrushStroke.length - 1];
+          ptX = last.x + (wx - last.x) * 0.45;
+          ptY = last.y + (wy - last.y) * 0.45;
         }
-      } else if (this.activeTool === 'shape' && this.shapeDragStart) {
+        this.activeBrushStroke.push({ x: ptX, y: ptY });
+        if (this.onCanvasRender) this.onCanvasRender();
+        return;
+      }
+
+      if (this.activeTool === 'shape' && this.shapeDragStart) {
         this.shapeDragCurrent = { x: wx, y: wy };
-        this.onUpdate();
+        if (this.onCanvasRender) this.onCanvasRender();
+        return;
       }
     }
 
     handleMouseUp(wx, wy) {
+      if (this.activeTool === 'brush' && this.activeBrushStroke) {
+        this.commitBrushStroke();
+        if (this.onCommit) this.onCommit();
+        return;
+      }
+
       if (this.activeTool === 'shape' && this.shapeDragStart) {
-        const x1 = Math.min(this.shapeDragStart.x, wx);
-        const y1 = Math.min(this.shapeDragStart.y, wy);
-        const sw = Math.max(10, Math.abs(wx - this.shapeDragStart.x));
-        const sh = Math.max(10, Math.abs(wy - this.shapeDragStart.y));
-        const cx = x1 + sw / 2, cy = y1 + sh / 2;
-
-        let layer = this.doc.getSelectedLayer();
-        if (!layer) layer = this.doc.addLayer(new Layer({ name: '레이어' }));
-
-        const isCircle = this.activeShapeType === 'circle';
-        const isBevel = this.activeShapeType === 'bevel_rect';
-
-        const sp = layer.addSprite({
-          name: isCircle ? '원형 스프라이트' : (isBevel ? '베벨 사각형' : '사각형 스프라이트'),
-          type: isCircle ? 'circle' : 'rect',
-          x: Math.round(cx), y: Math.round(cy),
-          width: Math.round(sw), height: Math.round(sh),
-          fill: this.doc.foregroundColor,
-          stroke: '#0284c7',
-          strokeWidth: 2,
-          bevel: isBevel ? this.shapeBevel : 0,
-          cornerRadius: 0
-        });
-
-        this.doc.selectedSpriteId = sp.id;
+        this.commitShape(this.shapeDragStart, { x: wx, y: wy });
         this.shapeDragStart = null;
         this.shapeDragCurrent = null;
-        this.setTool('move');
-        this.doc.saveState();
-        this.onUpdate();
-      } else if (this.activeTool === 'brush') {
-        this.activeBrushStroke = null;
-        this.doc.saveState();
+        if (this.onCommit) this.onCommit();
+        return;
       }
     }
 
-    commitCurvePath(closed = false) {
-      if (this.activeCurvePoints.length < 2) {
-        this.activeCurvePoints = [];
-        this.onUpdate();
+    commitBrushStroke() {
+      if (!this.activeBrushStroke || this.activeBrushStroke.length < 2) {
+        this.activeBrushStroke = null;
         return;
       }
-      let layer = this.doc.getSelectedLayer();
-      if (!layer) layer = this.doc.addLayer(new Layer({ name: '곡선 레이어' }));
+      const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
+      if (!activeLayer) return;
 
+      const pts = this.activeBrushStroke;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const p of this.activeCurvePoints) {
-        minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
-      }
-      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-      const sw = Math.max(20, maxX - minX);
-      const sh = Math.max(20, maxY - minY);
+      pts.forEach(p => {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      });
 
-      const localPoints = this.activeCurvePoints.map(p => ({
-        type: 'C',
-        x: Math.round(p.x - cx), y: Math.round(p.y - cy),
-        cp1x: Math.round(p.cp1x - cx), cp1y: Math.round(p.cp1y - cy),
-        cp2x: Math.round(p.cp2x - cx), cp2y: Math.round(p.cp2y - cy)
-      }));
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const relPts = pts.map(p => ({ x: Math.round(p.x - cx), y: Math.round(p.y - cy) }));
 
-      const sp = layer.addSprite({
-        name: '베지어 곡선 스프라이트',
-        type: 'path',
-        x: Math.round(cx), y: Math.round(cy),
-        width: Math.round(sw), height: Math.round(sh),
-        pathPoints: localPoints,
-        isClosedPath: closed,
-        fill: closed ? this.doc.foregroundColor : 'transparent',
+      const sp = activeLayer.addSprite({
+        name: `브러쉬 스트로크 ${activeLayer.sprites.length + 1}`,
+        type: 'brush',
+        x: cx, y: cy,
+        width: Math.max(20, maxX - minX),
+        height: Math.max(20, maxY - minY),
+        brushSize: this.brushSize,
+        brushStrokePoints: relPts,
         stroke: this.doc.foregroundColor,
-        strokeWidth: 3
+        fill: 'transparent'
+      });
+
+      this.activeBrushStroke = null;
+      this.doc.selectedSpriteId = sp.id;
+      this.doc.saveState();
+    }
+
+    commitShape(start, end) {
+      const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
+      if (!activeLayer) return;
+
+      const x = (start.x + end.x) / 2;
+      const y = (start.y + end.y) / 2;
+      let w = Math.abs(end.x - start.x);
+      let h = Math.abs(end.y - start.y);
+
+      if (w < 5 && h < 5) return;
+
+      if (this.activeShapeType === 'circle') {
+        const side = Math.max(w, h);
+        w = side;
+        h = side;
+      }
+
+      const sp = activeLayer.addSprite({
+        name: `${this.activeShapeType === 'rect' ? '사각형' : '원형'} 스프라이트`,
+        type: this.activeShapeType,
+        x: x, y: y,
+        width: w, height: h,
+        fill: this.doc.foregroundColor,
+        stroke: '#ffffff',
+        strokeWidth: 2,
+        cornerRadius: this.shapeBevel,
+        bevelChamfer: this.shapeBevel
       });
 
       this.doc.selectedSpriteId = sp.id;
-      this.activeCurvePoints = [];
-      this.setTool('move');
       this.doc.saveState();
-      this.onUpdate();
     }
 
     commitPenPath(closed = false) {
       if (this.activePenPoints.length < 2) {
         this.activePenPoints = [];
-        this.onUpdate();
         return;
       }
-      let layer = this.doc.getSelectedLayer();
-      if (!layer) layer = this.doc.addLayer(new Layer({ name: '패스 레이어' }));
+      const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
+      if (!activeLayer) return;
 
+      const pts = this.activePenPoints;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const p of this.activePenPoints) {
-        minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
-      }
-      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-      const sw = Math.max(20, maxX - minX), sh = Math.max(20, maxY - minY);
-
-      const localPoints = this.activePenPoints.map(p => ({
-        type: 'L',
-        x: Math.round(p.x - cx), y: Math.round(p.y - cy)
-      }));
-
-      const sp = layer.addSprite({
-        name: '펜 패스 스프라이트',
-        type: 'path',
-        x: Math.round(cx), y: Math.round(cy),
-        width: Math.round(sw), height: Math.round(sh),
-        pathPoints: localPoints,
-        isClosedPath: closed,
-        fill: closed ? this.doc.foregroundColor : 'transparent',
-        stroke: this.doc.foregroundColor,
-        strokeWidth: 3
+      pts.forEach(p => {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
       });
 
-      this.doc.selectedSpriteId = sp.id;
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const relPts = pts.map(p => ({ x: Math.round(p.x - cx), y: Math.round(p.y - cy) }));
+
+      const sp = activeLayer.addSprite({
+        name: `펜 패스 ${activeLayer.sprites.length + 1}`,
+        type: 'path',
+        x: cx, y: cy,
+        width: Math.max(20, maxX - minX),
+        height: Math.max(20, maxY - minY),
+        pathPoints: relPts,
+        pathClosed: closed,
+        fill: closed ? this.doc.foregroundColor : 'transparent',
+        stroke: this.doc.foregroundColor,
+        strokeWidth: 2
+      });
+
       this.activePenPoints = [];
-      this.setTool('move');
+      this.doc.selectedSpriteId = sp.id;
       this.doc.saveState();
-      this.onUpdate();
+      if (this.onCommit) this.onCommit();
     }
 
-    zoomAt(sx, sy, factor) {
-      const oldZoom = this.renderer.zoom;
-      const newZoom = Math.max(0.1, Math.min(32, oldZoom * factor));
-      this.renderer.panX = sx - (sx - this.renderer.panX) * (newZoom / oldZoom);
-      this.renderer.panY = sy - (sy - this.renderer.panY) * (newZoom / oldZoom);
-      this.renderer.zoom = newZoom;
-    }
+    commitCurvePath(closed = false) {
+      if (this.activeCurvePoints.length < 2) {
+        this.activeCurvePoints = [];
+        return;
+      }
+      const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
+      if (!activeLayer) return;
 
-    sampleColor(sx, sy) {
-      try {
-        const pix = this.renderer.ctx.getImageData(sx, sy, 1, 1).data;
-        const hex = '#' + ((1 << 24) + (pix[0] << 16) + (pix[1] << 8) + pix[2]).toString(16).slice(1);
-        this.doc.foregroundColor = hex;
-        this.onUpdate();
-      } catch (e) {}
+      const pts = this.activeCurvePoints;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      pts.forEach(p => {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      });
+
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const relPts = pts.map(p => ({
+        x: Math.round(p.x - cx), y: Math.round(p.y - cy),
+        cp1x: Math.round(p.cp1x - cx), cp1y: Math.round(p.cp1y - cy),
+        cp2x: Math.round(p.cp2x - cx), cp2y: Math.round(p.cp2y - cy)
+      }));
+
+      const sp = activeLayer.addSprite({
+        name: `베지에 곡선 ${activeLayer.sprites.length + 1}`,
+        type: 'path',
+        x: cx, y: cy,
+        width: Math.max(20, maxX - minX),
+        height: Math.max(20, maxY - minY),
+        pathPoints: relPts,
+        pathClosed: closed,
+        fill: closed ? this.doc.foregroundColor : 'transparent',
+        stroke: this.doc.foregroundColor,
+        strokeWidth: 2
+      });
+
+      this.activeCurvePoints = [];
+      this.doc.selectedSpriteId = sp.id;
+      this.doc.saveState();
+      if (this.onCommit) this.onCommit();
     }
   }
 
-  // ==========================================================================
-  // 8. Module Engine (Reactive Interactive Physics & Motion Runtime)
-  // ==========================================================================
   class ModuleEngine {
     constructor(docModel) {
       this.doc = docModel;
@@ -2122,6 +2150,9 @@
   // ==========================================================================
   // 11. Layers Panel UI (Hierarchical Layers & Sprites with Drag & Drop)
   // ==========================================================================
+  // ==========================================================================
+  // 13. Layers Panel UI (Fabric Sleek Styling, Robust Selection & Modular fx)
+  // ==========================================================================
   class LayersPanelUI {
     constructor(el, doc, callbacks) {
       this.el = el;
@@ -2146,53 +2177,54 @@
         <div class="ps-dock-header">
           <span class="ps-dock-title">레이어 (Layers)</span>
           <div class="ps-dock-tools">
+            <button class="ps-dock-tool-btn" id="btnNewLayer" title="새 레이어 생성">+ 레이어</button>
             <button class="ps-dock-tool-btn" id="btnFloatLayers" title="패널 팝업 띄우기">⧉</button>
           </div>
         </div>
 
-        <div class="ps-layers-header">
-          <button class="ps-btn-new-layer" id="btnNewLayer">+ 새 레이어</button>
-          <button class="btn btn-secondary btn-sm" id="btnNewSprite">+ 스프라이트</button>
-        </div>
-
         <div class="ps-layer-list">
-          ${reversedLayers.length === 0 ? '<div class="ps-empty-layers">레이어가 없습니다.</div>' : reversedLayers.map(l => `
-            <div class="ps-layer-group" data-layer-id="${l.id}">
-              <!-- Layer Container Row -->
-              <div class="ps-layer-row ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-layer-id="${l.id}" draggable="true">
-                <button class="ps-layer-fold-btn" data-act="fold-layer">${l.expanded ? '▼' : '▶'}</button>
-                <button class="ps-layer-vis-btn ${l.visible ? '' : 'muted'}" data-act="vis-layer">${l.visible ? '●' : '○'}</button>
-                
+          ${reversedLayers.length === 0 ? '<div class="ps-empty-layers">레이어가 없습니다. 상단 + 레이어를 클릭하세요.</div>' : reversedLayers.map(l => `
+            <div class="ps-layer-group ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-layer-id="${l.id}">
+              <!-- Layer Container Row (Entire row clickable to select layer) -->
+              <div class="ps-layer-row ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-act="select-layer" data-layer-id="${l.id}" draggable="true">
+                <button class="ps-layer-fold-btn" data-act="fold-layer" title="접기/펼치기">${l.expanded ? '▼' : '▶'}</button>
+                <button class="ps-layer-vis-btn ${l.visible ? '' : 'muted'}" data-act="vis-layer" title="레이어 가시성">${l.visible ? '●' : '○'}</button>
+                <div class="ps-layer-color-tag"></div>
+
                 ${this.renamingId === l.id ? `
                   <input type="text" class="ps-layer-title-input" value="${l.name}" autofocus>
                 ` : `
-                  <span class="ps-layer-title" data-act="select-layer">${l.name}</span>
+                  <span class="ps-layer-title" data-act="select-layer" title="더블 클릭하여 이름 변경">${l.name}</span>
                 `}
 
-                <button class="ps-btn-add-module" data-act="add-layer-mod">+fx</button>
+                <span class="ps-layer-count-badge">${l.sprites.length}개</span>
+                <button class="ps-btn-layer-add-sp" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+스프라이트</button>
+                <button class="ps-btn-add-module ${(l.modules && l.modules.length > 0) ? 'has-modules' : ''}" data-act="add-layer-mod" title="레이어 모듈 추가">+fx</button>
+                <button class="ps-btn-del-item" data-act="delete-layer" title="레이어 삭제">✕</button>
               </div>
 
-              <!-- Child Sprites (Indented) -->
+              <!-- Child Sprites (Clearly Nested in Fabric Tree Structure) -->
               ${l.expanded ? `
                 <div class="ps-layer-sub-sprites">
-                  ${l.sprites.map(s => `
-                    <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : ''}" data-sprite-id="${s.id}" data-layer-id="${l.id}" draggable="true">
+                  ${l.sprites.length === 0 ? '<div style="font-size:10.5px;color:#71717a;padding:4px 2px;">스프라이트가 없습니다 (+스프라이트 클릭)</div>' : l.sprites.map(s => `
+                    <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : ''}" data-act="select-sprite" data-sprite-id="${s.id}" data-layer-id="${l.id}" draggable="true">
                       <div class="ps-sprite-header">
-                        <button class="ps-layer-vis-btn ${s.visible ? '' : 'muted'}" data-act="vis-sprite">${s.visible ? '●' : '○'}</button>
+                        <button class="ps-layer-vis-btn ${s.visible ? '' : 'muted'}" data-act="vis-sprite" title="스프라이트 가시성">${s.visible ? '●' : '○'}</button>
                         <span class="ps-layer-type-icon">${s.type === 'rect' ? '▭' : (s.type === 'circle' ? '○' : (s.type === 'path' ? '⟿' : '✎'))}</span>
                         
                         ${this.renamingId === s.id ? `
                           <input type="text" class="ps-layer-title-input" value="${s.name}" autofocus>
                         ` : `
-                          <span class="ps-sprite-title" data-act="select-sprite">${s.name}</span>
+                          <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${s.name}</span>
                         `}
 
-                        <button class="ps-btn-add-module ${s.modules?.length > 0 ? 'has-modules' : ''}" data-act="add-sprite-mod">
-                          +fx ${s.modules?.length > 0 ? `<span class="mod-count">${s.modules.length}</span>` : ''}
+                        <button class="ps-btn-add-module ${(s.modules && s.modules.length > 0) ? 'has-modules' : ''}" data-act="add-sprite-mod" title="스프라이트 모듈 추가">
+                          +fx ${(s.modules && s.modules.length > 0) ? `<span class="mod-count">${s.modules.length}</span>` : ''}
                         </button>
+                        <button class="ps-btn-del-item" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
                       </div>
 
-                      <!-- Sub-Modules -->
+                      <!-- Sub-Modules under Sprite -->
                       ${(s.modules && s.modules.length > 0) ? `
                         <div class="ps-layer-sub-modules">
                           ${s.modules.map((m, mIdx) => `
@@ -2201,7 +2233,7 @@
                               <span class="mod-badge" style="background:${MODULE_REGISTRY[m.type]?.color || '#0284c7'};">${MODULE_REGISTRY[m.type]?.icon || 'MOD'}</span>
                               <span class="mod-name" data-act="select-mod">${m.name}</span>
                               <button class="mod-toggle ${m.enabled ? 'active' : ''}" data-act="toggle-mod">${m.enabled ? 'ON' : 'OFF'}</button>
-                              <button class="mod-del" data-act="del-mod">×</button>
+                              <button class="mod-del" data-act="del-mod" title="모듈 삭제">×</button>
                             </div>
                           `).join('')}
                         </div>
@@ -2219,26 +2251,11 @@
     }
 
     bindEvents() {
-      // New Layer & New Sprite buttons
+      // New Layer button
       this.el.querySelector('#btnNewLayer')?.addEventListener('click', () => {
         const l = new Layer({ name: `레이어 ${this.doc.layers.length + 1}` });
         this.doc.addLayer(l);
         this.cb.onUpdate();
-      });
-
-      this.el.querySelector('#btnNewSprite')?.addEventListener('click', () => {
-        const selL = this.doc.getSelectedLayer();
-        if (selL) {
-          const sp = selL.addSprite({
-            name: `스프라이트 ${selL.sprites.length + 1}`,
-            type: 'rect',
-            x: this.doc.width / 2, y: this.doc.height / 2,
-            width: 120, height: 120,
-            fill: this.doc.foregroundColor
-          });
-          this.doc.selectedSpriteId = sp.id;
-          this.cb.onUpdate();
-        }
       });
 
       // Float button
@@ -2249,19 +2266,19 @@
       // Layer & Sprite click delegation
       this.el.addEventListener('click', e => {
         const btn = e.target.closest('button, [data-act]');
-        if (!btn) return;
-        const act = btn.dataset.act;
-
+        const spriteItem = e.target.closest('[data-sprite-id]');
         const layerGroup = e.target.closest('[data-layer-id]');
+
         const layerId = layerGroup?.dataset.layerId;
         const layer = this.doc.getLayer(layerId);
 
-        const spriteItem = e.target.closest('[data-sprite-id]');
         const spriteId = spriteItem?.dataset.spriteId;
         const sprite = layer?.getSprite(spriteId);
 
         const modRow = e.target.closest('[data-mod-id]');
         const modId = modRow?.dataset.modId;
+
+        const act = btn ? btn.dataset.act : (spriteItem ? 'select-sprite' : (layerGroup ? 'select-layer' : null));
 
         if (act === 'fold-layer' && layer) {
           layer.expanded = !layer.expanded;
@@ -2272,7 +2289,27 @@
         } else if (act === 'select-layer' && layer) {
           this.doc.selectedLayerId = layer.id;
           this.doc.selectedModuleId = null;
-          if (layer.sprites.length > 0) this.doc.selectedSpriteId = layer.sprites[0].id;
+          if (layer.sprites.length > 0 && !layer.sprites.some(s => s.id === this.doc.selectedSpriteId)) {
+            this.doc.selectedSpriteId = layer.sprites[0].id;
+          }
+          this.cb.onUpdate();
+        } else if (act === 'add-child-sprite' && layer) {
+          const sp = layer.addSprite({
+            name: `스프라이트 ${layer.sprites.length + 1}`,
+            type: 'rect',
+            x: this.doc.width / 2, y: this.doc.height / 2,
+            width: 120, height: 120,
+            fill: this.doc.foregroundColor
+          });
+          this.doc.selectedLayerId = layer.id;
+          this.doc.selectedSpriteId = sp.id;
+          this.cb.onUpdate();
+        } else if (act === 'delete-layer' && layer) {
+          if (this.doc.layers.length <= 1) {
+            alert('최소 1개의 레이어가 유지되어야 합니다.');
+            return;
+          }
+          this.doc.removeLayer(layer.id);
           this.cb.onUpdate();
         } else if (act === 'vis-sprite' && sprite) {
           sprite.visible = !sprite.visible;
@@ -2281,6 +2318,12 @@
           this.doc.selectedLayerId = layerId;
           this.doc.selectedSpriteId = sprite.id;
           this.doc.selectedModuleId = null;
+          this.cb.onUpdate();
+        } else if (act === 'delete-sprite' && layer && sprite) {
+          layer.removeSprite(sprite.id);
+          if (this.doc.selectedSpriteId === sprite.id) {
+            this.doc.selectedSpriteId = layer.sprites.length > 0 ? layer.sprites[0].id : null;
+          }
           this.cb.onUpdate();
         } else if (act === 'select-mod' && modId) {
           this.doc.selectedModuleId = modId;
@@ -2292,7 +2335,20 @@
           sprite.modules = sprite.modules?.filter(m => m.id !== modId);
           this.cb.onUpdate();
         } else if (act === 'add-sprite-mod' && sprite) {
-          this.showModuleLibraryModal(sprite);
+          this.showModuleLibraryModal(sprite, false);
+        } else if (act === 'add-layer-mod' && layer) {
+          this.showModuleLibraryModal(layer, true);
+        }
+      });
+
+      // Double-click to rename
+      this.el.addEventListener('dblclick', e => {
+        const titleEl = e.target.closest('.ps-layer-title, .ps-sprite-title');
+        if (titleEl) {
+          const layerGroup = e.target.closest('[data-layer-id]');
+          const spriteItem = e.target.closest('[data-sprite-id]');
+          this.renamingId = spriteItem ? spriteItem.dataset.spriteId : layerGroup?.dataset.layerId;
+          this.render();
         }
       });
 
@@ -2320,91 +2376,26 @@
         nameInput.addEventListener('blur', commit);
       }
 
-      // Drag and Drop Reordering
       this.initDragAndDrop();
     }
 
-    initDragAndDrop() {
-      let dragType = null; // 'layer', 'sprite', 'mod'
-      let dragId = null;
-      let dragLayerId = null;
+    showModuleLibraryModal(target, isLayer = false) {
+      if (!target) return;
+      if (!target.modules) target.modules = [];
 
-      this.el.querySelectorAll('[draggable="true"]').forEach(el => {
-        el.addEventListener('dragstart', e => {
-          if (el.classList.contains('ps-layer-row')) {
-            dragType = 'layer';
-            dragId = el.dataset.layerId;
-          } else if (el.classList.contains('ps-sprite-sub-item')) {
-            dragType = 'sprite';
-            dragId = el.dataset.spriteId;
-            dragLayerId = el.dataset.layerId;
-          } else if (el.classList.contains('ps-layer-module-row')) {
-            dragType = 'mod';
-            dragId = el.dataset.modId;
-          }
-          el.classList.add('is-dragging');
-          e.dataTransfer.effectAllowed = 'move';
-        });
-
-        el.addEventListener('dragend', () => {
-          el.classList.remove('is-dragging');
-          this.el.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(node => {
-            node.classList.remove('drag-over-top', 'drag-over-bottom');
-          });
-        });
-
-        el.addEventListener('dragover', e => {
-          e.preventDefault();
-          const rect = el.getBoundingClientRect();
-          const relY = e.clientY - rect.top;
-          if (relY < rect.height / 2) {
-            el.classList.add('drag-over-top');
-            el.classList.remove('drag-over-bottom');
-          } else {
-            el.classList.add('drag-over-bottom');
-            el.classList.remove('drag-over-top');
-          }
-        });
-
-        el.addEventListener('dragleave', () => {
-          el.classList.remove('drag-over-top', 'drag-over-bottom');
-        });
-
-        el.addEventListener('drop', e => {
-          e.preventDefault();
-          const isTop = el.classList.contains('drag-over-top');
-          el.classList.remove('drag-over-top', 'drag-over-bottom');
-
-          if (dragType === 'layer' && el.dataset.layerId) {
-            const targetId = el.dataset.layerId;
-            if (dragId === targetId) return;
-            const fromIdx = this.doc.layers.findIndex(l => l.id === dragId);
-            const toIdx = this.doc.layers.findIndex(l => l.id === targetId);
-            if (fromIdx !== -1 && toIdx !== -1) {
-              const [moved] = this.doc.layers.splice(fromIdx, 1);
-              this.doc.layers.splice(toIdx, 0, moved);
-              this.doc.sortLayers();
-              this.cb.onUpdate();
-            }
-          }
-        });
-      });
-    }
-
-    showModuleLibraryModal(targetSprite) {
       const modal = document.createElement('div');
       modal.className = 'modal-overlay';
       modal.innerHTML = `
         <div class="ps-module-modal">
           <div class="ps-modal-header">
-            <div class="ps-modal-title">스프라이트 모듈 장착 (${targetSprite.name})</div>
+            <div class="ps-modal-title">${isLayer ? '레이어 모듈 장착' : '스프라이트 모듈 장착'} (${target.name})</div>
             <button class="ps-modal-close" id="closeModal">✕</button>
           </div>
           <div class="mod-category-tabs">
             <button class="mod-category-tab ${this.activeCategory==='all'?'active':''}" data-cat="all">전체</button>
             <button class="mod-category-tab ${this.activeCategory==='sensor'?'active':''}" data-cat="sensor">감지 & 제스처</button>
-            <button class="mod-category-tab ${this.activeCategory==='logic'?'active':''}" data-cat="logic">연결 & 로직</button>
             <button class="mod-category-tab ${this.activeCategory==='motion'?'active':''}" data-cat="motion">모션 & FX</button>
+            <button class="mod-category-tab ${this.activeCategory==='logic'?'active':''}" data-cat="logic">연결 & 로직</button>
             <button class="mod-category-tab ${this.activeCategory==='timing'?'active':''}" data-cat="timing">타이밍 & 사운드</button>
           </div>
           <div class="ps-module-grid" id="modalModGrid"></div>
@@ -2437,15 +2428,14 @@
           c.addEventListener('click', () => {
             const mKey = c.dataset.key;
             const def = MODULE_REGISTRY[mKey];
-            if (!targetSprite.modules) targetSprite.modules = [];
             const newMod = {
               id: 'mod_' + Math.random().toString(36).substr(2, 9),
               type: mKey,
               name: def.name,
               enabled: true,
-              params: JSON.parse(JSON.stringify(def.defaultParams))
+              params: JSON.parse(JSON.stringify(def.defaultParams || {}))
             };
-            targetSprite.modules.push(newMod);
+            target.modules.push(newMod);
             this.doc.selectedModuleId = newMod.id;
             modal.remove();
             this.cb.onUpdate();
@@ -2463,13 +2453,99 @@
       });
 
       renderGrid();
-      modal.querySelector('#closeModal').addEventListener('click', () => modal.remove());
-      modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+      const closeModal = () => modal.remove();
+      modal.querySelector('#closeModal').addEventListener('click', closeModal);
+      modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+      const onKeyDown = ev => {
+        if (ev.key === 'Escape') { closeModal(); window.removeEventListener('keydown', onKeyDown); }
+      };
+      window.addEventListener('keydown', onKeyDown);
+    }
+
+    initDragAndDrop() {
+      let dragType = null;
+      let dragId = null;
+      let dragLayerId = null;
+
+      this.el.querySelectorAll('[draggable="true"]').forEach(el => {
+        el.addEventListener('dragstart', e => {
+          e.stopPropagation();
+          if (el.classList.contains('ps-layer-row')) {
+            dragType = 'layer';
+            dragId = el.dataset.layerId;
+          } else if (el.classList.contains('ps-sprite-sub-item')) {
+            dragType = 'sprite';
+            dragId = el.dataset.spriteId;
+            dragLayerId = el.dataset.layerId;
+          } else if (el.classList.contains('ps-layer-module-row')) {
+            dragType = 'mod';
+            dragId = el.dataset.modId;
+          }
+          el.classList.add('is-dragging');
+        });
+
+        el.addEventListener('dragend', () => {
+          el.classList.remove('is-dragging');
+          this.el.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(node => {
+            node.classList.remove('drag-over-top', 'drag-over-bottom');
+          });
+        });
+
+        el.addEventListener('dragover', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          const r = el.getBoundingClientRect();
+          const isTop = (e.clientY - r.top) < r.height / 2;
+          el.classList.toggle('drag-over-top', isTop);
+          el.classList.toggle('drag-over-bottom', !isTop);
+        });
+
+        el.addEventListener('dragleave', () => {
+          el.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+
+        el.addEventListener('drop', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          const r = el.getBoundingClientRect();
+          const isTop = (e.clientY - r.top) < r.height / 2;
+          el.classList.remove('drag-over-top', 'drag-over-bottom');
+
+          if (dragType === 'layer' && el.classList.contains('ps-layer-row')) {
+            const targetId = el.dataset.layerId;
+            if (dragId && targetId && dragId !== targetId) {
+              const srcIdx = this.doc.layers.findIndex(l => l.id === dragId);
+              const dstIdx = this.doc.layers.findIndex(l => l.id === targetId);
+              if (srcIdx !== -1 && dstIdx !== -1) {
+                const [moved] = this.doc.layers.splice(srcIdx, 1);
+                this.doc.layers.splice(isTop ? dstIdx : dstIdx + 1, 0, moved);
+                this.doc.sortLayers();
+                this.cb.onUpdate();
+              }
+            }
+          } else if (dragType === 'sprite' && el.classList.contains('ps-sprite-sub-item')) {
+            const targetSpriteId = el.dataset.spriteId;
+            const targetLayerId = el.dataset.layerId;
+            const srcLayer = this.doc.getLayer(dragLayerId);
+            const dstLayer = this.doc.getLayer(targetLayerId);
+            if (srcLayer && dstLayer) {
+              const srcIdx = srcLayer.sprites.findIndex(s => s.id === dragId);
+              const dstIdx = dstLayer.sprites.findIndex(s => s.id === targetSpriteId);
+              if (srcIdx !== -1 && dstIdx !== -1) {
+                const [moved] = srcLayer.sprites.splice(srcIdx, 1);
+                dstLayer.sprites.splice(isTop ? dstIdx : dstIdx + 1, 0, moved);
+                this.cb.onUpdate();
+              }
+            }
+          }
+        });
+      });
     }
   }
 
   // ==========================================================================
-  // 12. Inspector Panel UI (Properties & User-Managed Module Parameters)
+  // 14. InspectorPanelUI (Non-Destructive Live Scrubbing & Module Inspector)
   // ==========================================================================
   class InspectorPanelUI {
     constructor(el, doc, callbacks) {
@@ -2554,7 +2630,7 @@
 
     renderVisualInspector(sprite, layer) {
       if (!sprite) {
-        return '<div class="ps-empty-layers">선택된 스프라이트가 없습니다.</div>';
+        return '<div class="ps-empty-layers">선택된 스프라이트가 없습니다. 레이어 창에서 스프라이트를 선택하세요.</div>';
       }
 
       return `
@@ -2578,56 +2654,50 @@
               <span class="blender-scrub-label">H</span>
               <input type="number" class="blender-scrub-input" id="inpH" value="${Math.round(sprite.height)}">
             </div>
-            <div class="blender-scrub-group" style="grid-column: span 2;">
-              <span class="blender-scrub-label">회전(°)</span>
+            <div class="blender-scrub-group">
+              <span class="blender-scrub-label">Rot</span>
               <input type="number" class="blender-scrub-input" id="inpRot" value="${Math.round(sprite.rotation)}">
             </div>
-          </div>
-        </div>
-
-        <!-- Bevel & Corner Radius Section -->
-        <div class="ps-prop-section">
-          <div class="ps-prop-header">베벨 및 모서리 곡률 (Bevel & Radius)</div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">베벨(Chamfer):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpBevel" min="0" max="100" value="${sprite.bevel || 0}">
-            </div>
-          </div>
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">코너 라운딩:</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpRadius" min="0" max="100" value="${sprite.cornerRadius || 0}">
+              <span class="blender-scrub-label">Opac</span>
+              <input type="number" class="blender-scrub-input" id="inpOpacity" step="0.05" min="0" max="1" value="${sprite.opacity}">
             </div>
           </div>
         </div>
 
-        <!-- Appearance (Fill & Stroke) Section -->
+        <!-- Appearance Section -->
         <div class="ps-prop-section">
-          <div class="ps-prop-header">외관 (Fill & Stroke)</div>
+          <div class="ps-prop-header">모양 및 곡률 (Bevel & Style)</div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">채우기 색상:</label>
             <div class="ps-color-picker-wrap">
-              <input type="color" id="colFill" value="${sprite.fill || '#38bdf8'}">
-              <input type="text" class="ps-input ps-input-hex" id="hexFill" value="${sprite.fill || '#38bdf8'}">
-            </div>
-          </div>
-          <div class="ps-swatches-grid">
-            ${['#ffffff', '#0284c7', '#38bdf8', '#22c55e', '#eab308', '#ef4444', '#ec4899', '#8b5cf6', '#14b8a6', '#f97316', '#64748b', '#000000'].map(c => `
-              <button class="inapp-color-chip" style="background:${c};" data-col="${c}"></button>
-            `).join('')}
-          </div>
-          <div class="ps-prop-row" style="margin-top:10px;">
-            <label class="ps-prop-label">테두리 두께:</label>
-            <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpStrokeW" min="0" max="50" value="${sprite.strokeWidth || 0}">
+              <input type="color" class="ps-color-picker" id="inpFill" value="${sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#38bdf8'}">
+              <span class="ps-val-tag">${sprite.fill}</span>
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">테두리 색상:</label>
             <div class="ps-color-picker-wrap">
-              <input type="color" id="colStroke" value="${sprite.stroke || '#0284c7'}">
-              <input type="text" class="ps-input ps-input-hex" id="hexStroke" value="${sprite.stroke || '#0284c7'}">
+              <input type="color" class="ps-color-picker" id="inpStroke" value="${sprite.stroke && sprite.stroke.startsWith('#') ? sprite.stroke : '#ffffff'}">
+              <span class="ps-val-tag">${sprite.stroke}</span>
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">선 두께:</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="inpStrokeWidth" min="0" max="50" value="${sprite.strokeWidth || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">코너 라운딩:</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="inpCornerRadius" min="0" max="100" value="${sprite.cornerRadius || 0}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">베벨 수치:</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="inpBevelChamfer" min="0" max="100" value="${sprite.bevelChamfer || 0}">
             </div>
           </div>
         </div>
@@ -2660,7 +2730,10 @@
           const onUp = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
-            if (isDragging) inp.dispatchEvent(new Event('change', { bubbles: true }));
+            if (isDragging) {
+              inp.dispatchEvent(new Event('change', { bubbles: true }));
+              if (this.cb.onUpdate) this.cb.onUpdate();
+            }
           };
 
           window.addEventListener('mousemove', onMove);
@@ -2677,75 +2750,80 @@
           this.doc.selectedModuleId = null;
           this.render();
         });
+
         this.el.querySelector('#modCond')?.addEventListener('change', e => {
+          if (!mod.params) mod.params = {};
           mod.params.condition = e.target.value;
           this.doc.saveState();
+          this.cb.onUpdate();
         });
-        this.el.querySelectorAll('[data-param-key]').forEach(inp => {
-          inp.addEventListener('input', e => {
-            const k = inp.dataset.paramKey;
-            mod.params[k] = inp.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+
+        this.el.querySelectorAll('[data-param-key]').forEach(input => {
+          const key = input.dataset.paramKey;
+          input.addEventListener('change', e => {
+            if (!mod.params) mod.params = {};
+            mod.params[key] = input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+            this.doc.saveState();
+            this.cb.onUpdate();
           });
-          inp.addEventListener('change', () => this.doc.saveState());
         });
         return;
       }
 
       if (!sprite) return;
 
-      const updateSpriteProp = (p, val) => {
-        sprite[p] = val;
-        this.cb.onUpdate();
+      const bindProp = (id, prop, isNum = true) => {
+        const el = this.el.querySelector('#' + id);
+        if (!el) return;
+        el.addEventListener('input', () => {
+          sprite[prop] = isNum ? (parseFloat(el.value) || 0) : el.value;
+          // Synchronize related bevel chamfer and corner radius
+          if (prop === 'cornerRadius' && sprite.bevelChamfer !== undefined) {
+            sprite.bevelChamfer = sprite.cornerRadius;
+            const bEl = this.el.querySelector('#inpBevelChamfer');
+            if (bEl) bEl.value = sprite.cornerRadius;
+          } else if (prop === 'bevelChamfer' && sprite.cornerRadius !== undefined) {
+            sprite.cornerRadius = sprite.bevelChamfer;
+            const cEl = this.el.querySelector('#inpCornerRadius');
+            if (cEl) cEl.value = sprite.bevelChamfer;
+          }
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+
+        el.addEventListener('change', () => {
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
       };
 
-      this.el.querySelector('#inpX')?.addEventListener('input', e => updateSpriteProp('x', parseFloat(e.target.value)));
-      this.el.querySelector('#inpY')?.addEventListener('input', e => updateSpriteProp('y', parseFloat(e.target.value)));
-      this.el.querySelector('#inpW')?.addEventListener('input', e => updateSpriteProp('width', parseFloat(e.target.value)));
-      this.el.querySelector('#inpH')?.addEventListener('input', e => updateSpriteProp('height', parseFloat(e.target.value)));
-      this.el.querySelector('#inpRot')?.addEventListener('input', e => updateSpriteProp('rotation', parseFloat(e.target.value)));
-      this.el.querySelector('#inpBevel')?.addEventListener('input', e => updateSpriteProp('bevel', parseFloat(e.target.value)));
-      this.el.querySelector('#inpRadius')?.addEventListener('input', e => updateSpriteProp('cornerRadius', parseFloat(e.target.value)));
-
-      this.el.querySelector('#colFill')?.addEventListener('input', e => {
-        updateSpriteProp('fill', e.target.value);
-        const hex = this.el.querySelector('#hexFill');
-        if (hex) hex.value = e.target.value;
-      });
-      this.el.querySelector('#colStroke')?.addEventListener('input', e => {
-        updateSpriteProp('stroke', e.target.value);
-        const hex = this.el.querySelector('#hexStroke');
-        if (hex) hex.value = e.target.value;
-      });
-      this.el.querySelector('#inpStrokeW')?.addEventListener('input', e => updateSpriteProp('strokeWidth', parseFloat(e.target.value)));
-
-      this.el.querySelectorAll('.inapp-color-chip').forEach(ch => {
-        ch.addEventListener('click', () => {
-          updateSpriteProp('fill', ch.dataset.col);
-          const colInp = this.el.querySelector('#colFill');
-          const hex = this.el.querySelector('#hexFill');
-          if (colInp) colInp.value = ch.dataset.col;
-          if (hex) hex.value = ch.dataset.col;
-        });
-      });
+      bindProp('inpX', 'x');
+      bindProp('inpY', 'y');
+      bindProp('inpW', 'width');
+      bindProp('inpH', 'height');
+      bindProp('inpRot', 'rotation');
+      bindProp('inpOpacity', 'opacity');
+      bindProp('inpCornerRadius', 'cornerRadius');
+      bindProp('inpBevelChamfer', 'bevelChamfer');
+      bindProp('inpFill', 'fill', false);
+      bindProp('inpStroke', 'stroke', false);
+      bindProp('inpStrokeWidth', 'strokeWidth');
     }
 
     updateInputs(sprite) {
-      if (!sprite) return;
-      const setVal = (id, val) => {
-        const el = this.el.querySelector(id);
-        if (el && document.activeElement !== el) el.value = val;
+      if (!sprite || this.doc.selectedModuleId) return;
+      const setVal = (id, v) => {
+        const el = this.el.querySelector('#' + id);
+        if (el && document.activeElement !== el) el.value = v;
       };
-      setVal('#inpX', Math.round(sprite.x));
-      setVal('#inpY', Math.round(sprite.y));
-      setVal('#inpW', Math.round(sprite.width));
-      setVal('#inpH', Math.round(sprite.height));
-      setVal('#inpRot', Math.round(sprite.rotation));
+      setVal('inpX', Math.round(sprite.x));
+      setVal('inpY', Math.round(sprite.y));
+      setVal('inpW', Math.round(sprite.width));
+      setVal('inpH', Math.round(sprite.height));
+      setVal('inpRot', Math.round(sprite.rotation));
+      setVal('inpOpacity', sprite.opacity);
     }
   }
 
-  // ==========================================================================
-  // 13. Timeline UI (Dope Sheet with Reliable Dragging & Moved Live Preview)
-  // ==========================================================================
   class TimelineUI {
     constructor(el, doc, callbacks) {
       this.el = el;
@@ -3140,6 +3218,9 @@
   // ==========================================================================
   // 14. MenuBar UI (Frameless Window Title Bar + Node Mode Switcher)
   // ==========================================================================
+  // ==========================================================================
+  // 16. MenuBarUI (Custom Title Bar, Window Menu with Reset Layout)
+  // ==========================================================================
   class MenuBarUI {
     constructor(el, doc, callbacks) {
       this.el = el;
@@ -3191,6 +3272,8 @@
                 <button class="ps-dropdown-item" id="wInspector">${this.windowToggles.inspector ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}속성 패널 (Inspector)</button>
                 <button class="ps-dropdown-item" id="wLayers">${this.windowToggles.layers ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}레이어 패널 (Layers)</button>
                 <button class="ps-dropdown-item" id="wTimeline">${this.windowToggles.timeline ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}타임라인 (Timeline)</button>
+                <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" id="wResetLayout">기본 작업영역 재설정 (Reset Layout)</button>
               </div>
             </div>
           </div>
@@ -3242,52 +3325,60 @@
         this.cb.onToggleNodeMode();
       });
 
-      // Menu actions
+      // File actions
       this.el.querySelector('#mExp')?.addEventListener('click', () => this.cb.onExport());
       this.el.querySelector('#mSettings')?.addEventListener('click', () => this.cb.onOpenSettings());
+      this.el.querySelector('#mNew')?.addEventListener('click', () => {
+        if (confirm('새 도큐먼트를 생성하시겠습니까? 저장되지 않은 작업은 유실됩니다.')) {
+          location.reload();
+        }
+      });
+      this.el.querySelector('#mSave')?.addEventListener('click', () => {
+        document.title = 'cmd:save';
+        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+      });
+      this.el.querySelector('#mOpen')?.addEventListener('click', () => {
+        document.title = 'cmd:open';
+        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+      });
+
+      // Edit actions
+      this.el.querySelector('#mUndo')?.addEventListener('click', () => {
+        if (this.doc.undo()) this.cb.onUpdate();
+      });
+      this.el.querySelector('#mRedo')?.addEventListener('click', () => {
+        if (this.doc.redo()) this.cb.onUpdate();
+      });
       this.el.querySelector('#mSelectAll')?.addEventListener('click', () => {
         this.doc.selectAll();
         this.cb.onUpdate();
       });
-      this.el.querySelector('#mUndo')?.addEventListener('click', () => { if (this.doc.undo()) this.cb.onUpdate(); });
-      this.el.querySelector('#mRedo')?.addEventListener('click', () => { if (this.doc.redo()) this.cb.onUpdate(); });
-      this.el.querySelector('#mNew')?.addEventListener('click', () => {
-        if (confirm('새 도큐먼트를 만드시겠습니까?')) {
-          this.doc.loadFromData({ width: 800, height: 600, layers: [] });
-          this.cb.onUpdate();
-        }
-      });
-      this.el.querySelector('#mOpen')?.addEventListener('click', () => {
-        document.title = 'cmd:open';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 100);
-      });
-      this.el.querySelector('#mSave')?.addEventListener('click', () => {
-        document.title = 'cmd:save';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 100);
-      });
 
-      // Window panel toggles
-      const togglePanel = (key, selector) => {
-        this.windowToggles[key] = !this.windowToggles[key];
+      // Window layout toggle
+      const togglePanel = (name, selector) => {
+        this.windowToggles[name] = !this.windowToggles[name];
         const el = document.querySelector(selector);
-        if (el) el.style.display = this.windowToggles[key] ? '' : 'none';
+        if (el) el.classList.toggle('hidden', !this.windowToggles[name]);
         this.render();
-        if (window.jspenApp) window.jspenApp.handleResize();
       };
+
       this.el.querySelector('#wToolbox')?.addEventListener('click', () => togglePanel('toolbox', '#leftToolbox'));
       this.el.querySelector('#wOptionBar')?.addEventListener('click', () => togglePanel('optionBar', '#toolOptionBar'));
       this.el.querySelector('#wInspector')?.addEventListener('click', () => togglePanel('inspector', '#inspectorContainer'));
       this.el.querySelector('#wLayers')?.addEventListener('click', () => togglePanel('layers', '#layersContainer'));
       this.el.querySelector('#wTimeline')?.addEventListener('click', () => togglePanel('timeline', '#bottomTimeline'));
+      this.el.querySelector('#wResetLayout')?.addEventListener('click', () => {
+        if (this.cb.onResetLayout) this.cb.onResetLayout();
+      });
     }
   }
 
   // ==========================================================================
-  // 15. Module Node Editor Graph UI (Shift+Tab Node Mode)
+  // 17. NodeEditorUI (Blender Shader Node Editor Standard)
   // ==========================================================================
   class NodeEditorUI {
     constructor(container, doc, callbacks) {
-      this.container = container; // #nodeEditorContainer
+      this.container = container;
       this.doc = doc;
       this.cb = callbacks;
       this.pan = { x: 50, y: 50 };
@@ -3297,6 +3388,10 @@
       this.connectingWire = null;
       this.isPanning = false;
       this.panStart = { x: 0, y: 0 };
+      this.knifeCutting = false;
+      this.knifePath = [];
+      this.sound = new SoundManager();
+
       this.initNodes();
       this.bindEvents();
     }
@@ -3305,60 +3400,75 @@
       this.nodes = [];
       this.wires = [];
 
-      // Output Master Node (Right side)
+      // Output Master Node (Red Header)
       this.nodes.push({
         id: 'output_master',
-        type: 'output',
+        category: 'output',
+        type: 'output_master',
         title: '출력 노드 (OUTPUT)',
         badge: 'MASTER',
-        x: 680, y: 150,
-        inputs: ['In'],
-        outputs: []
+        x: 750, y: 150,
+        inputs: [{ name: 'In', type: 'flow' }],
+        outputs: [],
+        params: {}
       });
 
       let curY = 60;
-      // Build nodes for each sprite and attached modules
       for (const layer of this.doc.layers) {
         for (const sprite of layer.sprites) {
           const spNodeId = 'sp_' + sprite.id;
           this.nodes.push({
             id: spNodeId,
-            type: 'sprite',
+            category: 'output',
+            type: 'output_sprite',
             spriteId: sprite.id,
             title: sprite.name,
             badge: 'SPRITE',
             x: 80, y: curY,
             inputs: [],
-            outputs: ['Transform', 'Visual']
+            outputs: [
+              { name: 'Transform', type: 'vector' },
+              { name: 'Visual', type: 'color' },
+              { name: 'Flow', type: 'flow' }
+            ],
+            params: {}
           });
 
-          let modX = 350;
+          let modX = 380;
           let prevModNodeId = spNodeId;
           for (const mod of (sprite.modules || [])) {
             const mNodeId = 'node_' + mod.id;
+            const def = MODULE_REGISTRY[mod.type] || {};
+            const cat = def.category || 'motion';
             this.nodes.push({
               id: mNodeId,
-              type: 'module',
+              category: cat,
+              type: mod.type,
               modId: mod.id,
               spriteId: sprite.id,
               title: mod.name,
-              badge: MODULE_REGISTRY[mod.type]?.icon || 'MOD',
+              badge: def.icon || 'MOD',
               x: modX, y: curY,
-              inputs: ['In'],
-              outputs: ['Out']
+              inputs: [
+                { name: 'In', type: 'flow' },
+                { name: 'Value', type: 'float' }
+              ],
+              outputs: [
+                { name: 'Out', type: 'flow' },
+                { name: 'Transform', type: 'vector' }
+              ],
+              params: mod.params || {}
             });
 
-            // Wire sprite -> module -> output
             this.wires.push({
               id: 'w_' + Math.random().toString(36).substr(2, 7),
-              fromNode: prevModNodeId, fromPort: 'Transform',
+              fromNode: prevModNodeId, fromPort: 'Flow',
               toNode: mNodeId, toPort: 'In'
             });
             prevModNodeId = mNodeId;
-            modX += 260;
+            modX += 280;
           }
 
-          // Wire last module to output
           if (prevModNodeId !== spNodeId) {
             this.wires.push({
               id: 'w_' + Math.random().toString(36).substr(2, 7),
@@ -3367,13 +3477,12 @@
             });
           }
 
-          curY += 160;
+          curY += 200;
         }
       }
     }
 
     getActiveModuleIds() {
-      // Traverse backwards from 'output_master' to find all connected module IDs
       const activeMods = new Set();
       const visited = new Set();
       const queue = ['output_master'];
@@ -3383,7 +3492,6 @@
         if (visited.has(curId)) continue;
         visited.add(curId);
 
-        // Find incoming wires
         for (const w of this.wires) {
           if (w.toNode === curId) {
             queue.push(w.fromNode);
@@ -3403,31 +3511,39 @@
 
       nodesLayer.style.transform = `translate(${this.pan.x}px, ${this.pan.y}px) scale(${this.zoom})`;
 
-      // Render Nodes
       const activeMods = this.getActiveModuleIds();
 
       nodesLayer.innerHTML = this.nodes.map(n => {
-        const isActive = n.type === 'output' || (n.modId && activeMods.has(n.modId));
+        const isActive = n.type === 'output_master' || (n.modId && activeMods.has(n.modId));
+        const catClass = 'cat-' + (n.category || 'motion');
+
         return `
-          <div class="graph-node ${n.type === 'output' ? 'node-output' : ''} ${n.id === this.doc.selectedNodeId ? 'selected' : ''}" id="${n.id}" style="left:${n.x}px; top:${n.y}px;">
+          <div class="graph-node ${catClass} ${n.type === 'output_master' ? 'node-output' : ''} ${n.id === this.doc.selectedNodeId ? 'selected' : ''}" id="${n.id}" style="left:${n.x}px; top:${n.y}px;">
             <div class="graph-node-header">
               <span class="graph-node-title">
                 <span class="graph-node-badge">${n.badge}</span>
                 ${n.title}
               </span>
-              <span style="font-size:9px;color:${isActive ? '#22c55e' : '#71717a'};">${isActive ? '● ACTIVE' : '○ OFF'}</span>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:9px;font-weight:700;color:${isActive ? '#22c55e' : '#71717a'};">${isActive ? '● ON' : '○ OFF'}</span>
+                ${n.type !== 'output_master' ? `<button class="ps-btn-del-item" data-act="del-node" data-node-id="${n.id}" title="노드 삭제">✕</button>` : ''}
+              </div>
             </div>
+            
             <div class="graph-node-body">
+              ${this.renderNodeInlineControls(n)}
+              
+              <!-- Sockets -->
               ${n.inputs.map(p => `
                 <div class="graph-ports-row">
-                  <div class="graph-port graph-port-input" data-node="${n.id}" data-port="${p}"></div>
-                  <span class="graph-port-label">${p}</span>
+                  <div class="graph-port graph-port-input port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type})"></div>
+                  <span class="graph-port-label">${p.name}</span>
                 </div>
               `).join('')}
               ${n.outputs.map(p => `
                 <div class="graph-ports-row" style="justify-content:flex-end;">
-                  <span class="graph-port-label">${p}</span>
-                  <div class="graph-port graph-port-output" data-node="${n.id}" data-port="${p}"></div>
+                  <span class="graph-port-label">${p.name}</span>
+                  <div class="graph-port graph-port-output port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type})"></div>
                 </div>
               `).join('')}
             </div>
@@ -3435,8 +3551,101 @@
         `;
       }).join('');
 
-      // Render SVG Wires
       this.renderWires(svg);
+      this.bindNodeControls();
+    }
+
+    renderNodeInlineControls(n) {
+      if (n.type === 'math_op' || n.category === 'logic') {
+        return `
+          <div class="node-inline-control">
+            <span class="node-inline-label">연산:</span>
+            <select class="node-inline-select" data-node-ctrl="op">
+              <option value="add" ${n.params.op==='add'?'selected':''}>더하기 (Add)</option>
+              <option value="sub" ${n.params.op==='sub'?'selected':''}>빼기 (Subtract)</option>
+              <option value="mul" ${n.params.op==='mul'?'selected':''}>곱하기 (Multiply)</option>
+              <option value="div" ${n.params.op==='div'?'selected':''}>나누기 (Divide)</option>
+              <option value="sin" ${n.params.op==='sin'?'selected':''}>사인 (Sin)</option>
+              <option value="cos" ${n.params.op==='cos'?'selected':''}>코사인 (Cos)</option>
+            </select>
+          </div>
+          <div class="node-inline-control">
+            <span class="node-inline-label">값 A:</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="valA" value="${n.params.valA || 0}">
+          </div>
+          <div class="node-inline-control">
+            <span class="node-inline-label">값 B:</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="valB" value="${n.params.valB || 1}">
+          </div>
+        `;
+      }
+      if (n.category === 'color' || n.type === 'color_val') {
+        return `
+          <div class="node-inline-control">
+            <span class="node-inline-label">색상:</span>
+            <input type="color" class="node-inline-color" data-node-ctrl="color" value="${n.params.color || '#38bdf8'}">
+          </div>
+          <div class="node-inline-control">
+            <span class="node-inline-label">투명도:</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="alpha" step="0.1" min="0" max="1" value="${n.params.alpha !== undefined ? n.params.alpha : 1}">
+          </div>
+        `;
+      }
+      if (n.category === 'motion' || n.type === 'motion_pos') {
+        return `
+          <div class="node-inline-control">
+            <span class="node-inline-label">속도:</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="speed" step="0.1" value="${n.params.speed || 1}">
+          </div>
+          <div class="node-inline-control">
+            <span class="node-inline-label">스무딩:</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="smooth" step="0.05" min="0" max="1" value="${n.params.smooth || 0.15}">
+          </div>
+        `;
+      }
+      return '';
+    }
+
+    bindNodeControls() {
+      const nodesLayer = this.container.querySelector('#nodesLayer');
+      if (!nodesLayer) return;
+
+      nodesLayer.querySelectorAll('[data-node-ctrl]').forEach(input => {
+        const nodeEl = input.closest('.graph-node');
+        if (!nodeEl) return;
+        const node = this.nodes.find(n => n.id === nodeEl.id);
+        if (!node) return;
+
+        const ctrlKey = input.dataset.nodeCtrl;
+        input.addEventListener('change', e => {
+          if (!node.params) node.params = {};
+          node.params[ctrlKey] = input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+          if (node.modId) {
+            const sp = this.doc.getSelectedSprite();
+            const mod = sp?.modules?.find(m => m.id === node.modId);
+            if (mod) mod.params[ctrlKey] = node.params[ctrlKey];
+          }
+          this.cb.onUpdate();
+        });
+      });
+
+      // Node delete buttons
+      nodesLayer.querySelectorAll('[data-act="del-node"]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const nId = btn.dataset.nodeId;
+          this.deleteNode(nId);
+        });
+      });
+    }
+
+    deleteNode(nId) {
+      if (nId === 'output_master') return;
+      this.nodes = this.nodes.filter(n => n.id !== nId);
+      this.wires = this.wires.filter(w => w.fromNode !== nId && w.toNode !== nId);
+      this.sound.play('pop');
+      this.render();
+      this.cb.onUpdate();
     }
 
     renderWires(svg) {
@@ -3464,16 +3673,17 @@
         const { startX, startY, currentX, currentY } = this.connectingWire;
         const dx = Math.max(40, Math.abs(currentX - startX) * 0.5);
         const d = `M ${startX} ${startY} C ${startX + dx} ${startY}, ${currentX - dx} ${currentY}, ${currentX} ${currentY}`;
-        paths += `<path d="${d}" class="graph-wire" style="stroke:#fbbf24;stroke-dasharray:4,4;" />`;
+        paths += `<path d="${d}" class="graph-wire" style="stroke:#fbbf24;stroke-dasharray:4,4;stroke-width:2.5;" />`;
       }
 
       svg.innerHTML = paths;
 
-      // Wire click deletion
+      // Click wire to sever
       svg.querySelectorAll('.graph-wire[data-wire-id]').forEach(wireEl => {
         wireEl.addEventListener('click', () => {
           const wId = wireEl.dataset.wireId;
           this.wires = this.wires.filter(w => w.id !== wId);
+          this.sound.play('cut');
           this.render();
           this.cb.onUpdate();
         });
@@ -3483,46 +3693,19 @@
     bindEvents() {
       const area = this.container.querySelector('#nodeGraphArea');
       const nodesLayer = this.container.querySelector('#nodesLayer');
+      const searchMenu = this.container.querySelector('#nodeSearchMenu');
+      const searchInput = this.container.querySelector('#nsmSearchInput');
+      const knifeSvg = this.container.querySelector('#nodeKnifeSvg');
 
       // Return to Studio Button
       this.container.querySelector('#btnNodeClose')?.addEventListener('click', () => {
         this.cb.onToggleNodeMode();
       });
 
-      // Add Module Node Button
-      this.container.querySelector('#btnNodeAddMod')?.addEventListener('click', () => {
-        const nId = 'node_gen_' + Math.random().toString(36).substr(2, 7);
-        this.nodes.push({
-          id: nId, type: 'module',
-          title: '새 트윈 모듈', badge: 'TWN',
-          x: 300, y: 200,
-          inputs: ['In'], outputs: ['Out']
-        });
-        this.render();
-      });
-
-      // Add Combine Node Button
-      this.container.querySelector('#btnNodeAddCombine')?.addEventListener('click', () => {
-        const nId = 'combine_' + Math.random().toString(36).substr(2, 7);
-        this.nodes.push({
-          id: nId, type: 'combine',
-          title: '모듈 합치기', badge: 'MRG',
-          x: 450, y: 220,
-          inputs: ['In A', 'In B'], outputs: ['Out']
-        });
-        this.render();
-      });
-
-      // Add Math Node Button
-      this.container.querySelector('#btnNodeAddMath')?.addEventListener('click', () => {
-        const nId = 'math_' + Math.random().toString(36).substr(2, 7);
-        this.nodes.push({
-          id: nId, type: 'math',
-          title: '수치 계산/설정', badge: 'CALC',
-          x: 450, y: 100,
-          inputs: ['Value'], outputs: ['Out']
-        });
-        this.render();
+      // Shift+A / Add Node Menu Button
+      this.container.querySelector('#btnNodeAddMenu')?.addEventListener('click', e => {
+        const r = area.getBoundingClientRect();
+        this.showSearchMenu(r.width / 2 - 130, r.height / 2 - 150);
       });
 
       // Auto Layout
@@ -3531,21 +3714,80 @@
         this.render();
       });
 
-      // Node dragging & port connection
+      // Knife Cut Mode Toggle Button
+      this.container.querySelector('#btnNodeCutKnife')?.addEventListener('click', () => {
+        alert('나이프 자르기 사용법: Ctrl 키를 누른 상태에서 우클릭 드래그로 전선을 자릅니다.');
+      });
+
+      // Port mousedown: Connection OR Socket Detach!
       nodesLayer.addEventListener('mousedown', e => {
         const port = e.target.closest('.graph-port');
         if (port) {
-          // Port connect dragging
           e.stopPropagation();
           const r = port.getBoundingClientRect();
+          const isInput = port.classList.contains('graph-port-input');
+          const nId = port.dataset.node;
+          const pName = port.dataset.port;
+
+          // Socket Detach: If dragging an input port that already has a connection, unplug it!
+          if (isInput) {
+            const existingWire = this.wires.find(w => w.toNode === nId && w.toPort === pName);
+            if (existingWire) {
+              this.wires = this.wires.filter(w => w.id !== existingWire.id);
+              const fromN = this.nodes.find(n => n.id === existingWire.fromNode);
+              const fromX = (fromN ? fromN.x + 220 : 0) * this.zoom + this.pan.x;
+              const fromY = (fromN ? fromN.y + 45 : 0) * this.zoom + this.pan.y;
+
+              this.connectingWire = {
+                fromNode: existingWire.fromNode,
+                fromPort: existingWire.fromPort,
+                startX: fromX,
+                startY: fromY,
+                currentX: e.clientX,
+                currentY: e.clientY
+              };
+              this.sound.play('pop');
+              this.render();
+
+              const onPortMove = ev => {
+                this.connectingWire.currentX = ev.clientX;
+                this.connectingWire.currentY = ev.clientY;
+                this.renderWires(this.container.querySelector('#nodeWiresSvg'));
+              };
+              const onPortUp = ev => {
+                const targetPort = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.graph-port-input');
+                if (targetPort && targetPort.dataset.node !== this.connectingWire.fromNode) {
+                  this.wires.push({
+                    id: 'w_' + Math.random().toString(36).substr(2, 7),
+                    fromNode: this.connectingWire.fromNode,
+                    fromPort: this.connectingWire.fromPort,
+                    toNode: targetPort.dataset.node,
+                    toPort: targetPort.dataset.port
+                  });
+                  this.sound.play('coin');
+                }
+                this.connectingWire = null;
+                window.removeEventListener('mousemove', onPortMove);
+                window.removeEventListener('mouseup', onPortUp);
+                this.render();
+                this.cb.onUpdate();
+              };
+              window.addEventListener('mousemove', onPortMove);
+              window.addEventListener('mouseup', onPortUp);
+              return;
+            }
+          }
+
+          // Normal output port connection
           this.connectingWire = {
-            fromNode: port.dataset.node,
-            fromPort: port.dataset.port,
+            fromNode: nId,
+            fromPort: pName,
             startX: r.left + r.width / 2,
             startY: r.top + r.height / 2,
             currentX: e.clientX,
             currentY: e.clientY
           };
+
           const onPortMove = ev => {
             this.connectingWire.currentX = ev.clientX;
             this.connectingWire.currentY = ev.clientY;
@@ -3564,6 +3806,7 @@
                   toNode: toNode,
                   toPort: toPort
                 });
+                this.sound.play('coin');
               }
             }
             this.connectingWire = null;
@@ -3577,6 +3820,7 @@
           return;
         }
 
+        // Node card selection & dragging
         const nodeEl = e.target.closest('.graph-node');
         if (nodeEl && e.target.closest('.graph-node-header')) {
           e.stopPropagation();
@@ -3605,13 +3849,56 @@
         }
       });
 
-      // Canvas Panning & Zooming
+      // Canvas Panning & Knife Cutting
       area.addEventListener('mousedown', e => {
-        if (e.target === area || e.target.id === 'nodesLayer' || e.target.id === 'nodeWiresSvg') {
+        // Knife Cut Tool: Ctrl + Right Click drag
+        if (e.ctrlKey && e.button === 2) {
+          e.preventDefault();
+          this.knifeCutting = true;
+          this.knifePath = [{ x: e.clientX, y: e.clientY }];
+
+          const onKnifeMove = ev => {
+            this.knifePath.push({ x: ev.clientX, y: ev.clientY });
+            if (this.knifePath.length > 1) {
+              const p1 = this.knifePath[0];
+              const p2 = this.knifePath[this.knifePath.length - 1];
+              knifeSvg.innerHTML = `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" class="node-knife-line" />`;
+            }
+          };
+
+          const onKnifeUp = ev => {
+            this.knifeCutting = false;
+            knifeSvg.innerHTML = '';
+            window.removeEventListener('mousemove', onKnifeMove);
+            window.removeEventListener('mouseup', onKnifeUp);
+
+            if (this.knifePath.length > 1) {
+              const p1 = this.knifePath[0];
+              const p2 = this.knifePath[this.knifePath.length - 1];
+              this.severWiresIntersecting(p1, p2);
+            }
+          };
+
+          window.addEventListener('mousemove', onKnifeMove);
+          window.addEventListener('mouseup', onKnifeUp);
+          return;
+        }
+
+        // Panning canvas
+        if (e.button === 1 || e.target === area || e.target.id === 'nodesLayer' || e.target.id === 'nodeWiresSvg') {
           this.isPanning = true;
           this.panStart = { x: e.clientX - this.pan.x, y: e.clientY - this.pan.y };
         }
       });
+
+      area.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        if (!e.ctrlKey) {
+          const r = area.getBoundingClientRect();
+          this.showSearchMenu(e.clientX - r.left, e.clientY - r.top);
+        }
+      });
+
       window.addEventListener('mousemove', e => {
         if (this.isPanning) {
           this.pan.x = e.clientX - this.panStart.x;
@@ -3620,18 +3907,229 @@
         }
       });
       window.addEventListener('mouseup', () => { this.isPanning = false; });
+
+      // Canvas Zooming
       area.addEventListener('wheel', e => {
         e.preventDefault();
         const factor = e.deltaY < 0 ? 1.1 : 0.9;
         this.zoom = Math.max(0.4, Math.min(2.5, this.zoom * factor));
         this.render();
       });
+
+      // Shift+A Key to open search menu & Delete key to delete node
+      window.addEventListener('keydown', e => {
+        if (!this.container || this.container.classList.contains('hidden')) return;
+
+        if (e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+          e.preventDefault();
+          const r = area.getBoundingClientRect();
+          this.showSearchMenu(r.width / 2 - 130, r.height / 2 - 150);
+          return;
+        }
+
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          const activeTag = document.activeElement?.tagName;
+          if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+          if (this.doc.selectedNodeId) {
+            this.deleteNode(this.doc.selectedNodeId);
+          }
+        }
+      });
+
+      // Search Menu filtering and creation
+      this.initSearchMenu();
+    }
+
+    severWiresIntersecting(p1, p2) {
+      let severedCount = 0;
+      const initialCount = this.wires.length;
+
+      this.wires = this.wires.filter(w => {
+        const fromN = this.nodes.find(n => n.id === w.fromNode);
+        const toN = this.nodes.find(n => n.id === w.toNode);
+        if (!fromN || !toN) return true;
+
+        const x1 = (fromN.x + 220) * this.zoom + this.pan.x;
+        const y1 = (fromN.y + 45) * this.zoom + this.pan.y;
+        const x2 = toN.x * this.zoom + this.pan.x;
+        const y2 = (toN.y + 45) * this.zoom + this.pan.y;
+
+        // Check bounding box intersection first
+        const minX = Math.min(x1, x2) - 10, maxX = Math.max(x1, x2) + 10;
+        const minY = Math.min(y1, y2) - 10, maxY = Math.max(y1, y2) + 10;
+        const kMinX = Math.min(p1.x, p2.x), kMaxX = Math.max(p1.x, p2.x);
+        const kMinY = Math.min(p1.y, p2.y), kMaxY = Math.max(p1.y, p2.y);
+
+        if (maxX < kMinX || minX > kMaxX || maxY < kMinY || minY > kMaxY) return true;
+
+        // Line segment intersection test with wire chord
+        const hit = this.lineIntersect(p1.x, p1.y, p2.x, p2.y, x1, y1, x2, y2);
+        if (hit) {
+          severedCount++;
+          return false;
+        }
+        return true;
+      });
+
+      if (severedCount > 0) {
+        this.sound.play('cut');
+        this.render();
+        this.cb.onUpdate();
+      }
+    }
+
+    lineIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
+      const denom = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
+      if (denom === 0) return false;
+      const ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / denom;
+      const ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / denom;
+      return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
+    }
+
+    showSearchMenu(x, y) {
+      const menu = this.container.querySelector('#nodeSearchMenu');
+      const input = this.container.querySelector('#nsmSearchInput');
+      if (!menu || !input) return;
+
+      menu.style.left = `${Math.max(10, x)}px`;
+      menu.style.top = `${Math.max(10, y)}px`;
+      menu.classList.remove('hidden');
+      input.value = '';
+      input.focus();
+      this.filterSearchMenu('');
+    }
+
+    initSearchMenu() {
+      const menu = this.container.querySelector('#nodeSearchMenu');
+      const input = this.container.querySelector('#nsmSearchInput');
+      const body = this.container.querySelector('#nsmCategories');
+      if (!menu || !input || !body) return;
+
+      const NODE_PRESETS = [
+        // 1. Input / Sensor
+        { cat: 'input', name: '마우스 위치 감지', icon: 'POS', type: 'mouse_pos', in: [], out: [{ name: 'Vector', type: 'vector' }, { name: 'Flow', type: 'flow' }] },
+        { cat: 'input', name: '클릭 & 제스처', icon: 'TRG', type: 'click_sensor', in: [], out: [{ name: 'Flow', type: 'flow' }] },
+        { cat: 'input', name: '호버 & 근접 감지', icon: 'ZONE', type: 'hover_sensor', in: [], out: [{ name: 'Distance', type: 'float' }, { name: 'Flow', type: 'flow' }] },
+        { cat: 'input', name: '자유 드래그 감지', icon: 'DRG', type: 'drag_sensor', in: [], out: [{ name: 'Position', type: 'vector' }] },
+        { cat: 'input', name: '스크롤 휠 감지', icon: 'WHL', type: 'wheel_sensor', in: [], out: [{ name: 'Delta', type: 'float' }] },
+        { cat: 'input', name: '타이머 / 펄스 틱', icon: 'CLK', type: 'time_tick', in: [], out: [{ name: 'Time', type: 'float' }] },
+
+        // 2. Color & Visual
+        { cat: 'color', name: 'RGB 색상 지정', icon: 'RGB', type: 'color_val', in: [], out: [{ name: 'Color', type: 'color' }] },
+        { cat: 'color', name: '베벨 & 라운딩 FX', icon: 'BVL', type: 'bevel_fx', in: [{ name: 'Radius', type: 'float' }], out: [{ name: 'Flow', type: 'flow' }] },
+        { cat: 'color', name: '그림자 효과 (Shadow)', icon: 'SHD', type: 'shadow_fx', in: [{ name: 'Color', type: 'color' }], out: [{ name: 'Flow', type: 'flow' }] },
+        { cat: 'color', name: '투명도 조절 (Opacity)', icon: 'ALP', type: 'opacity_fx', in: [{ name: 'Alpha', type: 'float' }], out: [{ name: 'Flow', type: 'flow' }] },
+        { cat: 'color', name: '외곽선 스트로크', icon: 'STR', type: 'stroke_fx', in: [{ name: 'Color', type: 'color' }, { name: 'Width', type: 'float' }], out: [{ name: 'Flow', type: 'flow' }] },
+
+        // 3. Motion & Physics
+        { cat: 'motion', name: '위치 이동 (Position)', icon: 'MOV', type: 'motion_pos', in: [{ name: 'Vector', type: 'vector' }], out: [{ name: 'Transform', type: 'vector' }] },
+        { cat: 'motion', name: '회전 모션 (Rotation)', icon: 'ROT', type: 'motion_rot', in: [{ name: 'Angle', type: 'float' }], out: [{ name: 'Angle', type: 'float' }] },
+        { cat: 'motion', name: '크기 스케일 (Scale)', icon: 'SCL', type: 'motion_scale', in: [{ name: 'Scale', type: 'float' }], out: [{ name: 'Scale', type: 'float' }] },
+        { cat: 'motion', name: '물리 중력 (Gravity)', icon: 'GRV', type: 'physics_gravity', in: [{ name: 'Weight', type: 'float' }], out: [{ name: 'Transform', type: 'vector' }] },
+        { cat: 'motion', name: '스프링 댐핑 (Spring)', icon: 'SPG', type: 'spring_damp', in: [{ name: 'Target', type: 'vector' }], out: [{ name: 'Position', type: 'vector' }] },
+        { cat: 'motion', name: '궤도 공전 (Orbit)', icon: 'ORB', type: 'orbit_rot', in: [{ name: 'Speed', type: 'float' }], out: [{ name: 'Position', type: 'vector' }] },
+
+        // 4. Logic & Math
+        { cat: 'logic', name: '수학 연산 (Math)', icon: 'MTH', type: 'math_op', in: [{ name: 'A', type: 'float' }, { name: 'B', type: 'float' }], out: [{ name: 'Value', type: 'float' }] },
+        { cat: 'logic', name: '비교 연산 (Compare)', icon: 'CMP', type: 'compare_op', in: [{ name: 'A', type: 'float' }, { name: 'B', type: 'float' }], out: [{ name: 'Flow', type: 'flow' }] },
+        { cat: 'logic', name: '실수 값 상수 (Float)', icon: 'NUM', type: 'float_val', in: [], out: [{ name: 'Value', type: 'float' }] },
+        { cat: 'logic', name: '2D 벡터 (Vector2)', icon: 'VEC', type: 'vector2_val', in: [{ name: 'X', type: 'float' }, { name: 'Y', type: 'float' }], out: [{ name: 'Vector', type: 'vector' }] },
+        { cat: 'logic', name: '조건 스위치 (Switch)', icon: 'SWT', type: 'switch_cond', in: [{ name: 'True', type: 'flow' }, { name: 'False', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }] },
+
+        // 5. Combine & Mix
+        { cat: 'combine', name: '모듈 합치기 (Mix)', icon: 'MRG', type: 'combine_mix', in: [{ name: 'In A', type: 'flow' }, { name: 'In B', type: 'flow' }], out: [{ name: 'Out', type: 'flow' }] },
+        { cat: 'combine', name: '보간 블렌드 (Lerp)', icon: 'LRP', type: 'lerp_blend', in: [{ name: 'A', type: 'float' }, { name: 'B', type: 'float' }, { name: 'Factor', type: 'float' }], out: [{ name: 'Value', type: 'float' }] },
+
+        // 6. Output
+        { cat: 'output', name: '스프라이트 최종 출력', icon: 'OUT', type: 'output_sprite', in: [{ name: 'Transform', type: 'vector' }, { name: 'Visual', type: 'color' }, { name: 'Flow', type: 'flow' }], out: [] }
+      ];
+
+      this.filterSearchMenu = (query) => {
+        const q = query.trim().toLowerCase();
+        const filtered = NODE_PRESETS.filter(p => !q || p.name.toLowerCase().includes(q) || p.cat.toLowerCase().includes(q));
+
+        const cats = {
+          input: '입력 / 센서 (Input & Sensor)',
+          color: '시각 / 색상 (Color & Visual)',
+          motion: '모션 / 물리 (Motion & Physics)',
+          logic: '로직 / 연산 (Logic & Math)',
+          combine: '합성 / 믹스 (Mix & Combine)',
+          output: '출력 (Output)'
+        };
+
+        let html = '';
+        Object.keys(cats).forEach(catKey => {
+          const items = filtered.filter(p => p.cat === catKey);
+          if (items.length > 0) {
+            html += `<div class="nsm-cat-title">${cats[catKey]}</div>`;
+            items.forEach((item, idx) => {
+              html += `
+                <div class="nsm-item ${idx === 0 && q ? 'highlighted' : ''}" data-type="${item.type}">
+                  <span>${item.name}</span>
+                  <span style="font-size:9px;color:#71717a;">${item.icon}</span>
+                </div>
+              `;
+            });
+          }
+        });
+
+        body.innerHTML = html || '<div style="padding:10px;font-size:11px;color:#71717a;text-align:center;">일치하는 노드가 없습니다</div>';
+
+        body.querySelectorAll('.nsm-item').forEach(itemEl => {
+          itemEl.addEventListener('click', () => {
+            const pType = itemEl.dataset.type;
+            const preset = NODE_PRESETS.find(p => p.type === pType);
+            if (preset) {
+              this.createNodeFromPreset(preset);
+              menu.classList.add('hidden');
+            }
+          });
+        });
+      };
+
+      input.addEventListener('input', e => this.filterSearchMenu(e.target.value));
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+          menu.classList.add('hidden');
+        } else if (e.key === 'Enter') {
+          const first = body.querySelector('.nsm-item');
+          if (first) {
+            first.click();
+          }
+        }
+      });
+
+      // Close menu when clicking outside
+      window.addEventListener('mousedown', e => {
+        if (!e.target.closest('#nodeSearchMenu') && !e.target.closest('#btnNodeAddMenu')) {
+          menu.classList.add('hidden');
+        }
+      });
+    }
+
+    createNodeFromPreset(p) {
+      const nId = 'node_' + Math.random().toString(36).substr(2, 7);
+      const spawnX = Math.round((-this.pan.x + 300) / this.zoom);
+      const spawnY = Math.round((-this.pan.y + 200) / this.zoom);
+
+      this.nodes.push({
+        id: nId,
+        category: p.cat,
+        type: p.type,
+        title: p.name,
+        badge: p.icon,
+        x: spawnX, y: spawnY,
+        inputs: p.in || [],
+        outputs: p.out || [],
+        params: {}
+      });
+
+      this.sound.play('coin');
+      this.render();
+      this.cb.onUpdate();
     }
   }
 
-  // ==========================================================================
-  // 16. Settings Modal & Open-Source Plugin Manager UI
-  // ==========================================================================
   class SettingsModalUI {
     constructor(pluginManager) {
       this.pm = pluginManager;
@@ -3862,6 +4360,9 @@
   // ==========================================================================
   // 18. Main Application Controller
   // ==========================================================================
+  // ==========================================================================
+  // 19. Main Application Controller (Decoupled Loop, Anti-Lag, Snap Docking)
+  // ==========================================================================
   class App {
     constructor() {
       this.canvas = document.getElementById('viewportCanvas');
@@ -3872,9 +4373,18 @@
       this.isNodeMode = false;
       this.floatingPanels = new Set();
 
-      // Setup Tools
-      this.tools = new DrawingTools(this.renderer, this.doc, () => this.refreshUI());
-      this.transformBox = new TransformBox(this.doc, () => this.refreshUI());
+      // Setup Tools with Decoupled Canvas Repaint vs History Commit
+      this.tools = new DrawingTools(
+        this.renderer,
+        this.doc,
+        () => this.renderCanvas(),
+        () => this.refreshUI()
+      );
+      this.transformBox = new TransformBox(
+        this.doc,
+        () => this.renderCanvas(),
+        () => this.refreshUI()
+      );
 
       // Setup UI Panels
       this.toolbox = new ToolboxUI(document.getElementById('leftToolbox'), this.tools, () => this.refreshUI());
@@ -3884,11 +4394,12 @@
         onToggleFloat: id => this.toggleFloatPanel(id)
       });
       this.inspector = new InspectorPanelUI(document.getElementById('inspectorContainer'), this.doc, {
+        onCanvasRender: () => this.renderCanvas(),
         onUpdate: () => this.refreshUI(),
         onToggleFloat: id => this.toggleFloatPanel(id)
       });
       this.timeline = new TimelineUI(document.getElementById('bottomTimeline'), this.doc, {
-        onSeek: () => this.refreshUI(),
+        onSeek: () => this.renderCanvas(),
         onTogglePreview: () => this.togglePreview(),
         onToggleFloat: id => this.toggleFloatPanel(id),
         get isPreview() { return window.jspenApp?.renderer.mode === 'preview'; }
@@ -3897,6 +4408,7 @@
         onExport: () => this.exportModal.show(),
         onOpenSettings: () => this.settingsModal.show(),
         onToggleNodeMode: () => this.toggleNodeMode(),
+        onResetLayout: () => this.resetLayout(),
         onUpdate: () => this.refreshUI(),
         get isNodeMode() { return window.jspenApp?.isNodeMode; }
       });
@@ -3920,6 +4432,7 @@
       this.handleResize();
       this.initEvents();
       this.initSplitters();
+      this.initPanelSnapping();
       this.startLoop();
     }
 
@@ -3931,7 +4444,7 @@
       } else {
         this.moduleEngine.stop();
       }
-      this.refreshUI();
+      this.renderCanvas();
     }
 
     toggleNodeMode() {
@@ -3948,51 +4461,142 @@
       const idMap = {
         inspector: '#inspectorContainer',
         layers: '#layersContainer',
-        timeline: '#bottomTimeline'
+        timeline: '#bottomTimeline',
+        toolbox: '#leftToolbox'
       };
       const el = document.querySelector(idMap[panelName]);
       if (!el) return;
 
       const isFloat = this.floatingPanels.has(panelName);
       if (isFloat) {
-        this.floatingPanels.delete(panelName);
-        el.classList.remove('is-floating');
-        el.style.left = '';
-        el.style.top = '';
-        el.style.width = '';
-        el.style.height = '';
+        this.dockPanel(panelName);
       } else {
-        this.floatingPanels.add(panelName);
-        el.classList.add('is-floating');
-        el.style.left = '200px';
-        el.style.top = '120px';
-        el.style.width = '320px';
-        el.style.height = panelName === 'timeline' ? '220px' : '400px';
-
-        // Dragging floating panel header
-        const header = el.querySelector('.ps-dock-header, .timeline-header');
-        if (header) {
-          const onFloatDown = ev => {
-            if (ev.target.closest('button, input, select')) return;
-            const startX = ev.clientX - el.offsetLeft;
-            const startY = ev.clientY - el.offsetTop;
-            const onFloatMove = e => {
-              el.style.left = `${e.clientX - startX}px`;
-              el.style.top = `${e.clientY - startY}px`;
-            };
-            const onFloatUp = () => {
-              window.removeEventListener('mousemove', onFloatMove);
-              window.removeEventListener('mouseup', onFloatUp);
-            };
-            window.addEventListener('mousemove', onFloatMove);
-            window.addEventListener('mouseup', onFloatUp);
-          };
-          header.addEventListener('mousedown', onFloatDown);
-        }
+        this.floatPanel(panelName, 220, 100);
       }
     }
 
-    refreshUI() {
+    floatPanel(panelName, x = 200, y = 100) {
+      const idMap = {
+        inspector: '#inspectorContainer',
+        layers: '#layersContainer',
+        timeline: '#bottomTimeline',
+        toolbox: '#leftToolbox'
+      };
+      const el = document.querySelector(idMap[panelName]);
+      if (!el) return;
+
+      this.floatingPanels.add(panelName);
+      el.classList.add('is-floating');
+      el.style.left = `${x}px`;
+      el.style.top = `${y}px`;
+      el.style.width = panelName === 'timeline' ? '500px' : (panelName === 'toolbox' ? '70px' : '320px');
+      el.style.height = panelName === 'timeline' ? '220px' : '420px';
+    }
+
+    dockPanel(panelName, targetZone = null) {
+      const idMap = {
+        inspector: '#inspectorContainer',
+        layers: '#layersContainer',
+        timeline: '#bottomTimeline',
+        toolbox: '#leftToolbox'
+      };
+      const el = document.querySelector(idMap[panelName]);
+      if (!el) return;
+
+      this.floatingPanels.delete(panelName);
+      el.classList.remove('is-floating');
+      el.style.left = '';
+      el.style.top = '';
+      el.style.width = '';
+      el.style.height = '';
+      this.handleResize();
+    }
+
+    resetLayout() {
+      ['inspector', 'layers', 'timeline', 'toolbox'].forEach(p => this.dockPanel(p));
+      const rightDock = document.getElementById('rightDock');
+      if (rightDock) rightDock.style.width = '280px';
+      const inspSec = document.getElementById('inspectorContainer');
+      if (inspSec) { inspSec.style.height = ''; inspSec.style.flex = '1'; }
+      const tl = document.getElementById('bottomTimeline');
+      if (tl) tl.style.height = '180px';
+      this.handleResize();
+      this.refreshUI();
+    }
+
+    initPanelSnapping() {
+      const overlay = document.getElementById('snapZoneOverlay');
+      if (!overlay) return;
+
+      const panelSelectors = [
+        { name: 'inspector', selector: '#inspectorContainer', header: '#inspectorContainer .ps-dock-header' },
+        { name: 'layers', selector: '#layersContainer', header: '#layersContainer .ps-dock-header' },
+        { name: 'timeline', selector: '#bottomTimeline', header: '#bottomTimeline .timeline-header' },
+        { name: 'toolbox', selector: '#leftToolbox', header: '#leftToolbox' }
+      ];
+
+      panelSelectors.forEach(({ name, selector, header }) => {
+        const headerEl = document.querySelector(header);
+        const panelEl = document.querySelector(selector);
+        if (!headerEl || !panelEl) return;
+
+        headerEl.addEventListener('mousedown', e => {
+          if (e.target.closest('button, input, select, .ps-win-btn')) return;
+          e.preventDefault();
+
+          const startX = e.clientX;
+          const startY = e.clientY;
+          let isDragging = false;
+          let grabOffsetX = 100, grabOffsetY = 15;
+
+          const onMove = ev => {
+            const dx = ev.clientX - startX;
+            const dy = ev.clientY - startY;
+
+            if (!isDragging && (Math.hypot(dx, dy) > 6)) {
+              isDragging = true;
+              if (!this.floatingPanels.has(name)) {
+                this.floatPanel(name, ev.clientX - grabOffsetX, ev.clientY - grabOffsetY);
+              }
+              overlay.classList.remove('hidden');
+            }
+
+            if (isDragging) {
+              panelEl.style.left = `${ev.clientX - grabOffsetX}px`;
+              panelEl.style.top = `${ev.clientY - grabOffsetY}px`;
+
+              // Check snap zones
+              overlay.querySelectorAll('.snap-indicator').forEach(ind => {
+                const r = ind.getBoundingClientRect();
+                const inside = ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
+                ind.classList.toggle('active', inside);
+              });
+            }
+          };
+
+          const onUp = ev => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+
+            if (isDragging) {
+              overlay.classList.add('hidden');
+              const activeZone = overlay.querySelector('.snap-indicator.active');
+              if (activeZone) {
+                const z = activeZone.dataset.zone;
+                activeZone.classList.remove('active');
+                this.dockPanel(name, z);
+              }
+              this.handleResize();
+            }
+          };
+
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+      });
+    }
+
+    renderCanvas() {
       this.renderer.render(
         this.tools.activeTool,
         this.transformBox,
@@ -4002,11 +4606,15 @@
         this.tools.shapeDragStart,
         this.tools.shapeDragCurrent
       );
+      if (this.timeline) this.timeline.updatePlayheadPosition();
+    }
+
+    refreshUI() {
+      this.renderCanvas();
       this.layersUI.render();
       this.inspector.render();
       this.timeline.renderTracks();
       this.timeline.renderCanvases();
-      this.timeline.updatePlayheadPosition();
       this.optionBar.render();
       this.toolbox.render();
     }
@@ -4017,11 +4625,10 @@
       this.canvas.width = p.clientWidth;
       this.canvas.height = p.clientHeight;
       this.renderer.centerArtboard();
-      this.refreshUI();
+      this.renderCanvas();
     }
 
     initSplitters() {
-      // Horizontal Splitter (Right Dock Width)
       const splitH = document.getElementById('dockSplitterH');
       const rightDock = document.getElementById('rightDock');
       if (splitH && rightDock) {
@@ -4046,7 +4653,6 @@
         });
       }
 
-      // Vertical Splitter (Inspector vs Layers Height)
       const splitV = document.getElementById('dockSplitterV');
       const inspSec = document.getElementById('inspectorContainer');
       if (splitV && inspSec) {
@@ -4080,6 +4686,20 @@
       const loupeHex = document.getElementById('loupeHex');
 
       window.addEventListener('resize', () => this.handleResize());
+
+      // 1. BLOCK BROWSER PAGE ZOOM ON CTRL + MOUSE WHEEL
+      window.addEventListener('wheel', e => {
+        if (e.ctrlKey) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      // BLOCK BROWSER PAGE ZOOM ON CTRL + '+', '-', '=', '0'
+      window.addEventListener('keydown', e => {
+        if (e.ctrlKey && (e.key === '=' || e.key === '-' || e.key === '+' || e.key === '0')) {
+          e.preventDefault();
+        }
+      });
 
       // Canvas Mouse Handling
       this.canvas.addEventListener('mousedown', e => {
@@ -4142,7 +4762,7 @@
           e.preventDefault();
           const r = this.canvas.getBoundingClientRect();
           this.tools.zoomAt(e.clientX - r.left, e.clientY - r.top, 0.8);
-          this.refreshUI();
+          this.renderCanvas();
         }
       });
 
@@ -4175,7 +4795,7 @@
         if (isPanning) {
           this.renderer.panX = initPan.x + (e.clientX - panStart.x);
           this.renderer.panY = initPan.y + (e.clientY - panStart.y);
-          this.renderer.render(this.tools.activeTool, this.transformBox);
+          this.renderCanvas();
           return;
         }
 
