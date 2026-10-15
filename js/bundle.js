@@ -19,6 +19,24 @@
   // 2. Module Registry (28 Builtin Modules + Timeline Keyframe + Nodes)
   // ==========================================================================
   const MODULE_REGISTRY = {
+    // 0. Web & Hyperlink Modifier (Blender-Style Modifier Pipeline)
+    hyperlink: {
+      category: 'web', name: '하이퍼링크 (Hyperlink)', icon: 'LINK',
+      description: '스프라이트에 클릭, 호버, 신호 수신 시 외부 웹 URL이나 내부 앵커(#id)로 이동하는 웹 네비게이션 모디파이어를 부여합니다.',
+      defaultParams: {
+        condition: 'always',
+        url: 'https://example.com',
+        target: '_blank', // '_blank' | '_self'
+        trigger: 'click', // 'click' | 'hover' | 'signal' | 'viewport_enter'
+        signalName: '',
+        hoverEffect: 'lift', // 'none' | 'lift' | 'zoom' | 'glow' | 'fade' | 'bounce'
+        anchorId: '',
+        customClass: '',
+        enabled: true,
+        showInRender: true
+      }
+    },
+
     // 1. Sensory & Gestures
     mouse_position: {
       category: 'sensor', name: '마우스 위치 추적', icon: 'POS',
@@ -2175,6 +2193,21 @@
       for (const l of this.doc.layers) l.resetRuntime();
     }
 
+    navigateHyperlink(href, target = '_blank') {
+      if (!href) return;
+      href = href.trim();
+      if (href.startsWith('#')) {
+        const targetId = href.slice(1);
+        const targetSp = this.doc.layers.flatMap(l => l.sprites).find(s => s.anchorId === targetId || s.id === targetId);
+        if (targetSp && window.jspenApp?.renderer) {
+          window.jspenApp.renderer.panY = -(targetSp.y - 120);
+          window.jspenApp.renderCanvas();
+        }
+      } else {
+        window.open(href, target);
+      }
+    }
+
     evaluateCondition(mod, sprite, bus) {
       const cond = mod.params?.condition || 'always';
       if (cond === 'always') return true;
@@ -2333,6 +2366,48 @@
             const p = mod.params || {};
 
             switch (mod.type) {
+              case 'hyperlink': {
+                const hUrl = p.url || sprite.linkUrl || '';
+                const hTarget = p.target || sprite.linkTarget || '_blank';
+                const hAnchor = p.anchorId || sprite.anchorId || '';
+                const hHoverFx = p.hoverEffect || sprite.hoverEffect || 'lift';
+                const hTrig = p.trigger || 'click';
+                const hSig = p.signalName || '';
+
+                sprite.runtime.activeLink = {
+                  url: hUrl,
+                  target: hTarget,
+                  anchorId: hAnchor,
+                  hoverEffect: hHoverFx,
+                  trigger: hTrig
+                };
+
+                // Signal-based link navigation
+                if (hTrig === 'signal' && hSig && this.bus.hasSignal(hSig)) {
+                  if (!sprite.runtime._lastLinkNavTime || (this.bus.time - sprite.runtime._lastLinkNavTime > 0.8)) {
+                    sprite.runtime._lastLinkNavTime = this.bus.time;
+                    this.navigateHyperlink(hUrl, hTarget);
+                  }
+                }
+
+                // Hover-based link navigation
+                if (hTrig === 'hover' && sprite.runtime.isHovered) {
+                  if (!sprite.runtime._lastHoverNavTime || (this.bus.time - sprite.runtime._lastHoverNavTime > 2.0)) {
+                    sprite.runtime._lastHoverNavTime = this.bus.time;
+                    this.navigateHyperlink(hUrl, hTarget);
+                  }
+                }
+
+                // Viewport-enter-based navigation
+                if (hTrig === 'viewport_enter' && sprite.runtime.isTriggered) {
+                  if (!sprite.runtime._lastVpNavTime || (this.bus.time - sprite.runtime._lastVpNavTime > 3.0)) {
+                    sprite.runtime._lastVpNavTime = this.bus.time;
+                    this.navigateHyperlink(hUrl, hTarget);
+                  }
+                }
+                break;
+              }
+
               case 'draggable':
                 if (this.bus.mouse.clicked && !this.draggedSprite && sprite.runtime.isHovered) {
                   this.draggedSprite = sprite;
@@ -3415,6 +3490,7 @@
           </div>
           <div class="mod-category-tabs">
             <button class="mod-category-tab ${this.activeCategory==='all'?'active':''}" data-cat="all">전체</button>
+            <button class="mod-category-tab ${this.activeCategory==='web'?'active':''}" data-cat="web">웹 & 인터랙션</button>
             <button class="mod-category-tab ${this.activeCategory==='sensor'?'active':''}" data-cat="sensor">감지 & 제스처</button>
             <button class="mod-category-tab ${this.activeCategory==='motion'?'active':''}" data-cat="motion">모션 & FX</button>
             <button class="mod-category-tab ${this.activeCategory==='logic'?'active':''}" data-cat="logic">연결 & 로직</button>
@@ -3699,6 +3775,279 @@
       `;
     }
 
+
+    renderModifierStack(sprite) {
+      if (!sprite) return '';
+      if (!sprite.modules) sprite.modules = [];
+
+      const modules = sprite.modules;
+      const total = modules.length;
+
+      let cardsHtml = '';
+      if (total === 0) {
+        cardsHtml = `
+          <div style="background:#141418;border:1px dashed #3f3f46;border-radius:4px;padding:12px;text-align:center;color:#71717a;font-size:11px;">
+            적용된 모디파이어가 없습니다.<br>
+            상단 <b>[+ 모디파이어 추가]</b>를 눌러 하이퍼링크, 필터, 모션 모디파이어를 장착하세요.
+          </div>
+        `;
+      } else {
+        cardsHtml = modules.map((mod, idx) => {
+          const def = MODULE_REGISTRY[mod.type] || { name: mod.name, icon: 'MOD', category: 'logic' };
+          const p = mod.params || {};
+          const isFolded = mod.collapsed === true;
+          const isEnabled = mod.enabled !== false;
+          const isRender = mod.showInRender !== false;
+          const isFirst = idx === 0;
+          const isLast = idx === total - 1;
+
+          // Render specific body controls per modifier type
+          let bodyHtml = '';
+          if (mod.type === 'hyperlink') {
+            bodyHtml = `
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">이동 링크 URL:</label>
+                <input type="text" class="ps-input mod-param-input" data-mod-idx="${idx}" data-param-key="url" placeholder="https://... 또는 #section" value="${p.url || ''}">
+              </div>
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">열기 방식:</label>
+                <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="target">
+                  <option value="_blank" ${(p.target || '_blank') === '_blank' ? 'selected' : ''}>새 탭에서 열기 (_blank)</option>
+                  <option value="_self" ${p.target === '_self' ? 'selected' : ''}>현재 창에서 열기 (_self)</option>
+                </select>
+              </div>
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">발동 조건 (Trigger):</label>
+                <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="trigger">
+                  <option value="click" ${(p.trigger || 'click') === 'click' ? 'selected' : ''}>🖱️ 클릭 시 이동 (Click)</option>
+                  <option value="hover" ${p.trigger === 'hover' ? 'selected' : ''}>🎯 마우스 호버 시 이동 (Hover)</option>
+                  <option value="signal" ${p.trigger === 'signal' ? 'selected' : ''}>📡 신호 수신 시 이동 (On Signal)</option>
+                  <option value="viewport_enter" ${p.trigger === 'viewport_enter' ? 'selected' : ''}>👁️ 화면 진입 시 이동 (Viewport)</option>
+                </select>
+              </div>
+              ${p.trigger === 'signal' ? `
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">트리거 신호명:</label>
+                <input type="text" class="ps-input mod-param-input" data-mod-idx="${idx}" data-param-key="signalName" placeholder="예: signal_1" value="${p.signalName || ''}">
+              </div>` : ''}
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">호버 효과:</label>
+                <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="hoverEffect">
+                  <option value="none" ${p.hoverEffect === 'none' ? 'selected' : ''}>없음 (None)</option>
+                  <option value="lift" ${(p.hoverEffect || 'lift') === 'lift' ? 'selected' : ''}>살짝 뜨기 (Lift Up -3px)</option>
+                  <option value="zoom" ${p.hoverEffect === 'zoom' ? 'selected' : ''}>부드럽게 확대 (Zoom 1.05x)</option>
+                  <option value="glow" ${p.hoverEffect === 'glow' ? 'selected' : ''}>화려한 발광 (Cyan Glow)</option>
+                  <option value="fade" ${p.hoverEffect === 'fade' ? 'selected' : ''}>투명도 전환 (Fade 80%)</option>
+                  <option value="bounce" ${p.hoverEffect === 'bounce' ? 'selected' : ''}>통통 튀기 (Bounce)</option>
+                </select>
+              </div>
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">앵커 ID (#id):</label>
+                <input type="text" class="ps-input mod-param-input" data-mod-idx="${idx}" data-param-key="anchorId" placeholder="예: features, pricing" value="${p.anchorId || ''}">
+              </div>
+              <div class="ps-prop-row" style="margin-top:4px;">
+                <button class="btn btn-secondary btn-sm btn-test-mod-link" data-mod-idx="${idx}" style="width:100%;justify-content:center;color:#38bdf8;border-color:#38bdf8;gap:6px;" ${!p.url ? 'disabled' : ''}>
+                  🔗 브라우저에서 링크 바로 열기 (테스트)
+                </button>
+              </div>
+            `;
+          } else if (mod.type === 'photoshop_filter') {
+            bodyHtml = `
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">작동 모드:</label>
+                <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="mode">
+                  <option value="static" ${(p.mode || 'static') === 'static' ? 'selected' : ''}>정적 필터 (Static)</option>
+                  <option value="pulse" ${p.mode === 'pulse' ? 'selected' : ''}>박동 펄스 (Pulse Animation)</option>
+                  <option value="reactive" ${p.mode === 'reactive' ? 'selected' : ''}>마우스 거리 반응 (Reactive)</option>
+                </select>
+              </div>
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">가우시안 블러:</label>
+                <div class="blender-scrub-group">
+                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="blur" min="0" max="60" value="${p.blur || 0}">
+                </div>
+              </div>
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">밝기 (Brightness):</label>
+                <div class="blender-scrub-group">
+                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="brightness" min="0" max="300" value="${p.brightness ?? 100}">
+                </div>
+              </div>
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">색조 회전 (Hue):</label>
+                <div class="blender-scrub-group">
+                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="hueRotate" min="0" max="360" value="${p.hueRotate || 0}">
+                </div>
+              </div>
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">알파 투명도:</label>
+                <div class="blender-scrub-group">
+                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="opacity" min="0" max="100" value="${p.opacity !== undefined ? p.opacity : 100}">
+                </div>
+              </div>
+            `;
+          } else if (mod.type === 'motion_wave') {
+            bodyHtml = `
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">진동 축 (Axis):</label>
+                <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="axis">
+                  <option value="y" ${(p.axis || 'y') === 'y' ? 'selected' : ''}>Y축 (상하 부유)</option>
+                  <option value="x" ${p.axis === 'x' ? 'selected' : ''}>X축 (좌우 흔들림)</option>
+                  <option value="both" ${p.axis === 'both' ? 'selected' : ''}>XY 복합 (원형)</option>
+                  <option value="rotation" ${p.axis === 'rotation' ? 'selected' : ''}>회전 틸트 (Rotation)</option>
+                </select>
+              </div>
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">진폭 (Amplitude):</label>
+                <div class="blender-scrub-group">
+                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="amplitude" min="1" max="100" value="${p.amplitude || 10}">
+                </div>
+              </div>
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">주파수 (Hz):</label>
+                <div class="blender-scrub-group">
+                  <input type="number" class="blender-scrub-input mod-param-input" data-mod-idx="${idx}" data-param-key="frequency" min="0.1" max="5" step="0.1" value="${p.frequency || 1}">
+                </div>
+              </div>
+            `;
+          } else {
+            // Generic parameters
+            bodyHtml = Object.keys(p).filter(k => k !== 'condition').slice(0, 5).map(k => `
+              <div class="ps-prop-row">
+                <label class="ps-prop-label">${k}:</label>
+                ${typeof p[k] === 'boolean' ? `
+                  <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="${k}">
+                    <option value="true" ${p[k] ? 'selected' : ''}>true</option>
+                    <option value="false" ${!p[k] ? 'selected' : ''}>false</option>
+                  </select>
+                ` : `
+                  <input type="${typeof p[k] === 'number' ? 'number' : 'text'}" class="ps-input mod-param-input" data-mod-idx="${idx}" data-param-key="${k}" value="${p[k]}">
+                `}
+              </div>
+            `).join('');
+          }
+
+          return `
+            <div class="ps-modifier-card ${!isEnabled ? 'disabled' : ''}" data-mod-id="${mod.id}" data-mod-idx="${idx}">
+              <div class="ps-mod-header">
+                <div class="ps-mod-header-left" data-act="toggle-mod-fold" data-mod-idx="${idx}">
+                  <span class="ps-mod-fold-arrow">${isFolded ? '▶' : '▼'}</span>
+                  <span class="ps-mod-icon-tag">${def.icon || 'MOD'}</span>
+                  <span class="ps-mod-title-text" title="${mod.name}">${mod.name}</span>
+                </div>
+                <div class="ps-mod-header-tools">
+                  <button class="ps-mod-tool-btn ${isEnabled ? 'active' : ''}" data-act="mod-toggle-viewport" data-mod-idx="${idx}" title="${isEnabled ? '뷰포트 실시간 시뮬레이션 끄기 (비활성화)' : '뷰포트 실시간 시뮬레이션 켜기 (활성화)'}">
+                    ${isEnabled ? '👁️' : '🕶️'}
+                  </button>
+                  <button class="ps-mod-tool-btn ${isRender ? 'active' : ''}" data-act="mod-toggle-render" data-mod-idx="${idx}" title="${isRender ? '웹사이트 내보내기/미리보기 반영 끄기' : '웹사이트 내보내기/미리보기 반영 켜기'}">
+                    🌐
+                  </button>
+                  <button class="ps-mod-tool-btn" data-act="mod-move-up" data-mod-idx="${idx}" ${isFirst ? 'disabled' : ''} title="스택 위로 이동 (우선 평가)">▲</button>
+                  <button class="ps-mod-tool-btn" data-act="mod-move-down" data-mod-idx="${idx}" ${isLast ? 'disabled' : ''} title="스택 아래로 이동 (후순위 평가)">▼</button>
+                  <button class="ps-mod-tool-btn" data-act="mod-duplicate" data-mod-idx="${idx}" title="모디파이어 복제 (Duplicate)">📄</button>
+                  <button class="ps-mod-tool-btn" data-act="mod-apply" data-mod-idx="${idx}" title="모디파이어 영구 적용 (Apply to Base)" style="color:#22c55e;">✓</button>
+                  <button class="ps-mod-tool-btn" data-act="mod-delete" data-mod-idx="${idx}" title="모디파이어 삭제 (Delete)" style="color:#ef4444;">✕</button>
+                </div>
+              </div>
+              ${!isFolded ? `
+                <div class="ps-mod-body">
+                  <div class="ps-prop-row">
+                    <label class="ps-prop-label">실행 조건:</label>
+                    <select class="ps-select mod-param-select" data-mod-idx="${idx}" data-param-key="condition">
+                      <option value="always" ${(p.condition || 'always') === 'always' ? 'selected' : ''}>항상 작동 (Always)</option>
+                      <option value="on_trigger" ${p.condition === 'on_trigger' ? 'selected' : ''}>화면 트리거 감지 시 (On Trigger)</option>
+                      <option value="on_signal" ${p.condition === 'on_signal' ? 'selected' : ''}>신호 수신 시 (On Signal)</option>
+                      <option value="on_hover" ${p.condition === 'on_hover' ? 'selected' : ''}>마우스 호버 시 (On Hover)</option>
+                      <option value="on_click" ${p.condition === 'on_click' ? 'selected' : ''}>마우스 클릭 시 (On Click)</option>
+                    </select>
+                  </div>
+                  ${bodyHtml}
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+      }
+
+      return `
+        <!-- Blender-Style Modifier Stack Section -->
+        <div class="ps-prop-section" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.03);">
+          <div class="ps-prop-header" style="justify-content:space-between; align-items:center;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-weight:700;color:#38bdf8;">🛠️ 모디파이어 스택 (Modifier Stack)</span>
+              <span class="ps-badge" style="background:#0284c7;color:#fff;font-size:9.5px;padding:1px 5px;border-radius:3px;">${total}개</span>
+            </div>
+          </div>
+
+          <div style="margin-top:6px;display:flex;gap:6px;">
+            <select class="ps-select" id="selAddModifier" style="flex:1;background:#18181b;color:#38bdf8;border-color:#38bdf8;font-weight:600;">
+              <option value="">+ 모디파이어 추가 (Add Modifier)...</option>
+              <optgroup label="🌐 웹 & 인터랙션 (Web & Interaction)">
+                <option value="hyperlink">🔗 하이퍼링크 (Hyperlink)</option>
+                <option value="screen_trigger">📡 화면 트리거 (Screen Trigger)</option>
+                <option value="draggable">✋ 자유 드래그 (Draggable)</option>
+                <option value="click_gesture">🖱️ 클릭 감지 (Click Gesture)</option>
+                <option value="hover_proximity">🎯 호버 및 근접 (Hover Zone)</option>
+              </optgroup>
+              <optgroup label="🎨 그래픽 & 필터 (Visual & Filter)">
+                <option value="photoshop_filter">🎨 포토샵 필터 FX (Filter FX)</option>
+                <option value="motion_wave">🌊 모션 파동 (Wave Motion)</option>
+                <option value="particle_emitter">✨ 파티클 방출 (Particle)</option>
+              </optgroup>
+              <optgroup label="⚡ 모션 & 트랜스폼 (Motion & Physics)">
+                <option value="follow_target">🎯 타겟 추적 (Follow Target)</option>
+                <option value="look_at">👁️ 타겟 조준 (Look-At)</option>
+                <option value="distance_rope">🪢 거리 제한 로프 (Rope)</option>
+              </optgroup>
+              <optgroup label="🧠 로직 & 제어 (Logic & Relay)">
+                <option value="signal_relay">🔀 신호 전달기 (Signal Relay)</option>
+                <option value="toggle_switch">🔘 토글 스위치 (Toggle)</option>
+                <option value="counter_accumulator">🔢 숫자 카운터 (Counter)</option>
+                <option value="math_calculate">📐 수학 계산 (Math Calc)</option>
+              </optgroup>
+              <option value="__open_library__">📚 전체 라이브러리 모달 열기...</option>
+            </select>
+          </div>
+
+          <div class="ps-modifier-stack" style="margin-top:8px;">
+            ${cardsHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    applyModifier(sprite, idx) {
+      if (!sprite || !sprite.modules || !sprite.modules[idx]) return;
+      const mod = sprite.modules[idx];
+      const p = mod.params || {};
+
+      if (mod.type === 'hyperlink') {
+        if (p.url) sprite.linkUrl = p.url;
+        if (p.target) sprite.linkTarget = p.target;
+        if (p.hoverEffect) sprite.hoverEffect = p.hoverEffect;
+        if (p.anchorId) sprite.anchorId = p.anchorId;
+        if (p.customClass) sprite.cssClass = (sprite.cssClass ? sprite.cssClass + ' ' : '') + p.customClass;
+      } else if (mod.type === 'photoshop_filter') {
+        if (!sprite.filters) sprite.filters = {};
+        ['blur', 'brightness', 'contrast', 'saturate', 'grayscale', 'sepia', 'hueRotate', 'invert', 'opacity', 'dropShadow'].forEach(k => {
+          if (p[k] !== undefined) sprite.filters[k] = p[k];
+        });
+      } else if (sprite.runtime) {
+        sprite.x = Math.round(sprite.runtime.x);
+        sprite.y = Math.round(sprite.runtime.y);
+        sprite.rotation = Math.round(sprite.runtime.rotation);
+        sprite.scaleX = sprite.runtime.scaleX;
+        sprite.scaleY = sprite.runtime.scaleY;
+        sprite.opacity = sprite.runtime.opacity;
+      }
+
+      sprite.modules.splice(idx, 1);
+      this.doc.saveState();
+      this.render();
+      if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+      if (this.cb.onUpdate) this.cb.onUpdate();
+    }
+
     renderVisualInspector(sprite, layer) {
       const target = sprite || layer;
       if (!target) {
@@ -3809,7 +4158,8 @@
       }
 
       return `
-        
+        ${this.renderModifierStack(sprite)}
+
         <!-- Web Component & Hyperlink System -->
         <div class="ps-prop-section" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.04);">
           <div class="ps-prop-header" style="color:#38bdf8; display:flex; justify-content:space-between; align-items:center;">
@@ -4203,6 +4553,157 @@
           if (this.cb.onUpdate) this.cb.onUpdate();
         });
       };
+
+      // ==========================================================
+      // Blender Modifier Stack Event Bindings
+      // ==========================================================
+      this.el.querySelector('#selAddModifier')?.addEventListener('change', e => {
+        const val = e.target.value;
+        if (!val) return;
+        if (val === '__open_library__') {
+          if (this.cb.onOpenModuleModal) this.cb.onOpenModuleModal(sprite);
+          else if (window.jspenApp?.layersUI?.showModuleLibraryModal) window.jspenApp.layersUI.showModuleLibraryModal(sprite);
+        } else if (MODULE_REGISTRY[val]) {
+          const def = MODULE_REGISTRY[val];
+          const newMod = {
+            id: 'mod_' + Math.random().toString(36).substr(2, 9),
+            type: val,
+            name: def.name,
+            enabled: true,
+            showInRender: true,
+            collapsed: false,
+            params: JSON.parse(JSON.stringify(def.defaultParams || {}))
+          };
+          if (!sprite.modules) sprite.modules = [];
+          sprite.modules.push(newMod);
+          this.doc.saveState();
+          this.render();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        }
+        e.target.value = '';
+      });
+
+      // Modifier Header Tool Buttons Delegation
+      this.el.querySelectorAll('[data-act]').forEach(el => {
+        const act = el.dataset.act;
+        const modIdx = parseInt(el.dataset.modIdx, 10);
+        if (isNaN(modIdx) || !sprite.modules || !sprite.modules[modIdx]) return;
+        const mod = sprite.modules[modIdx];
+
+        if (act === 'toggle-mod-fold') {
+          el.addEventListener('click', () => {
+            mod.collapsed = !mod.collapsed;
+            this.render();
+          });
+        } else if (act === 'mod-toggle-viewport') {
+          el.addEventListener('click', e => {
+            e.stopPropagation();
+            mod.enabled = !mod.enabled;
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          });
+        } else if (act === 'mod-toggle-render') {
+          el.addEventListener('click', e => {
+            e.stopPropagation();
+            mod.showInRender = (mod.showInRender === undefined) ? false : !mod.showInRender;
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          });
+        } else if (act === 'mod-move-up') {
+          el.addEventListener('click', e => {
+            e.stopPropagation();
+            if (modIdx > 0) {
+              const [item] = sprite.modules.splice(modIdx, 1);
+              sprite.modules.splice(modIdx - 1, 0, item);
+              this.doc.saveState();
+              this.render();
+              if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+              if (this.cb.onUpdate) this.cb.onUpdate();
+            }
+          });
+        } else if (act === 'mod-move-down') {
+          el.addEventListener('click', e => {
+            e.stopPropagation();
+            if (modIdx < sprite.modules.length - 1) {
+              const [item] = sprite.modules.splice(modIdx, 1);
+              sprite.modules.splice(modIdx + 1, 0, item);
+              this.doc.saveState();
+              this.render();
+              if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+              if (this.cb.onUpdate) this.cb.onUpdate();
+            }
+          });
+        } else if (act === 'mod-duplicate') {
+          el.addEventListener('click', e => {
+            e.stopPropagation();
+            const copy = JSON.parse(JSON.stringify(mod));
+            copy.id = 'mod_' + Math.random().toString(36).substr(2, 9);
+            copy.name = copy.name + ' (복제본)';
+            sprite.modules.splice(modIdx + 1, 0, copy);
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          });
+        } else if (act === 'mod-apply') {
+          el.addEventListener('click', e => {
+            e.stopPropagation();
+            this.applyModifier(sprite, modIdx);
+          });
+        } else if (act === 'mod-delete') {
+          el.addEventListener('click', e => {
+            e.stopPropagation();
+            sprite.modules.splice(modIdx, 1);
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          });
+        }
+      });
+
+      // Modifier Parameters Inputs
+      this.el.querySelectorAll('.mod-param-input, .mod-param-select').forEach(input => {
+        const modIdx = parseInt(input.dataset.modIdx, 10);
+        const key = input.dataset.paramKey;
+        if (isNaN(modIdx) || !key || !sprite.modules || !sprite.modules[modIdx]) return;
+        const mod = sprite.modules[modIdx];
+        if (!mod.params) mod.params = {};
+
+        const onValChange = () => {
+          let val = input.value;
+          if (input.type === 'number') val = parseFloat(val) || 0;
+          mod.params[key] = val;
+          this.doc.saveState();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+          if (key === 'url') {
+            const btn = this.el.querySelector(`.btn-test-mod-link[data-mod-idx="${modIdx}"]`);
+            if (btn) btn.disabled = !val;
+          }
+        };
+
+        input.addEventListener('input', onValChange);
+        input.addEventListener('change', () => {
+          onValChange();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+      });
+
+      // Test Mod Link Button
+      this.el.querySelectorAll('.btn-test-mod-link').forEach(btn => {
+        const modIdx = parseInt(btn.dataset.modIdx, 10);
+        if (isNaN(modIdx) || !sprite.modules || !sprite.modules[modIdx]) return;
+        const mod = sprite.modules[modIdx];
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const u = mod.params?.url;
+          if (u) window.open(u, mod.params?.target || '_blank');
+        });
+      });
 
       // Link Group
       this.el.querySelector('#inpLinkGroup')?.addEventListener('change', e => {
@@ -7509,7 +8010,21 @@
           fontSize: 15, fontWeight: 'bold',
           x: Math.round(W / 2), y: 1180, width: 230, height: 48, cornerRadius: 24,
           fill: '#0284c7',
-          tag: 'a', linkUrl: 'https://github.com', linkTarget: '_blank', hoverEffect: 'lift'
+          tag: 'a', linkUrl: 'https://github.com', linkTarget: '_blank', hoverEffect: 'lift',
+          modules: [{
+            id: 'mod_hl_' + Date.now(),
+            type: 'hyperlink',
+            name: '하이퍼링크 모디파이어',
+            enabled: true,
+            showInRender: true,
+            params: {
+              condition: 'always',
+              url: 'https://github.com/TM-TOMATO/jspen',
+              target: '_blank',
+              trigger: 'click',
+              hoverEffect: 'lift'
+            }
+          }]
         });
       }
       else if (type === 'footer') {
@@ -7612,15 +8127,23 @@
       allSprites.forEach(({ sprite, z }) => {
         if (sprite.type === 'screen_trigger') return; // Sensor trigger only
 
-        // Tag: If linkUrl is present, default to <a> for true HTML hyperlink navigation
-        let tag = sprite.tag || 'div';
-        if (sprite.linkUrl && tag === 'div') tag = 'a';
+        // Check for active Hyperlink Modifier first (Blender modifier pipeline)
+        const linkMod = (sprite.modules || []).find(m => m.enabled !== false && m.showInRender !== false && m.type === 'hyperlink');
+        const effectiveLinkUrl = (linkMod ? linkMod.params?.url : sprite.linkUrl) || '';
+        const effectiveLinkTarget = (linkMod ? linkMod.params?.target : sprite.linkTarget) || '_blank';
+        const effectiveHoverEffect = (linkMod ? linkMod.params?.hoverEffect : sprite.hoverEffect) || 'none';
+        const effectiveAnchorId = (linkMod ? linkMod.params?.anchorId : sprite.anchorId) || '';
+        const effectiveCustomClass = (linkMod ? linkMod.params?.customClass : sprite.cssClass) || '';
 
-        const isLink = !!sprite.linkUrl || tag === 'a';
+        // Tag: If link is present, default to <a> for true HTML hyperlink navigation
+        let tag = sprite.tag || 'div';
+        if (effectiveLinkUrl && tag === 'div') tag = 'a';
+
+        const isLink = !!effectiveLinkUrl || tag === 'a';
         const isBtn = tag === 'button';
-        const hrefAttr = sprite.linkUrl ? `href="${sprite.linkUrl}" target="${sprite.linkTarget || '_blank'}" rel="noopener noreferrer"` : '';
-        const anchorAttr = sprite.anchorId ? `id="${sprite.anchorId}"` : `id="${sprite.id}"`;
-        const classAttr = `web-sprite ${sprite.hoverEffect && sprite.hoverEffect !== 'none' ? 'hover-' + sprite.hoverEffect : ''} ${sprite.cssClass || ''}`.trim();
+        const hrefAttr = effectiveLinkUrl ? `href="${effectiveLinkUrl}" target="${effectiveLinkTarget}" rel="noopener noreferrer"` : '';
+        const anchorAttr = effectiveAnchorId ? `id="${effectiveAnchorId}"` : `id="${sprite.id}"`;
+        const classAttr = `web-sprite ${effectiveHoverEffect && effectiveHoverEffect !== 'none' ? 'hover-' + effectiveHoverEffect : ''} ${effectiveCustomClass}`.trim();
         const cursorStyle = (isBtn || isLink) ? 'cursor:pointer;' : '';
 
         let innerContent = '';
@@ -7997,19 +8520,26 @@
         const mw = this.renderer.screenToWorld(ms.x, ms.y);
         const clickedSprite = this.doc.hitTestSprite(mw.x, mw.y);
 
-        if (clickedSprite && clickedSprite.linkUrl) {
-          if (this.moduleEngine.active || e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            const href = clickedSprite.linkUrl.trim();
-            if (href.startsWith('#')) {
-              const targetId = href.slice(1);
-              const targetSp = this.doc.layers.flatMap(l => l.sprites).find(s => s.anchorId === targetId || s.id === targetId);
-              if (targetSp) {
-                this.renderer.panY = -(targetSp.y - 120);
-                this.renderCanvas();
+        if (clickedSprite) {
+          // Check for active Hyperlink Modifier first (Blender modifier style), fallback to sprite.linkUrl
+          const linkMod = (clickedSprite.modules || []).find(m => m.enabled && m.type === 'hyperlink');
+          const href = (linkMod ? linkMod.params?.url : clickedSprite.linkUrl)?.trim();
+          const target = (linkMod ? linkMod.params?.target : clickedSprite.linkTarget) || '_blank';
+          const trigger = linkMod ? (linkMod.params?.trigger || 'click') : 'click';
+
+          if (href && (trigger === 'click' || !linkMod)) {
+            if (this.moduleEngine.active || e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              if (href.startsWith('#')) {
+                const targetId = href.slice(1);
+                const targetSp = this.doc.layers.flatMap(l => l.sprites).find(s => s.anchorId === targetId || s.id === targetId);
+                if (targetSp) {
+                  this.renderer.panY = -(targetSp.y - 120);
+                  this.renderCanvas();
+                }
+              } else {
+                window.open(href, target);
               }
-            } else {
-              window.open(href, clickedSprite.linkTarget || '_blank');
             }
           }
         }
@@ -8059,7 +8589,9 @@
         // Pointer cursor for hyperlinks during preview mode
         if (this.moduleEngine.active) {
           const hoveredSp = this.doc.hitTestSprite(mw.x, mw.y);
-          if (hoveredSp && hoveredSp.linkUrl) {
+          const hasLinkMod = hoveredSp && (hoveredSp.modules || []).some(m => m.enabled && m.type === 'hyperlink' && m.params?.url);
+          const hasDirectLink = hoveredSp && !!hoveredSp.linkUrl;
+          if (hasLinkMod || hasDirectLink) {
             this.canvas.style.cursor = 'pointer';
           } else {
             this.canvas.style.cursor = 'default';

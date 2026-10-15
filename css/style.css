@@ -3138,3 +3138,133 @@ button, .btn, .btn-sm, .ps-btn, .action-btn, .ps-layer-btn, .ps-mode-switch-btn 
 .hidden, #toolOptionBar.hidden, #leftToolbox.hidden {
   display: none !important;
 }
+
+/* ==========================================================================
+   Blender-Style Modifier Stack System
+   ========================================================================== */
+.ps-modifier-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ps-modifier-card {
+  background: #1b1b22;
+  border: 1px solid #2e2e38;
+  border-radius: 4px;
+  overflow: hidden;
+  transition: all 0.15s ease;
+}
+
+.ps-modifier-card:hover {
+  border-color: #3b3b4a;
+}
+
+.ps-modifier-card.disabled {
+  opacity: 0.55;
+  background: #15151a;
+}
+
+.ps-modifier-card.highlight {
+  border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+
+.ps-mod-header {
+  height: 32px;
+  background: #23232c;
+  border-bottom: 1px solid #2b2b36;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  user-select: none;
+}
+
+.ps-mod-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ps-mod-fold-arrow {
+  font-size: 9px;
+  color: #94a3b8;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.ps-mod-icon-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #0f172a;
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  flex-shrink: 0;
+}
+
+.ps-mod-title-text {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ps-mod-header-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ps-mod-tool-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.1s ease;
+}
+
+.ps-mod-tool-btn:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.ps-mod-tool-btn.active {
+  color: #38bdf8;
+}
+
+.ps-mod-tool-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+  pointer-events: none;
+}
+
+.ps-mod-body {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #17171d;
+}
+
+.ps-mod-body .ps-prop-row {
+  margin-bottom: 2px;
+}
