@@ -1619,13 +1619,20 @@
     }
 
     drawCheckerboard(ctx, w, h) {
-      const size = 16;
-      for (let y = 0; y < h; y += size) {
-        for (let x = 0; x < w; x += size) {
-          ctx.fillStyle = ((Math.floor(x / size) + Math.floor(y / size)) % 2 === 0) ? '#242428' : '#1c1c20';
-          ctx.fillRect(x, y, Math.min(size, w - x), Math.min(size, h - y));
-        }
+      if (!this._checkerPattern) {
+        const pCanvas = document.createElement('canvas');
+        pCanvas.width = 32;
+        pCanvas.height = 32;
+        const pCtx = pCanvas.getContext('2d');
+        pCtx.fillStyle = '#242428';
+        pCtx.fillRect(0, 0, 32, 32);
+        pCtx.fillStyle = '#1c1c20';
+        pCtx.fillRect(0, 0, 16, 16);
+        pCtx.fillRect(16, 16, 16, 16);
+        this._checkerPattern = ctx.createPattern(pCanvas, 'repeat');
       }
+      ctx.fillStyle = this._checkerPattern;
+      ctx.fillRect(0, 0, w, h);
     }
 
     drawLayer(ctx, layer) {
@@ -2105,7 +2112,7 @@
         ctx.textAlign = textAlign;
         ctx.textBaseline = 'middle';
         const maxTextW = Math.max(20, sprite.width || 40);
-        const lines = this.wrapTextLines(ctx, sprite.text || '', maxTextW);
+        const lines = this.wrapTextLines(ctx, sprite.text || '', maxTextW, sprite);
         const lh = fontSize * 1.35;
         const startY = -(lines.length - 1) * lh / 2;
         const textX = textAlign === 'left' ? -hw : (textAlign === 'right' ? hw : 0);
@@ -2118,8 +2125,12 @@
       ctx.restore();
     }
 
-    wrapTextLines(ctx, text, maxWidth) {
+    wrapTextLines(ctx, text, maxWidth, sprite = null) {
       if (!text) return [];
+      const fontKey = ctx.font || '';
+      if (sprite && sprite._wrapCache && sprite._wrapCache.text === text && sprite._wrapCache.maxWidth === maxWidth && sprite._wrapCache.font === fontKey) {
+        return sprite._wrapCache.lines;
+      }
       const paragraphs = String(text).split('\n');
       const resultLines = [];
       for (const para of paragraphs) {
@@ -2140,6 +2151,9 @@
           }
         }
         if (curLine) resultLines.push(curLine);
+      }
+      if (sprite) {
+        sprite._wrapCache = { text, maxWidth, font: fontKey, lines: resultLines };
       }
       return resultLines;
     }
@@ -2166,7 +2180,7 @@
       const padX = 16;
       const padY = 8;
       const maxTextW = Math.max(20, (sprite.width || 40) - padX * 2);
-      const lines = this.wrapTextLines(ctx, rawText, maxTextW);
+      const lines = this.wrapTextLines(ctx, rawText, maxTextW, sprite);
       const totalTextH = lines.length * lh;
 
       let startY = 0;
@@ -8611,12 +8625,12 @@ ${sprite.type === 'text' ? `
       this.tools = new DrawingTools(
         this.renderer,
         this.doc,
-        () => this.renderCanvas(),
+        () => this.requestRender(),
         () => this.refreshUI()
       );
       this.transformBox = new TransformBox(
         this.doc,
-        () => this.renderCanvas(),
+        () => this.requestRender(),
         () => this.refreshUI()
       );
 
@@ -9419,6 +9433,15 @@ ${sprite.type === 'text' ? `
       if (this.timeline) this.timeline.updatePlayheadPosition();
     }
 
+    requestRender() {
+      if (this._rAFPending) return;
+      this._rAFPending = true;
+      requestAnimationFrame(() => {
+        this._rAFPending = false;
+        this.renderCanvas();
+      });
+    }
+
     refreshUI() {
       this.renderCanvas();
       this.layersUI.render();
@@ -9535,8 +9558,18 @@ ${sprite.type === 'text' ? `
         }
       });
 
+      let canvasRect = null;
+      const getCanvasRect = () => {
+        if (!canvasRect) canvasRect = this.canvas.getBoundingClientRect();
+        return canvasRect;
+      };
+      const invalidateRect = () => { canvasRect = null; };
+      window.addEventListener('resize', invalidateRect);
+      window.addEventListener('scroll', invalidateRect, true);
+
       this.canvas.addEventListener('mousedown', e => {
-        const r = this.canvas.getBoundingClientRect();
+        canvasRect = this.canvas.getBoundingClientRect();
+        const r = canvasRect;
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         mw = this.renderer.screenToWorld(ms.x, ms.y);
         isDown = true;
@@ -9579,7 +9612,7 @@ ${sprite.type === 'text' ? `
       });
 
       window.addEventListener('mousemove', e => {
-        const r = this.canvas.getBoundingClientRect();
+        const r = getCanvasRect();
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         mw = this.renderer.screenToWorld(ms.x, ms.y);
 
@@ -9615,13 +9648,13 @@ ${sprite.type === 'text' ? `
           const dy = e.clientY - panStart.y;
           this.renderer.panX = initPan.x + dx;
           this.renderer.panY = initPan.y + dy;
-          this.renderCanvas();
+          this.requestRender();
           return;
         }
 
         if (this.transformBox.mode) {
           this.transformBox.drag(mw.x, mw.y, e.shiftKey);
-          this.renderCanvas();
+          this.requestRender();
           return;
         }
 

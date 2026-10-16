@@ -28,7 +28,8 @@ class PreviewWindow(QMainWindow):
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, False)
 
 class DesktopCanvasPage(QWebEnginePage):
@@ -125,7 +126,8 @@ class MainWindow(QMainWindow):
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, False)
 
         # Support opening .jspen project file passed via command line or double click
@@ -437,11 +439,13 @@ def register_windows_file_association():
         pass
 
 def main():
-    # Eliminate GPU compositing flicker and ANGLE conflict on Windows frameless windows
+    # Force high-performance Direct3D 11 hardware GPU acceleration on Windows (60-144 FPS)
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
-        "--disable-gpu-compositing "
-        "--disable-smooth-scrolling "
-        "--enable-features=NetworkServiceInProcess"
+        "--enable-gpu-rasterization "
+        "--enable-zero-copy "
+        "--ignore-gpu-blocklist "
+        "--enable-smooth-scrolling "
+        "--use-angle=d3d11"
     )
     # Enable High DPI Scaling
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
