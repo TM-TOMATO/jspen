@@ -9,6 +9,7 @@ const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.jspen': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -24,7 +25,7 @@ const server = http.createServer((req, res) => {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
-  // Dynamic template discovery API
+  // Dynamic template discovery API (.jspen and .json)
   if (reqPath === '/api/templates') {
     const tplDir = path.join(__dirname, 'templates');
     fs.readdir(tplDir, (err, files) => {
@@ -33,9 +34,9 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: err.message }));
         return;
       }
-      const jsonFiles = files.filter(f => f.endsWith('.json') && f !== 'manifest.json');
-      const list = jsonFiles.map(file => {
-        let title = file.replace('.json', '');
+      const tplFiles = files.filter(f => (f.endsWith('.jspen') || f.endsWith('.json')) && f !== 'manifest.json');
+      const list = tplFiles.map(file => {
+        let title = file.replace(/\.(jspen|json)$/i, '');
         try {
           const doc = JSON.parse(fs.readFileSync(path.join(tplDir, file), 'utf-8'));
           if (doc.name) title = doc.name;

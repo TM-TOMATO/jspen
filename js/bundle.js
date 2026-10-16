@@ -8439,19 +8439,24 @@ ${sprite.type === 'text' ? `
 
       // 3. Fallback bundled template list
       return [
-        { file: 'full_landing.json', title: '전체 웹사이트 풀 패키지 (Full Website)', description: '네비게이션, 히어로, 3단 기능 카드, CTA, 푸터까지 완성된 전체 웹사이트 템플릿입니다.', layersCount: 5 },
-        { file: 'navbar.json', title: '상단 네비게이션 헤더 (Navbar)', description: '로고, 3개 메뉴 링크, CTA 버튼이 포함된 반응형 헤더 바입니다.', layersCount: 1 },
-        { file: 'hero.json', title: '메인 히어로 섹션 (Hero)', description: '헤드라인, 서브텍스트, 배지, 주요/보조 버튼으로 구성된 히어로 섹션입니다.', layersCount: 1 },
-        { file: 'feature_grid.json', title: '3열 기능 카드 그리드 (Features)', description: '3개의 모던 다크 카드와 섹션 헤딩이 포함된 특징 소개 그리드입니다.', layersCount: 1 },
-        { file: 'cta_banner.json', title: '전환 유도 CTA 배너 (CTA)', description: '방문자의 행동을 유도하는 하이라이트 전환 배너 박스입니다.', layersCount: 1 },
-        { file: 'footer.json', title: '하단 푸터 (Footer)', description: '로고, 저작권 문구, 각종 정책 및 소셜 링크가 배치된 푸터입니다.', layersCount: 1 },
-        { file: 'portfolio.json', title: '다크 포트폴리오 쇼케이스 (Portfolio)', description: '디자이너 및 크리에이터를 위한 모던 다크 테마 포트폴리오 템플릿입니다.', layersCount: 3 }
+        { file: 'full_landing.jspen', title: '전체 웹사이트 풀 패키지 (Full Website)', description: '네비게이션, 히어로, 3단 기능 카드, CTA, 푸터까지 완성된 전체 웹사이트 템플릿입니다.', layersCount: 5 },
+        { file: 'navbar.jspen', title: '상단 네비게이션 헤더 (Navbar)', description: '로고, 3개 메뉴 링크, CTA 버튼이 포함된 반응형 헤더 바입니다.', layersCount: 1 },
+        { file: 'hero.jspen', title: '메인 히어로 섹션 (Hero)', description: '헤드라인, 서브텍스트, 배지, 주요/보조 버튼으로 구성된 히어로 섹션입니다.', layersCount: 1 },
+        { file: 'feature_grid.jspen', title: '3열 기능 카드 그리드 (Features)', description: '3개의 모던 다크 카드와 섹션 헤딩이 포함된 특징 소개 그리드입니다.', layersCount: 1 },
+        { file: 'cta_banner.jspen', title: '전환 유도 CTA 배너 (CTA)', description: '방문자의 행동을 유도하는 하이라이트 전환 배너 박스입니다.', layersCount: 1 },
+        { file: 'footer.jspen', title: '하단 푸터 (Footer)', description: '로고, 저작권 문구, 각종 정책 및 소셜 링크가 배치된 푸터입니다.', layersCount: 1 },
+        { file: 'portfolio.jspen', title: '다크 포트폴리오 쇼케이스 (Portfolio)', description: '디자이너 및 크리에이터를 위한 모던 다크 테마 포트폴리오 템플릿입니다.', layersCount: 3 }
       ];
     }
 
     async loadTemplateFile(filename) {
       try {
-        const res = await fetch('/templates/' + filename);
+        let res = await fetch('/templates/' + filename);
+        if (!res.ok && filename.endsWith('.json')) {
+          res = await fetch('/templates/' + filename.replace(/\.json$/, '.jspen'));
+        } else if (!res.ok && !filename.includes('.')) {
+          res = await fetch('/templates/' + filename + '.jspen');
+        }
         if (res.ok) {
           return await res.json();
         }
@@ -8472,10 +8477,10 @@ ${sprite.type === 'text' ? `
             <button class="studio-modal-close" id="btnTplClose">✕</button>
           </div>
           <div style="padding:10px 14px;background:#18181b;border-bottom:1px solid #28282c;display:flex;align-items:center;justify-content:space-between;gap:10px;">
-            <span style="font-size:11.5px;color:#a1a1aa;">templates/ 폴더에 프로젝트(.json) 파일을 넣으면 자동으로 템플릿으로 인식됩니다.</span>
+            <span style="font-size:11.5px;color:#a1a1aa;">templates/ 폴더에 프로젝트(.jspen) 파일을 넣으면 자동으로 템플릿으로 인식됩니다.</span>
             <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;font-size:11px;padding:3px 10px;">
-              📁 템플릿 파일 직접 열기 (JSON)...
-              <input type="file" id="inpCustomTplFile" accept=".json" style="display:none;" />
+              📁 템플릿 파일 직접 열기 (.jspen)...
+              <input type="file" id="inpCustomTplFile" accept=".jspen,.json" style="display:none;" />
             </label>
           </div>
           <div style="padding:14px;overflow-y:auto;flex:1;">
@@ -8519,7 +8524,7 @@ ${sprite.type === 'text' ? `
               this.close();
               StudioToast.show(`'${file.name}' 템플릿이 적용되었습니다.`);
             } catch (err) {
-              StudioToast.show('올바른 JSON 프로젝트 파일이 아닙니다: ' + err.message);
+              StudioToast.show('올바른 .jspen 프로젝트 파일이 아닙니다: ' + err.message);
             }
           };
           reader.readAsText(file);
@@ -8700,12 +8705,12 @@ ${sprite.type === 'text' ? `
       const W = this.doc.width || 1440;
       // If template file exists in templates folder, load it cleanly!
       const filenameMap = {
-        full_landing: 'full_landing.json',
-        navbar: 'navbar.json',
-        hero: 'hero.json',
-        feature_grid: 'feature_grid.json',
-        cta_banner: 'cta_banner.json',
-        footer: 'footer.json'
+        full_landing: 'full_landing.jspen',
+        navbar: 'navbar.jspen',
+        hero: 'hero.jspen',
+        feature_grid: 'feature_grid.jspen',
+        cta_banner: 'cta_banner.jspen',
+        footer: 'footer.jspen'
       };
       const fname = filenameMap[type];
       if (fname && this.templateModal) {
