@@ -24,6 +24,30 @@ const server = http.createServer((req, res) => {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
+  // Dynamic template discovery API
+  if (reqPath === '/api/templates') {
+    const tplDir = path.join(__dirname, 'templates');
+    fs.readdir(tplDir, (err, files) => {
+      if (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+        return;
+      }
+      const jsonFiles = files.filter(f => f.endsWith('.json') && f !== 'manifest.json');
+      const list = jsonFiles.map(file => {
+        let title = file.replace('.json', '');
+        try {
+          const doc = JSON.parse(fs.readFileSync(path.join(tplDir, file), 'utf-8'));
+          if (doc.name) title = doc.name;
+        } catch (_) {}
+        return { file, title };
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(list));
+    });
+    return;
+  }
+
   fs.readFile(filePath, (err, content) => {
     if (err) {
       if (err.code === 'ENOENT') {

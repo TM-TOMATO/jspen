@@ -157,6 +157,19 @@
   // 2. Module Registry (28 Builtin Modules + Timeline Keyframe + Nodes)
   // ==========================================================================
   const MODULE_REGISTRY = {
+    text_label: {
+      category: 'content', name: '텍스트 라벨 (Text)', icon: 'TXT',
+      description: '스프라이트 내부에 표시할 텍스트 문구, 글자 크기, 색상, 정렬 및 줄바꿈을 제어합니다.',
+      defaultParams: {
+        text: '텍스트 라벨',
+        fontSize: 16,
+        color: '#ffffff',
+        fontWeight: 'normal',
+        textAlign: 'center',
+        valign: 'middle',
+        lineHeight: 1.35
+      }
+    },
     // 0. Web & Hyperlink Modifier (Blender-Style Modifier Pipeline)
     hyperlink: {
       category: 'web', name: '링크 이동 (Link)', icon: 'LINK',
@@ -1260,6 +1273,14 @@
         }
         this.snapGuides = guides;
 
+        // Apply magnetic snap displacement to resize handle
+        const effWx = snapX !== null ? snapX : wx;
+        const effWy = snapY !== null ? snapY : wy;
+        const effDx = effWx - this.startPos.x;
+        const effDy = effWy - this.startPos.y;
+        ldx = effDx * cos + effDy * sin;
+        ldy = -effDx * sin + effDy * cos;
+
         let uOpp = 0, vOpp = 0;
         let uOppNew = 0, vOppNew = 0;
         let nw = origW;
@@ -1823,8 +1844,17 @@
 
       // Fill style
       if (sprite.fillType === 'linear-gradient' && sprite.gradient) {
-        const grad = ctx.createLinearGradient(-hw, -hh, hw, hh);
-        for (const s of sprite.gradient.stops) grad.addColorStop(s.offset, s.color);
+        const angleDeg = sprite.gradient.angle !== undefined ? sprite.gradient.angle : (sprite.gradientAngle || 0);
+        const rad = (angleDeg * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const length = Math.max(10, Math.abs(hw * cos) + Math.abs(hh * sin));
+        const grad = ctx.createLinearGradient(-cos * length, -sin * length, cos * length, sin * length);
+        const stops = (sprite.gradient.stops && sprite.gradient.stops.length > 0) ? sprite.gradient.stops : [
+          { offset: 0, color: '#ffffff' },
+          { offset: 1, color: '#27272a' }
+        ];
+        for (const s of stops) grad.addColorStop(s.offset, s.color);
         ctx.fillStyle = grad;
       } else {
         ctx.fillStyle = sprite.fill || '#38bdf8';
@@ -1885,8 +1915,11 @@
           ctx.stroke();
           ctx.restore();
         }
-        if (sprite.text) {
-          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop);
+        const textMod = (sprite.modules || []).find(m => m.enabled !== false && m.type === 'text_label');
+        if (textMod && textMod.params && textMod.params.text) {
+          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop, textMod.params);
+        } else if (sprite.text && sprite.type !== 'text') {
+          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop, { text: sprite.text, fontSize: sprite.fontSize, color: sprite.textColor, fontWeight: sprite.fontWeight, textAlign: sprite.textAlign });
         }
       } else if (sprite.type === 'circle') {
         // True Ellipse supporting independent non-uniform scaling
@@ -1908,8 +1941,11 @@
           ctx.stroke();
           ctx.restore();
         }
-        if (sprite.text) {
-          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop);
+        const textMod = (sprite.modules || []).find(m => m.enabled !== false && m.type === 'text_label');
+        if (textMod && textMod.params && textMod.params.text) {
+          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop, textMod.params);
+        } else if (sprite.text && sprite.type !== 'text') {
+          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop, { text: sprite.text, fontSize: sprite.fontSize, color: sprite.textColor, fontWeight: sprite.fontWeight, textAlign: sprite.textAlign });
         }
       } else if (sprite.type === 'star') {
         const outerR = Math.min(hw, hh);
@@ -1943,8 +1979,11 @@
           ctx.stroke();
           ctx.restore();
         }
-        if (sprite.text) {
-          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop);
+        const textMod = (sprite.modules || []).find(m => m.enabled !== false && m.type === 'text_label');
+        if (textMod && textMod.params && textMod.params.text) {
+          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop, textMod.params);
+        } else if (sprite.text && sprite.type !== 'text') {
+          this.drawSpriteLabelText(ctx, sprite, hw, hh, lop, { text: sprite.text, fontSize: sprite.fontSize, color: sprite.textColor, fontWeight: sprite.fontWeight, textAlign: sprite.textAlign });
         }
       } else if (sprite.type === 'brush') {
         const pts = sprite.brushStrokePoints || [];
@@ -2058,14 +2097,16 @@
         }
       } else if (sprite.type === 'text') {
         ctx.save();
-        ctx.font = `${sprite.fontWeight || 'normal'} ${sprite.fontSize || 16}px ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'}`;
+        const fontSize = sprite.fontSize || 16;
+        ctx.font = `${sprite.fontWeight || 'normal'} ${fontSize}px ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'}`;
         ctx.fillStyle = sprite.fill || '#ffffff';
         if (sprite.fillOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.fillOpacity));
         const textAlign = sprite.textAlign || 'center';
         ctx.textAlign = textAlign;
         ctx.textBaseline = 'middle';
-        const lines = String(sprite.text || '').split('\n');
-        const lh = (sprite.fontSize || 16) * 1.35;
+        const maxTextW = Math.max(20, sprite.width || 40);
+        const lines = this.wrapTextLines(ctx, sprite.text || '', maxTextW);
+        const lh = fontSize * 1.35;
         const startY = -(lines.length - 1) * lh / 2;
         const textX = textAlign === 'left' ? -hw : (textAlign === 'right' ? hw : 0);
         for (let i = 0; i < lines.length; i++) {
@@ -2077,7 +2118,74 @@
       ctx.restore();
     }
 
-    drawSpriteLabelText(ctx, sprite, hw, hh, lop) {
+    wrapTextLines(ctx, text, maxWidth) {
+      if (!text) return [];
+      const paragraphs = String(text).split('\n');
+      const resultLines = [];
+      for (const para of paragraphs) {
+        if (para === '') {
+          resultLines.push('');
+          continue;
+        }
+        let curLine = '';
+        for (let i = 0; i < para.length; i++) {
+          const char = para[i];
+          const testLine = curLine + char;
+          const testW = ctx.measureText(testLine).width;
+          if (testW <= maxWidth || curLine === '') {
+            curLine = testLine;
+          } else {
+            resultLines.push(curLine);
+            curLine = char;
+          }
+        }
+        if (curLine) resultLines.push(curLine);
+      }
+      return resultLines;
+    }
+
+    drawSpriteLabelText(ctx, sprite, hw, hh, lop, optParams = null) {
+      const p = optParams || {};
+      const rawText = p.text !== undefined ? p.text : sprite.text;
+      if (!rawText) return;
+
+      ctx.save();
+      const fontSize = p.fontSize || sprite.fontSize || 14;
+      const fontWeight = p.fontWeight || sprite.fontWeight || 'normal';
+      const color = p.color || sprite.textColor || (this.isLightColor ? (this.isLightColor(sprite.fill) ? '#09090b' : '#ffffff') : '#ffffff');
+      const textAlign = p.textAlign || sprite.textAlign || 'center';
+      const valign = p.valign || sprite.valign || 'middle';
+      const lhRatio = p.lineHeight || 1.35;
+      const lh = fontSize * lhRatio;
+
+      ctx.fillStyle = color;
+      ctx.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif`;
+      ctx.textAlign = textAlign;
+      ctx.textBaseline = 'middle';
+
+      const padX = 16;
+      const padY = 8;
+      const maxTextW = Math.max(20, (sprite.width || 40) - padX * 2);
+      const lines = this.wrapTextLines(ctx, rawText, maxTextW);
+      const totalTextH = lines.length * lh;
+
+      let startY = 0;
+      if (valign === 'top') {
+        startY = -hh + padY + lh / 2;
+      } else if (valign === 'bottom') {
+        startY = hh - padY - totalTextH + lh / 2;
+      } else {
+        startY = -(lines.length - 1) * lh / 2;
+      }
+
+      const textX = textAlign === 'left' ? (-hw + padX) : (textAlign === 'right' ? (hw - padX) : 0);
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], textX, startY + i * lh);
+      }
+      ctx.restore();
+    }
+
+    _legacy_drawSpriteLabelText(ctx, sprite, hw, hh, lop) {
       ctx.save();
       const isLight = (hex) => {
         if (!hex || hex === 'transparent') return false;
@@ -2493,9 +2601,14 @@
       if (this.activeTool === 'gradient' && this.gradientStart) {
         const sp = this.doc.hitTestSprite(wx, wy) || this.doc.getSelectedSprite();
         if (sp) {
+          const gdx = wx - this.gradientStart.x;
+          const gdy = wy - this.gradientStart.y;
+          const angleDeg = Math.round((Math.atan2(gdy, gdx) * 180) / Math.PI);
           sp.fillType = 'linear-gradient';
+          sp.gradientAngle = angleDeg;
           sp.gradient = {
             type: 'linear',
+            angle: angleDeg,
             stops: [
               { offset: 0, color: this.doc.foregroundColor || '#ffffff' },
               { offset: 1, color: this.doc.backgroundColor || '#27272a' }
@@ -2503,6 +2616,9 @@
           };
           this.doc.saveState();
           if (this.onCommit) this.onCommit();
+          if (typeof StudioToast !== 'undefined') {
+            StudioToast.show(`그라데이션 방향이 적용되었습니다 (${angleDeg}°).`);
+          }
         }
         this.gradientStart = null;
         return;
@@ -4429,12 +4545,52 @@
         <div class="ps-prop-section">
           <div class="ps-prop-header">모양 및 스타일 (Appearance)</div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">채우기 색상:</label>
-            <div class="ps-color-picker-wrap">
-              <input type="color" class="ps-color-picker" id="inpFill" value="${sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#38bdf8'}">
-              <span class="ps-val-tag">${sprite.fill || '#38bdf8'}</span>
+            <label class="ps-prop-label">채우기 방식:</label>
+            <select class="ps-select" id="inpFillType">
+              <option value="color" ${sprite.fillType !== 'linear-gradient' && sprite.fillType !== 'none' ? 'selected' : ''}>단색 (Solid Color)</option>
+              <option value="linear-gradient" ${sprite.fillType === 'linear-gradient' ? 'selected' : ''}>선형 그라데이션 (Linear)</option>
+              <option value="none" ${sprite.fillType === 'none' ? 'selected' : ''}>없음 / 투명 (None)</option>
+            </select>
+          </div>
+          ${sprite.fillType === 'linear-gradient' ? `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">그라데이션 각도:</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" id="inpGradientAngle" min="-360" max="360" step="5" value="${sprite.gradient?.angle !== undefined ? sprite.gradient.angle : (sprite.gradientAngle || 0)}">
             </div>
           </div>
+          <div class="ps-prop-row" style="gap:4px;">
+            <label class="ps-prop-label">방향 프리셋:</label>
+            <div style="display:flex;gap:3px;flex:1;">
+              <button class="btn btn-secondary btn-sm btn-grad-dir" data-angle="0" style="flex:1;padding:2px 4px;font-size:10px;">0°(➔)</button>
+              <button class="btn btn-secondary btn-sm btn-grad-dir" data-angle="90" style="flex:1;padding:2px 4px;font-size:10px;">90°(↓)</button>
+              <button class="btn btn-secondary btn-sm btn-grad-dir" data-angle="45" style="flex:1;padding:2px 4px;font-size:10px;">45°(↘)</button>
+              <button class="btn btn-secondary btn-sm btn-grad-dir" data-angle="180" style="flex:1;padding:2px 4px;font-size:10px;">180°(←)</button>
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">시작 색상 (0%):</label>
+            <div class="ps-color-picker-wrap">
+              <input type="color" class="ps-color-picker" id="inpGradStop0" value="${sprite.gradient?.stops?.[0]?.color || '#ffffff'}">
+              <span class="ps-val-tag">${sprite.gradient?.stops?.[0]?.color || '#ffffff'}</span>
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">끝 색상 (100%):</label>
+            <div class="ps-color-picker-wrap">
+              <input type="color" class="ps-color-picker" id="inpGradStop1" value="${sprite.gradient?.stops?.[1]?.color || '#27272a'}">
+              <span class="ps-val-tag">${sprite.gradient?.stops?.[1]?.color || '#27272a'}</span>
+            </div>
+          </div>
+          ` : `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">채우기 색상:</label>
+            <div class="ps-color-picker-wrap">
+              <input type="color" class="ps-color-picker" id="inpFill" value="${sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#71717a'}">
+              <span class="ps-val-tag">${sprite.fill || '#71717a'}</span>
+            </div>
+          </div>
+          `}
           <div class="ps-prop-row">
             <label class="ps-prop-label">테두리 색상:</label>
             <div class="ps-color-picker-wrap">
@@ -4466,6 +4622,7 @@
         <!-- Text Specific Section -->
         <div class="ps-prop-section">
           <div class="ps-prop-header">텍스트 속성 (Typography)</div>
+${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">텍스트 내용:</label>
             <input type="text" class="ps-input" id="inpText" value="${sprite.text || ''}">
@@ -4475,7 +4632,13 @@
             <div class="blender-scrub-group">
               <input type="number" class="blender-scrub-input" id="inpFontSize" min="1" max="200" value="${sprite.fontSize || 32}">
             </div>
-          </div>
+          </div>` : `
+          <div class="ps-prop-row" style="margin-top:6px;">
+            <button class="btn btn-secondary btn-sm" id="btnQuickAddTextMod" style="width:100%;font-size:11px;padding:4px 8px;display:flex;align-items:center;justify-content:center;gap:4px;" title="스프라이트 안에 텍스트 라벨 모듈을 추가합니다">
+              + 텍스트 라벨 모듈 추가
+            </button>
+          </div>`
+}
           <div class="ps-prop-row">
             <label class="ps-prop-label">정렬:</label>
             <select class="ps-select" id="inpTextAlign">
@@ -4539,7 +4702,58 @@
 
       let typeSpecificHtml = '';
 
-      if (mod.type === 'path_follower') {
+      if (mod.type === 'text_label') {
+        typeSpecificHtml = `
+          <div class="ps-prop-row" style="align-items:flex-start;">
+            <label class="ps-prop-label">텍스트 내용:</label>
+            <textarea class="ps-input" data-param-key="text" rows="3" style="resize:vertical;font-family:inherit;min-height:54px;">${params.text || ''}</textarea>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">글자 크기 (px):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="fontSize" min="8" max="160" value="${params.fontSize || 16}">
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">글자 색상:</label>
+            <div class="ps-color-picker-wrap">
+              <input type="color" class="ps-color-picker" data-param-key="color" value="${params.color && params.color.startsWith('#') ? params.color : '#ffffff'}">
+              <span class="ps-val-tag">${params.color || '#ffffff'}</span>
+            </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">글자 굵기:</label>
+            <select class="ps-select" data-param-key="fontWeight">
+              <option value="normal" ${(params.fontWeight || 'normal') === 'normal' ? 'selected' : ''}>보통 (Normal)</option>
+              <option value="bold" ${params.fontWeight === 'bold' ? 'selected' : ''}>굵게 (Bold)</option>
+              <option value="300" ${params.fontWeight === '300' ? 'selected' : ''}>가늘게 (Light)</option>
+              <option value="900" ${params.fontWeight === '900' ? 'selected' : ''}>매우 굵게 (Black)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">가로 정렬:</label>
+            <select class="ps-select" data-param-key="textAlign">
+              <option value="center" ${(params.textAlign || 'center') === 'center' ? 'selected' : ''}>가운데 정렬</option>
+              <option value="left" ${params.textAlign === 'left' ? 'selected' : ''}>왼쪽 정렬</option>
+              <option value="right" ${params.textAlign === 'right' ? 'selected' : ''}>오른쪽 정렬</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">세로 정렬:</label>
+            <select class="ps-select" data-param-key="valign">
+              <option value="middle" ${(params.valign || 'middle') === 'middle' ? 'selected' : ''}>중앙 (Middle)</option>
+              <option value="top" ${params.valign === 'top' ? 'selected' : ''}>상단 (Top)</option>
+              <option value="bottom" ${params.valign === 'bottom' ? 'selected' : ''}>하단 (Bottom)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">줄 간격 (배수):</label>
+            <div class="blender-scrub-group">
+              <input type="number" class="blender-scrub-input" data-param-key="lineHeight" step="0.05" min="1" max="3" value="${params.lineHeight || 1.35}">
+            </div>
+          </div>
+        `;
+      } else if (mod.type === 'path_follower') {
         const pathSprites = [];
         for (const ly of this.doc.layers) {
           for (const sp of ly.sprites) {
@@ -5035,6 +5249,83 @@
           sprite.textAlign = e.target.value;
           this.doc.saveState();
           if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+
+        // Quick add text_label module
+        this.el.querySelector('#btnQuickAddTextMod')?.addEventListener('click', () => {
+          if (!sprite.modules) sprite.modules = [];
+          const textMod = {
+            id: 'mod_' + Math.random().toString(36).substring(2, 9),
+            type: 'text_label',
+            name: '텍스트 라벨 (Text)',
+            enabled: true,
+            params: {
+              text: '텍스트',
+              fontSize: 16,
+              color: '#ffffff',
+              fontWeight: 'normal',
+              textAlign: 'center',
+              valign: 'middle',
+              lineHeight: 1.35
+            }
+          };
+          sprite.modules.push(textMod);
+          this.doc.selectedModuleId = textMod.id;
+          this.doc.saveState();
+          this.render();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+          if (typeof StudioToast !== 'undefined') StudioToast.show('텍스트 라벨 모듈이 추가되었습니다.');
+        });
+
+        // Gradient Angle & Stop controls in Inspector
+        this.el.querySelector('#inpFillType')?.addEventListener('change', e => {
+          sprite.fillType = e.target.value;
+          if (sprite.fillType === 'linear-gradient' && !sprite.gradient) {
+            sprite.gradient = {
+              type: 'linear',
+              angle: 0,
+              stops: [{ offset: 0, color: '#ffffff' }, { offset: 1, color: '#27272a' }]
+            };
+          }
+          this.doc.saveState();
+          this.render();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+
+        this.el.querySelector('#inpGradientAngle')?.addEventListener('input', e => {
+          const a = parseInt(e.target.value, 10) || 0;
+          if (!sprite.gradient) sprite.gradient = { type: 'linear', angle: a, stops: [] };
+          sprite.gradient.angle = a;
+          sprite.gradientAngle = a;
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+
+        this.el.querySelectorAll('.btn-grad-dir').forEach(b => {
+          b.addEventListener('click', () => {
+            const a = parseInt(b.dataset.angle, 10) || 0;
+            if (!sprite.gradient) sprite.gradient = { type: 'linear', angle: a, stops: [] };
+            sprite.gradient.angle = a;
+            sprite.gradientAngle = a;
+            this.doc.saveState();
+            this.render();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          });
+        });
+
+        this.el.querySelector('#inpGradStop0')?.addEventListener('input', e => {
+          if (!sprite.gradient?.stops) return;
+          sprite.gradient.stops[0].color = e.target.value;
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+
+        this.el.querySelector('#inpGradStop1')?.addEventListener('input', e => {
+          if (!sprite.gradient?.stops) return;
+          if (!sprite.gradient.stops[1]) sprite.gradient.stops[1] = { offset: 1, color: e.target.value };
+          else sprite.gradient.stops[1].color = e.target.value;
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
         });
 
         this.el.querySelector('#inpTriggerEvent')?.addEventListener('change', e => {
@@ -5556,6 +5847,8 @@
                 <button class="ps-dropdown-item" id="mWebExport">웹사이트 (HTML/CSS/JS) 내보내기...</button>
                 <div class="ps-dropdown-sep"></div>
                 <div style="padding:4px 8px;font-size:10px;color:#a1a1aa;font-weight:600;">웹 템플릿 삽입</div>
+                <button class="ps-dropdown-item" id="btnOpenTemplateGallery" style="color:#f4f4f5;font-weight:600;">📂 템플릿 갤러리 열기...</button>
+                <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" data-web-tpl="full_landing">[풀 패키지] 전체 사이트</button>
                 <button class="ps-dropdown-item" data-web-tpl="navbar">상단 네비게이션 헤더 (Navbar)</button>
                 <button class="ps-dropdown-item" data-web-tpl="hero">메인 히어로 섹션 (Hero)</button>
@@ -5835,6 +6128,12 @@
       this.el.querySelector('#winClose')?.addEventListener('click', () => {
         document.title = 'cmd:window_close';
         setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+      });
+
+      this.el.querySelector('#btnOpenTemplateGallery')?.addEventListener('click', () => {
+        if (window.jspenApp?.templateModal) {
+          window.jspenApp.templateModal.show();
+        }
       });
 
       // Web template items
@@ -8109,6 +8408,191 @@
   // 19. Main Application Controller (Decoupled Loop, Anti-Lag, Web Studio)
   // ==========================================================================
   
+
+  // ==========================================================================
+  // Template Gallery Modal (Dynamic loading from templates folder & project files)
+  // ==========================================================================
+  class TemplateModalUI {
+    constructor(app) {
+      this.app = app;
+      this.overlay = null;
+    }
+
+    async fetchTemplateList() {
+      // 1. Try server API
+      try {
+        const res = await fetch('/api/templates');
+        if (res.ok) {
+          const list = await res.json();
+          if (Array.isArray(list) && list.length > 0) return list;
+        }
+      } catch (_) {}
+
+      // 2. Try manifest.json
+      try {
+        const res = await fetch('/templates/manifest.json');
+        if (res.ok) {
+          const manifest = await res.json();
+          if (Array.isArray(manifest) && manifest.length > 0) return manifest;
+        }
+      } catch (_) {}
+
+      // 3. Fallback bundled template list
+      return [
+        { file: 'full_landing.json', title: '전체 웹사이트 풀 패키지 (Full Website)', description: '네비게이션, 히어로, 3단 기능 카드, CTA, 푸터까지 완성된 전체 웹사이트 템플릿입니다.', layersCount: 5 },
+        { file: 'navbar.json', title: '상단 네비게이션 헤더 (Navbar)', description: '로고, 3개 메뉴 링크, CTA 버튼이 포함된 반응형 헤더 바입니다.', layersCount: 1 },
+        { file: 'hero.json', title: '메인 히어로 섹션 (Hero)', description: '헤드라인, 서브텍스트, 배지, 주요/보조 버튼으로 구성된 히어로 섹션입니다.', layersCount: 1 },
+        { file: 'feature_grid.json', title: '3열 기능 카드 그리드 (Features)', description: '3개의 모던 다크 카드와 섹션 헤딩이 포함된 특징 소개 그리드입니다.', layersCount: 1 },
+        { file: 'cta_banner.json', title: '전환 유도 CTA 배너 (CTA)', description: '방문자의 행동을 유도하는 하이라이트 전환 배너 박스입니다.', layersCount: 1 },
+        { file: 'footer.json', title: '하단 푸터 (Footer)', description: '로고, 저작권 문구, 각종 정책 및 소셜 링크가 배치된 푸터입니다.', layersCount: 1 },
+        { file: 'portfolio.json', title: '다크 포트폴리오 쇼케이스 (Portfolio)', description: '디자이너 및 크리에이터를 위한 모던 다크 테마 포트폴리오 템플릿입니다.', layersCount: 3 }
+      ];
+    }
+
+    async loadTemplateFile(filename) {
+      try {
+        const res = await fetch('/templates/' + filename);
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    async show() {
+      const templates = await this.fetchTemplateList();
+      this.close();
+
+      this.overlay = document.createElement('div');
+      this.overlay.className = 'studio-modal-overlay';
+      this.overlay.innerHTML = `
+        <div class="tpl-modal-box">
+          <div class="studio-modal-header">
+            <span class="studio-modal-title">웹사이트 템플릿 갤러리 (templates/ 폴더 연동)</span>
+            <button class="studio-modal-close" id="btnTplClose">✕</button>
+          </div>
+          <div style="padding:10px 14px;background:#18181b;border-bottom:1px solid #28282c;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <span style="font-size:11.5px;color:#a1a1aa;">templates/ 폴더에 프로젝트(.json) 파일을 넣으면 자동으로 템플릿으로 인식됩니다.</span>
+            <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;font-size:11px;padding:3px 10px;">
+              📁 템플릿 파일 직접 열기 (JSON)...
+              <input type="file" id="inpCustomTplFile" accept=".json" style="display:none;" />
+            </label>
+          </div>
+          <div style="padding:14px;overflow-y:auto;flex:1;">
+            <div class="tpl-grid">
+              ${templates.map(t => `
+                <div class="tpl-card" data-tpl-file="${t.file}">
+                  <div>
+                    <div class="tpl-card-title">${t.title || t.file}</div>
+                    <div class="tpl-card-desc">${t.description || 'JSPen 모던 v11 프로젝트 템플릿입니다.'}</div>
+                  </div>
+                  <div class="tpl-card-footer">
+                    <span class="tpl-card-meta">${t.layersCount ? `레이어 ${t.layersCount}개` : t.file}</span>
+                    <div style="display:flex;gap:4px;">
+                      <button class="btn btn-secondary btn-sm btn-insert-tpl" data-tpl-file="${t.file}" style="font-size:11px;padding:2px 8px;">레이어 삽입</button>
+                      <button class="btn btn-primary btn-sm btn-open-tpl" data-tpl-file="${t.file}" style="font-size:11px;padding:2px 8px;">전체 열기</button>
+                    </div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(this.overlay);
+
+      this.overlay.querySelector('#btnTplClose').onclick = () => this.close();
+      this.overlay.addEventListener('click', e => {
+        if (e.target === this.overlay) this.close();
+      });
+
+      // Custom file direct load
+      this.overlay.querySelector('#inpCustomTplFile')?.addEventListener('change', e => {
+        const file = e.target.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = ev => {
+            try {
+              const docData = JSON.parse(ev.target.result);
+              this.applyTemplateData(docData, false);
+              this.close();
+              StudioToast.show(`'${file.name}' 템플릿이 적용되었습니다.`);
+            } catch (err) {
+              StudioToast.show('올바른 JSON 프로젝트 파일이 아닙니다: ' + err.message);
+            }
+          };
+          reader.readAsText(file);
+        }
+      });
+
+      // Template card buttons
+      this.overlay.querySelectorAll('.btn-insert-tpl').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const file = btn.dataset.tplFile;
+          const data = await this.loadTemplateFile(file);
+          if (data) {
+            this.applyTemplateData(data, true);
+            this.close();
+            StudioToast.show(`'${file}' 템플릿 레이어가 삽입되었습니다.`);
+          }
+        });
+      });
+
+      this.overlay.querySelectorAll('.btn-open-tpl').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const file = btn.dataset.tplFile;
+          const data = await this.loadTemplateFile(file);
+          if (data) {
+            this.applyTemplateData(data, false);
+            this.close();
+            StudioToast.show(`'${file}' 프로젝트 템플릿이 로드되었습니다.`);
+          }
+        });
+      });
+    }
+
+    applyTemplateData(docData, insertAsLayers = false) {
+      if (!docData) return;
+      if (insertAsLayers) {
+        // Append layers with vertical offset below existing sprites
+        let maxY = 0;
+        for (const l of this.app.doc.layers) {
+          for (const s of l.sprites) {
+            maxY = Math.max(maxY, (s.y || 0) + (s.height || 0) / 2);
+          }
+        }
+        const yOffset = maxY > 0 ? (maxY + 40) : 0;
+        const newLayers = (docData.layers || []).map(lData => {
+          const layer = new Layer(lData);
+          layer.id = 'layer_' + Math.random().toString(36).substring(2, 9);
+          for (const s of layer.sprites) {
+            s.id = 'sp_' + Math.random().toString(36).substring(2, 9);
+            s.y = (s.y || 0) + yOffset;
+          }
+          return layer;
+        });
+
+        this.app.doc.layers.push(...newLayers);
+        if (yOffset > 0) {
+          this.app.doc.height = Math.max(this.app.doc.height, maxY + (docData.height || 800) + 100);
+        }
+        this.app.doc.saveState();
+        this.app.refreshUI();
+      } else {
+        // Load entire document
+        this.app.loadProjectFromJSON(docData);
+      }
+    }
+
+    close() {
+      if (this.overlay && this.overlay.parentNode) {
+        this.overlay.parentNode.removeChild(this.overlay);
+        this.overlay = null;
+      }
+    }
+  }
+
   class App {
     constructor() {
       this.canvas = document.getElementById('viewportCanvas');
@@ -8170,6 +8654,7 @@
       // Modals & Node Editor
       this.exportModal = new ExportModalUI(this.doc);
       this.settingsModal = new SettingsModalUI(this.pluginManager);
+      this.templateModal = new TemplateModalUI(this);
       this.nodeEditor = new NodeEditorUI(document.getElementById('nodeEditorContainer'), this.doc, {
         onUpdate: () => {
           this.moduleEngine.activeModuleIds = this.nodeEditor.getActiveModuleIds();
@@ -8211,13 +8696,31 @@
       }
     }
 
-    insertWebsiteTemplate(type) {
+    async insertWebsiteTemplate(type) {
       const W = this.doc.width || 1440;
+      // If template file exists in templates folder, load it cleanly!
+      const filenameMap = {
+        full_landing: 'full_landing.json',
+        navbar: 'navbar.json',
+        hero: 'hero.json',
+        feature_grid: 'feature_grid.json',
+        cta_banner: 'cta_banner.json',
+        footer: 'footer.json'
+      };
+      const fname = filenameMap[type];
+      if (fname && this.templateModal) {
+        const data = await this.templateModal.loadTemplateFile(fname);
+        if (data) {
+          this.templateModal.applyTemplateData(data, type !== 'full_landing');
+          if (typeof StudioToast !== 'undefined') StudioToast.show(`템플릿('${fname}')이 적용되었습니다.`);
+          return;
+        }
+      }
+
       const layer = this.doc.getSelectedLayer() || this.doc.layers[0];
       if (!layer) return;
-
       this.doc.transparentBackground = false;
-      this.doc.backgroundColor = '#0b0f17';
+      this.doc.backgroundColor = '#18181b';
 
       if (type === 'navbar') {
         const bg = layer.addSprite({
@@ -8541,6 +9044,13 @@
         let bgStyle = 'transparent';
         let textColor = '#ffffff';
 
+        // Check for text_label module
+        const textMod = (sprite.modules || []).find(m => m.enabled !== false && m.type === 'text_label');
+        if (textMod && textMod.params) {
+          innerContent = textMod.params.text || '';
+          textColor = textMod.params.color || '#ffffff';
+        }
+
         if (sprite.type === 'text') {
           innerContent = sprite.text || '';
           bgStyle = 'transparent';
@@ -8577,7 +9087,8 @@
           // rect, circle, bevel_rect
           if (sprite.fillType === 'linear-gradient' && sprite.gradient?.stops) {
             const stops = sprite.gradient.stops.map(s => `${s.color} ${Math.round((s.offset || 0) * 100)}%`).join(', ');
-            bgStyle = `linear-gradient(135deg, ${stops})`;
+            const gAngle = (sprite.gradient.angle !== undefined ? sprite.gradient.angle : (sprite.gradientAngle || 0)) + 90;
+            bgStyle = `linear-gradient(${gAngle}deg, ${stops})`;
           } else if (sprite.fillType !== 'none') {
             bgStyle = sprite.fill || '#38bdf8';
           }
@@ -8732,11 +9243,78 @@
   </style>
 </head>
 <body>
-  <div id="webArtboard">
-    ${elementsHtml}
+  <div id="previewStage" style="width:100%; display:flex; flex-direction:column; align-items:center; position:relative;">
+    <div id="artboardScaler" style="transform-origin: top center; transition: transform 0.12s ease-out;">
+      <div id="webArtboard">
+        ${elementsHtml}
+      </div>
+    </div>
+  </div>
+
+  <!-- Sleek Monochromatic Preview Control Bar -->
+  <div id="previewToolbar" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(24,24,27,0.88);backdrop-filter:blur(10px);border:1px solid #3f3f46;border-radius:24px;padding:6px 14px;display:flex;align-items:center;gap:8px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:12px;color:#f4f4f5;user-select:none;">
+    <span style="font-weight:700;color:#e4e4e7;margin-right:2px;">화면 배율:</span>
+    <span id="valZoomPercent" style="min-width:44px;font-weight:600;color:#a1a1aa;">100%</span>
+    <button class="pv-btn active" data-mode="fit" style="background:#3f3f46;color:#ffffff;border:1px solid #71717a;padding:3px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:600;">창 맞춤 (Fit)</button>
+    <button class="pv-btn" data-mode="100" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">100%</button>
+    <button class="pv-btn" data-mode="768" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">태블릿 (768)</button>
+    <button class="pv-btn" data-mode="390" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">모바일 (390)</button>
   </div>
 
   <script>
+    // Responsive Dynamic Scaling
+    let currentZoomMode = 'fit';
+    const baseW = ${W};
+    const baseH = ${H};
+
+    function updatePreviewScale() {
+      const scaler = document.getElementById('artboardScaler');
+      const artboard = document.getElementById('webArtboard');
+      const stage = document.getElementById('previewStage');
+      if (!scaler || !artboard) return;
+
+      let scale = 1;
+      if (currentZoomMode === 'fit') {
+        scale = Math.max(0.15, window.innerWidth / baseW);
+        artboard.style.width = baseW + 'px';
+      } else if (currentZoomMode === '100') {
+        scale = 1;
+        artboard.style.width = baseW + 'px';
+      } else {
+        const fixedW = parseInt(currentZoomMode, 10) || baseW;
+        scale = Math.min(1, window.innerWidth / fixedW);
+        artboard.style.width = fixedW + 'px';
+      }
+
+      scaler.style.transform = "scale(" + scale + ")";
+      const scaledH = (artboard.offsetHeight || baseH) * scale;
+      if (stage) stage.style.height = scaledH + 'px';
+
+      const lbl = document.getElementById('valZoomPercent');
+      if (lbl) lbl.textContent = Math.round(scale * 100) + '%';
+    }
+
+    window.addEventListener('resize', updatePreviewScale);
+    window.addEventListener('DOMContentLoaded', updatePreviewScale);
+    setTimeout(updatePreviewScale, 60);
+
+    document.querySelectorAll('.pv-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.pv-btn').forEach(b => {
+          b.classList.remove('active');
+          b.style.background = 'transparent';
+          b.style.color = '#a1a1aa';
+          b.style.borderColor = '#52525b';
+        });
+        btn.classList.add('active');
+        btn.style.background = '#3f3f46';
+        btn.style.color = '#ffffff';
+        btn.style.borderColor = '#71717a';
+        currentZoomMode = btn.dataset.mode;
+        updatePreviewScale();
+      });
+    });
+
     // Smooth scrolling for in-page section links
     document.querySelectorAll('a[href^="#"]').forEach(a => {
       a.addEventListener('click', e => {

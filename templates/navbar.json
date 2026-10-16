@@ -1,0 +1,268 @@
+{
+  "name": "상단 네비게이션 헤더 템플릿",
+  "width": 1440,
+  "height": 120,
+  "backgroundColor": "#18181b",
+  "transparentBackground": false,
+  "layers": [
+    {
+      "id": "layer_nav",
+      "name": "네비게이션 레이어",
+      "visible": true,
+      "opacity": 1,
+      "expanded": true,
+      "sprites": [
+        {
+          "id": "sp_tpl_101",
+          "name": "헤더 배경",
+          "type": "rect",
+          "x": 720,
+          "y": 40,
+          "width": 1440,
+          "height": 80,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#18181b",
+          "fillType": "color",
+          "stroke": "#27272a",
+          "strokeWidth": 1,
+          "cornerRadius": 0,
+          "modules": []
+        },
+        {
+          "id": "sp_tpl_102",
+          "name": "브랜드 로고",
+          "type": "rect",
+          "x": 140,
+          "y": 40,
+          "width": 160,
+          "height": 36,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_1",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "✦ JSPEN STUDIO",
+                "fontSize": 18,
+                "color": "#ffffff",
+                "fontWeight": "bold",
+                "textAlign": "left",
+                "lineHeight": 1.35
+              }
+            },
+            {
+              "id": "mod_link_1",
+              "type": "hyperlink",
+              "name": "링크 이동 (Link)",
+              "enabled": true,
+              "params": {
+                "url": "#",
+                "target": "_self",
+                "trigger": "click"
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_103",
+          "name": "메뉴 - 기능",
+          "type": "rect",
+          "x": 600,
+          "y": 40,
+          "width": 90,
+          "height": 32,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_2",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "기능 소개",
+                "fontSize": 13.5,
+                "color": "#a1a1aa",
+                "fontWeight": "normal",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            },
+            {
+              "id": "mod_link_2",
+              "type": "hyperlink",
+              "name": "링크 이동 (Link)",
+              "enabled": true,
+              "params": {
+                "url": "#features",
+                "target": "_self",
+                "trigger": "click"
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_104",
+          "name": "메뉴 - 쇼케이스",
+          "type": "rect",
+          "x": 720,
+          "y": 40,
+          "width": 90,
+          "height": 32,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_3",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "쇼케이스",
+                "fontSize": 13.5,
+                "color": "#a1a1aa",
+                "fontWeight": "normal",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            },
+            {
+              "id": "mod_link_3",
+              "type": "hyperlink",
+              "name": "링크 이동 (Link)",
+              "enabled": true,
+              "params": {
+                "url": "#showcase",
+                "target": "_self",
+                "trigger": "click"
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_105",
+          "name": "메뉴 - 요금제",
+          "type": "rect",
+          "x": 840,
+          "y": 40,
+          "width": 90,
+          "height": 32,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_4",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "요금 안내",
+                "fontSize": 13.5,
+                "color": "#a1a1aa",
+                "fontWeight": "normal",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            },
+            {
+              "id": "mod_link_4",
+              "type": "hyperlink",
+              "name": "링크 이동 (Link)",
+              "enabled": true,
+              "params": {
+                "url": "#pricing",
+                "target": "_self",
+                "trigger": "click"
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_106",
+          "name": "헤더 시작 버튼",
+          "type": "rect",
+          "x": 1300,
+          "y": 40,
+          "width": 140,
+          "height": 40,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#27272a",
+          "fillType": "color",
+          "stroke": "#52525b",
+          "strokeWidth": 1,
+          "cornerRadius": 20,
+          "modules": [
+            {
+              "id": "mod_text_5",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "무료 시작하기",
+                "fontSize": 13,
+                "color": "#f4f4f5",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            },
+            {
+              "id": "mod_link_5",
+              "type": "hyperlink",
+              "name": "링크 이동 (Link)",
+              "enabled": true,
+              "params": {
+                "url": "https://github.com",
+                "target": "_blank",
+                "trigger": "click"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

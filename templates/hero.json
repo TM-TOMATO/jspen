@@ -1,0 +1,215 @@
+{
+  "name": "히어로 섹션 템플릿",
+  "width": 1440,
+  "height": 560,
+  "backgroundColor": "#18181b",
+  "transparentBackground": false,
+  "layers": [
+    {
+      "id": "layer_hero",
+      "name": "히어로 레이어",
+      "visible": true,
+      "opacity": 1,
+      "expanded": true,
+      "sprites": [
+        {
+          "id": "sp_tpl_201",
+          "name": "상단 안내 배지",
+          "type": "rect",
+          "x": 720,
+          "y": 60,
+          "width": 280,
+          "height": 32,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#27272a",
+          "fillType": "color",
+          "stroke": "#3f3f46",
+          "strokeWidth": 1,
+          "cornerRadius": 16,
+          "modules": [
+            {
+              "id": "mod_text_6",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "차세대 인터랙티브 그래픽 스튜디오",
+                "fontSize": 11.5,
+                "color": "#d4d4d8",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_202",
+          "name": "메인 헤드라인",
+          "type": "rect",
+          "x": 720,
+          "y": 160,
+          "width": 880,
+          "height": 110,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_7",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "상상을 현실로 만드는\n가장 진보된 웹 디자인 스튜디오",
+                "fontSize": 42,
+                "color": "#ffffff",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_203",
+          "name": "서브 설명문",
+          "type": "rect",
+          "x": 720,
+          "y": 270,
+          "width": 720,
+          "height": 60,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_8",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "복잡한 코딩 없이 그래픽 툴처럼 자유롭게 디자인하고, 실시간 반응형 애니메이션과 링크를 웹사이트에 즉시 적용하세요.",
+                "fontSize": 15.5,
+                "color": "#a1a1aa",
+                "fontWeight": "normal",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_204",
+          "name": "메인 CTA 버튼",
+          "type": "rect",
+          "x": 620,
+          "y": 360,
+          "width": 170,
+          "height": 48,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#ffffff",
+          "fillType": "color",
+          "stroke": "#ffffff",
+          "strokeWidth": 1,
+          "cornerRadius": 24,
+          "modules": [
+            {
+              "id": "mod_text_9",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "지금 시작하기 ➔",
+                "fontSize": 14,
+                "color": "#09090b",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            },
+            {
+              "id": "mod_link_6",
+              "type": "hyperlink",
+              "name": "링크 이동 (Link)",
+              "enabled": true,
+              "params": {
+                "url": "#start",
+                "target": "_self",
+                "trigger": "click"
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_205",
+          "name": "보조 둘러보기 버튼",
+          "type": "rect",
+          "x": 820,
+          "y": 360,
+          "width": 170,
+          "height": 48,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#27272a",
+          "fillType": "color",
+          "stroke": "#3f3f46",
+          "strokeWidth": 1,
+          "cornerRadius": 24,
+          "modules": [
+            {
+              "id": "mod_text_10",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "기능 살펴보기",
+                "fontSize": 14,
+                "color": "#e4e4e7",
+                "fontWeight": "normal",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            },
+            {
+              "id": "mod_link_7",
+              "type": "hyperlink",
+              "name": "링크 이동 (Link)",
+              "enabled": true,
+              "params": {
+                "url": "#features",
+                "target": "_self",
+                "trigger": "click"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

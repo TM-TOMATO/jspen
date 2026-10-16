@@ -1,0 +1,158 @@
+{
+  "name": "3열 기능 카드 그리드 템플릿",
+  "width": 1440,
+  "height": 480,
+  "backgroundColor": "#18181b",
+  "transparentBackground": false,
+  "layers": [
+    {
+      "id": "layer_features",
+      "name": "기능 카드 레이어",
+      "visible": true,
+      "opacity": 1,
+      "expanded": true,
+      "sprites": [
+        {
+          "id": "sp_tpl_301",
+          "name": "섹션 헤딩",
+          "type": "rect",
+          "x": 720,
+          "y": 60,
+          "width": 600,
+          "height": 40,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_11",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "강력하고 직관적인 크리에이티브 도구",
+                "fontSize": 28,
+                "color": "#ffffff",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_302",
+          "name": "카드 1 배경",
+          "type": "rect",
+          "x": 340,
+          "y": 240,
+          "width": 340,
+          "height": 240,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#202024",
+          "fillType": "color",
+          "stroke": "#2e2e34",
+          "strokeWidth": 1,
+          "cornerRadius": 12,
+          "modules": [
+            {
+              "id": "mod_text_12",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "✦ 벡터 & 베지어 드로잉\n\n정밀한 곡선 제어점과 열린 패스/닫힌 도형을 자유롭게 그리고 조작할 수 있습니다.",
+                "fontSize": 14,
+                "color": "#d4d4d8",
+                "fontWeight": "normal",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_303",
+          "name": "카드 2 배경",
+          "type": "rect",
+          "x": 720,
+          "y": 240,
+          "width": 340,
+          "height": 240,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#202024",
+          "fillType": "color",
+          "stroke": "#2e2e34",
+          "strokeWidth": 1,
+          "cornerRadius": 12,
+          "modules": [
+            {
+              "id": "mod_text_13",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "☩ 블렌더 스타일 모디파이어\n\n마스크, 그래픽 필터, 링크, 진동 효과를 모듈화하여 실시간 논디스트럭티브로 합성합니다.",
+                "fontSize": 14,
+                "color": "#d4d4d8",
+                "fontWeight": "normal",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_304",
+          "name": "카드 3 배경",
+          "type": "rect",
+          "x": 1100,
+          "y": 240,
+          "width": 340,
+          "height": 240,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#202024",
+          "fillType": "color",
+          "stroke": "#2e2e34",
+          "strokeWidth": 1,
+          "cornerRadius": 12,
+          "modules": [
+            {
+              "id": "mod_text_14",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "⧉ 원클릭 웹 내보내기\n\n단 한 번의 클릭으로 반응형 인터랙티브 웹페이지 전체 HTML 코드를 추출합니다.",
+                "fontSize": 14,
+                "color": "#d4d4d8",
+                "fontWeight": "normal",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

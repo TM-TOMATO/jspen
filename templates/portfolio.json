@@ -1,0 +1,312 @@
+{
+  "name": "다크 포트폴리오 쇼케이스 템플릿",
+  "width": 1440,
+  "height": 1200,
+  "backgroundColor": "#121214",
+  "transparentBackground": false,
+  "layers": [
+    {
+      "id": "layer_port_nav",
+      "name": "헤더 네비",
+      "visible": true,
+      "opacity": 1,
+      "expanded": true,
+      "sprites": [
+        {
+          "id": "sp_tpl_1001",
+          "name": "포트폴리오 헤더",
+          "type": "rect",
+          "x": 720,
+          "y": 40,
+          "width": 1440,
+          "height": 80,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#121214",
+          "fillType": "color",
+          "stroke": "#202024",
+          "strokeWidth": 1,
+          "cornerRadius": 0,
+          "modules": []
+        },
+        {
+          "id": "sp_tpl_1002",
+          "name": "디자이너 이름",
+          "type": "rect",
+          "x": 160,
+          "y": 40,
+          "width": 200,
+          "height": 36,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_32",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "ALEX.CREATIVE",
+                "fontSize": 18,
+                "color": "#ffffff",
+                "fontWeight": "bold",
+                "textAlign": "left",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_1003",
+          "name": "문의 링크",
+          "type": "rect",
+          "x": 1300,
+          "y": 40,
+          "width": 120,
+          "height": 36,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#27272a",
+          "fillType": "color",
+          "stroke": "#3f3f46",
+          "strokeWidth": 1,
+          "cornerRadius": 18,
+          "modules": [
+            {
+              "id": "mod_text_33",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "Get in Touch",
+                "fontSize": 12.5,
+                "color": "#ffffff",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            },
+            {
+              "id": "mod_link_14",
+              "type": "hyperlink",
+              "name": "링크 이동 (Link)",
+              "enabled": true,
+              "params": {
+                "url": "mailto:contact@example.com",
+                "target": "_blank",
+                "trigger": "click"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "layer_port_hero",
+      "name": "소개 히어로",
+      "visible": true,
+      "opacity": 1,
+      "expanded": true,
+      "sprites": [
+        {
+          "id": "sp_tpl_1004",
+          "name": "포트폴리오 소개",
+          "type": "rect",
+          "x": 720,
+          "y": 220,
+          "width": 960,
+          "height": 160,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_34",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "인터랙티브 웹 및 디지털 브랜딩을 만드는\n프로덕트 디자이너 & 엔지니어입니다.",
+                "fontSize": 38,
+                "color": "#f4f4f5",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "layer_port_work",
+      "name": "작업물 그리드",
+      "visible": true,
+      "opacity": 1,
+      "expanded": true,
+      "sprites": [
+        {
+          "id": "sp_tpl_1005",
+          "name": "프로젝트 1",
+          "type": "rect",
+          "x": 440,
+          "y": 560,
+          "width": 520,
+          "height": 340,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#1c1c1f",
+          "fillType": "color",
+          "stroke": "#2e2e34",
+          "strokeWidth": 1,
+          "cornerRadius": 12,
+          "modules": [
+            {
+              "id": "mod_text_35",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "PROJECT 01\n\nFintech Dashboard & Analytics",
+                "fontSize": 16,
+                "color": "#e4e4e7",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_1006",
+          "name": "프로젝트 2",
+          "type": "rect",
+          "x": 1000,
+          "y": 560,
+          "width": 520,
+          "height": 340,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#1c1c1f",
+          "fillType": "color",
+          "stroke": "#2e2e34",
+          "strokeWidth": 1,
+          "cornerRadius": 12,
+          "modules": [
+            {
+              "id": "mod_text_36",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "PROJECT 02\n\nAI Generative Art Platform",
+                "fontSize": 16,
+                "color": "#e4e4e7",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_1007",
+          "name": "프로젝트 3",
+          "type": "rect",
+          "x": 440,
+          "y": 950,
+          "width": 520,
+          "height": 340,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#1c1c1f",
+          "fillType": "color",
+          "stroke": "#2e2e34",
+          "strokeWidth": 1,
+          "cornerRadius": 12,
+          "modules": [
+            {
+              "id": "mod_text_37",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "PROJECT 03\n\nSpatial 3D Design System",
+                "fontSize": 16,
+                "color": "#e4e4e7",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_1008",
+          "name": "프로젝트 4",
+          "type": "rect",
+          "x": 1000,
+          "y": 950,
+          "width": 520,
+          "height": 340,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#1c1c1f",
+          "fillType": "color",
+          "stroke": "#2e2e34",
+          "strokeWidth": 1,
+          "cornerRadius": 12,
+          "modules": [
+            {
+              "id": "mod_text_38",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "PROJECT 04\n\nNext-Gen E-Commerce Studio",
+                "fontSize": 16,
+                "color": "#e4e4e7",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

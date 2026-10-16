@@ -1,0 +1,119 @@
+{
+  "name": "하단 푸터 템플릿",
+  "width": 1440,
+  "height": 180,
+  "backgroundColor": "#18181b",
+  "transparentBackground": false,
+  "layers": [
+    {
+      "id": "layer_footer",
+      "name": "푸터 레이어",
+      "visible": true,
+      "opacity": 1,
+      "expanded": true,
+      "sprites": [
+        {
+          "id": "sp_tpl_501",
+          "name": "푸터 배경",
+          "type": "rect",
+          "x": 720,
+          "y": 90,
+          "width": 1440,
+          "height": 180,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#121214",
+          "fillType": "color",
+          "stroke": "#27272a",
+          "strokeWidth": 1,
+          "cornerRadius": 0,
+          "modules": []
+        },
+        {
+          "id": "sp_tpl_502",
+          "name": "푸터 로고 및 저작권",
+          "type": "rect",
+          "x": 720,
+          "y": 60,
+          "width": 600,
+          "height": 30,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_17",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "✦ JSPen Studio — All Rights Reserved.",
+                "fontSize": 13,
+                "color": "#71717a",
+                "fontWeight": "normal",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_503",
+          "name": "푸터 링크 목록",
+          "type": "rect",
+          "x": 720,
+          "y": 110,
+          "width": 500,
+          "height": 30,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_18",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "이용약관     개인정보처리방침     고객센터     GitHub",
+                "fontSize": 12.5,
+                "color": "#a1a1aa",
+                "fontWeight": "normal",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            },
+            {
+              "id": "mod_link_9",
+              "type": "hyperlink",
+              "name": "링크 이동 (Link)",
+              "enabled": true,
+              "params": {
+                "url": "https://github.com/TM-TOMATO/jspen",
+                "target": "_blank",
+                "trigger": "click"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

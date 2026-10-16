@@ -1,0 +1,119 @@
+{
+  "name": "전환 유도 CTA 배너 템플릿",
+  "width": 1440,
+  "height": 320,
+  "backgroundColor": "#18181b",
+  "transparentBackground": false,
+  "layers": [
+    {
+      "id": "layer_cta",
+      "name": "CTA 레이어",
+      "visible": true,
+      "opacity": 1,
+      "expanded": true,
+      "sprites": [
+        {
+          "id": "sp_tpl_401",
+          "name": "CTA 배너 박스",
+          "type": "rect",
+          "x": 720,
+          "y": 160,
+          "width": 1100,
+          "height": 220,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#202024",
+          "fillType": "color",
+          "stroke": "#3f3f46",
+          "strokeWidth": 1,
+          "cornerRadius": 16,
+          "modules": []
+        },
+        {
+          "id": "sp_tpl_402",
+          "name": "CTA 헤드라인",
+          "type": "rect",
+          "x": 720,
+          "y": 120,
+          "width": 800,
+          "height": 50,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "transparent",
+          "fillType": "none",
+          "stroke": "#3f3f46",
+          "strokeWidth": 0,
+          "cornerRadius": 0,
+          "modules": [
+            {
+              "id": "mod_text_15",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "지금 바로 새로운 차원의 웹 디자인을 경험해보세요",
+                "fontSize": 24,
+                "color": "#ffffff",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            }
+          ]
+        },
+        {
+          "id": "sp_tpl_403",
+          "name": "CTA 버튼",
+          "type": "rect",
+          "x": 720,
+          "y": 195,
+          "width": 200,
+          "height": 46,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "opacity": 1,
+          "blendMode": "source-over",
+          "fill": "#ffffff",
+          "fillType": "color",
+          "stroke": "#ffffff",
+          "strokeWidth": 1,
+          "cornerRadius": 23,
+          "modules": [
+            {
+              "id": "mod_text_16",
+              "type": "text_label",
+              "name": "텍스트 라벨 (Text)",
+              "enabled": true,
+              "params": {
+                "text": "무료로 시작하기",
+                "fontSize": 14,
+                "color": "#09090b",
+                "fontWeight": "bold",
+                "textAlign": "center",
+                "lineHeight": 1.35
+              }
+            },
+            {
+              "id": "mod_link_8",
+              "type": "hyperlink",
+              "name": "링크 이동 (Link)",
+              "enabled": true,
+              "params": {
+                "url": "#signup",
+                "target": "_blank",
+                "trigger": "click"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
