@@ -9212,7 +9212,8 @@ ${sprite.type === 'text' ? `
       margin: 0;
       padding: 0;
       overflow-x: hidden;
-      overflow-y: auto;
+      overflow-y: scroll;
+      scrollbar-gutter: stable;
       display: flex;
       justify-content: center;
       align-items: flex-start;
@@ -9226,7 +9227,6 @@ ${sprite.type === 'text' ? `
       box-shadow: 0 4px 24px rgba(0,0,0,0.12);
       overflow: visible;
       flex-shrink: 0;
-      transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .web-sprite {
       text-decoration: none !important;
@@ -9249,7 +9249,7 @@ ${sprite.type === 'text' ? `
 </head>
 <body>
   <div id="previewStage" style="width:100%; display:flex; flex-direction:column; align-items:center; position:relative;">
-    <div id="artboardScaler" style="transform-origin: top center; transition: transform 0.12s ease-out;">
+    <div id="artboardScaler" style="transform-origin: top center;">
       <div id="webArtboard">
         ${elementsHtml}
       </div>
@@ -9257,7 +9257,7 @@ ${sprite.type === 'text' ? `
   </div>
 
   <!-- Sleek Monochromatic Preview Control Bar -->
-  <div id="previewToolbar" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(24,24,27,0.88);backdrop-filter:blur(10px);border:1px solid #3f3f46;border-radius:24px;padding:6px 14px;display:flex;align-items:center;gap:8px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:12px;color:#f4f4f5;user-select:none;">
+  <div id="previewToolbar" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#18181b;border:1px solid #3f3f46;border-radius:24px;padding:6px 14px;display:flex;align-items:center;gap:8px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:12px;color:#f4f4f5;user-select:none;">
     <span style="font-weight:700;color:#e4e4e7;margin-right:2px;">화면 배율:</span>
     <span id="valZoomPercent" style="min-width:44px;font-weight:600;color:#a1a1aa;">100%</span>
     <button class="pv-btn active" data-mode="fit" style="background:#3f3f46;color:#ffffff;border:1px solid #71717a;padding:3px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:600;">창 맞춤 (Fit)</button>
@@ -9271,6 +9271,7 @@ ${sprite.type === 'text' ? `
     let currentZoomMode = 'fit';
     const baseW = ${W};
     const baseH = ${H};
+    let rAFResize = null;
 
     function updatePreviewScale() {
       const scaler = document.getElementById('artboardScaler');
@@ -9278,16 +9279,17 @@ ${sprite.type === 'text' ? `
       const stage = document.getElementById('previewStage');
       if (!scaler || !artboard) return;
 
+      const availW = document.documentElement.clientWidth || window.innerWidth;
       let scale = 1;
       if (currentZoomMode === 'fit') {
-        scale = Math.max(0.15, window.innerWidth / baseW);
+        scale = Math.max(0.15, availW / baseW);
         artboard.style.width = baseW + 'px';
       } else if (currentZoomMode === '100') {
         scale = 1;
         artboard.style.width = baseW + 'px';
       } else {
         const fixedW = parseInt(currentZoomMode, 10) || baseW;
-        scale = Math.min(1, window.innerWidth / fixedW);
+        scale = Math.min(1, availW / fixedW);
         artboard.style.width = fixedW + 'px';
       }
 
@@ -9299,9 +9301,12 @@ ${sprite.type === 'text' ? `
       if (lbl) lbl.textContent = Math.round(scale * 100) + '%';
     }
 
-    window.addEventListener('resize', updatePreviewScale);
+    window.addEventListener('resize', () => {
+      if (rAFResize) cancelAnimationFrame(rAFResize);
+      rAFResize = requestAnimationFrame(updatePreviewScale);
+    });
     window.addEventListener('DOMContentLoaded', updatePreviewScale);
-    setTimeout(updatePreviewScale, 60);
+    setTimeout(updatePreviewScale, 30);
 
     document.querySelectorAll('.pv-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -9368,7 +9373,7 @@ ${sprite.type === 'text' ? `
       const blob = new Blob([previewHtml], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
       const previewWin = window.open(blobUrl, '_blank', 'width=1500,height=960');
-      if (!previewWin || previewWin.closed) {
+      if (!previewWin) {
         const a = document.createElement('a');
         a.href = blobUrl;
         a.target = '_blank';
@@ -9431,8 +9436,11 @@ ${sprite.type === 'text' ? `
     handleResize() {
       const p = this.canvas.parentElement;
       if (!p) return;
-      this.canvas.width = p.clientWidth;
-      this.canvas.height = p.clientHeight;
+      const pw = p.clientWidth;
+      const ph = p.clientHeight;
+      if (this.canvas.width === pw && this.canvas.height === ph) return;
+      this.canvas.width = pw;
+      this.canvas.height = ph;
       this.renderer.centerArtboard();
       this.renderCanvas();
       if (this.timeline) {

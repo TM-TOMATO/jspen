@@ -10,7 +10,7 @@ from PyQt6.QtCore import Qt, QUrl, pyqtSlot
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QMessageBox
 )
-from PyQt6.QtGui import QIcon, QKeySequence, QAction
+from PyQt6.QtGui import QIcon, QKeySequence, QAction, QColor
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
 
@@ -19,13 +19,17 @@ class PreviewWindow(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("JSPen Web Preview - 인터랙티브 웹사이트 라이브 미리보기")
         self.resize(1440, 900)
+        self.setStyleSheet("QMainWindow { background-color: #18181b; }")
         self.view = QWebEngineView(self)
+        self.view.page().setBackgroundColor(QColor("#18181b"))
+        self.view.setStyleSheet("background-color: #18181b;")
         self.setCentralWidget(self.view)
         settings = self.view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, False)
 
 class DesktopCanvasPage(QWebEnginePage):
     """Custom page disabling browser context menus and handling window.open for web preview."""
@@ -109,7 +113,10 @@ class MainWindow(QMainWindow):
 
         # Initialize Embedded WebEngine View (Zero-Error HTML5 Canvas Engine)
         self.browser = QWebEngineView(self)
+        self.browser.page().setBackgroundColor(QColor("#0f0f11"))
+        self.browser.setStyleSheet("background-color: #0f0f11;")
         self.custom_page = DesktopCanvasPage(self.browser, self)
+        self.custom_page.setBackgroundColor(QColor("#0f0f11"))
         self.browser.setPage(self.custom_page)
         self.setCentralWidget(self.browser)
 
@@ -118,7 +125,7 @@ class MainWindow(QMainWindow):
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, False)
         settings.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, False)
 
         # Support opening .jspen project file passed via command line or double click
@@ -143,6 +150,7 @@ class MainWindow(QMainWindow):
 
         # Enable Frameless Window (Custom in-app title bar)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
 
         # Hide Qt menubar and statusbar to avoid duplicate menu bars (Single sleek in-app Photoshop menubar)
         self.menuBar().setVisible(False)
@@ -429,6 +437,12 @@ def register_windows_file_association():
         pass
 
 def main():
+    # Eliminate GPU compositing flicker and ANGLE conflict on Windows frameless windows
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+        "--disable-gpu-compositing "
+        "--disable-smooth-scrolling "
+        "--enable-features=NetworkServiceInProcess"
+    )
     # Enable High DPI Scaling
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     app = QApplication(sys.argv)
