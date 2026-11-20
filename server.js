@@ -111,7 +111,9 @@ server.listen(PORT, HOST, () => {
   console.log(`종료하려면 터미널에서 Ctrl+C를 누르세요.`);
   console.log(`==================================================\n`);
 
-  // Auto open the default browser (Windows / macOS / Linux)
+  // Auto open the default browser (Windows / macOS / Linux); skipped for
+  // tests/CI with JSPEN_NO_OPEN=1.
+  if (process.env.JSPEN_NO_OPEN) return;
   const opener = process.platform === 'win32' ? `start "" "${url}"`
     : process.platform === 'darwin' ? `open "${url}"`
     : `xdg-open "${url}"`;
