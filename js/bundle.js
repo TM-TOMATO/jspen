@@ -336,8 +336,10 @@
     // 1. Sensory & Gestures
     mouse_position: {
       category: 'sensor', name: '마우스 위치 추적', icon: 'POS',
-      description: '마우스 커서의 X, Y 좌표 및 이동 속도를 실시간 감지합니다.',
-      defaultParams: { condition: 'always', coordinateMode: 'relative', smoothFactor: 0.15 }
+      description: '마우스 좌표와 이동 속도를 부드럽게 감지해 다음 모듈의 입력 값(속도)으로 넘깁니다. 움직이면 신호를 보냅니다.',
+      defaultParams: { condition: 'always', coordinateMode: 'relative', smoothFactor: 0.15, signalName: 'mouse_move' },
+      paramOptions: { coordinateMode: [['relative', '스프라이트 기준'], ['absolute', '캔버스 기준']] },
+      paramLabels: { coordinateMode: '좌표 기준', smoothFactor: '부드러움 (0~1)', signalName: '이동 신호 이름' }
     },
     hover_proximity: {
       category: 'sensor', name: '호버 및 근접 감지', icon: 'ZONE',
@@ -356,8 +358,9 @@
     },
     scroll_wheel: {
       category: 'sensor', name: '스크롤 휠 감지', icon: 'WHL',
-      description: '마우스 휠 굴림을 감지하여 수치를 증감합니다.',
-      defaultParams: { condition: 'always', sensitivity: 1.0, minVal: 0, maxVal: 100 }
+      description: '스프라이트 위에서 마우스 휠을 굴리면 수치를 증감해 다음 모듈의 입력 값으로 넘깁니다.',
+      defaultParams: { condition: 'always', sensitivity: 1.0, minVal: 0, maxVal: 100, startVal: 0 },
+      paramLabels: { sensitivity: '감도', minVal: '최솟값', maxVal: '최댓값', startVal: '시작값' }
     },
     keyboard_trigger: {
       category: 'sensor', name: '키보드 입력 감지', icon: 'KEY',
@@ -366,18 +369,21 @@
     },
     collision_detector: {
       category: 'sensor', name: '충돌 및 겹침 감지', icon: 'COL',
-      description: '다른 지정 레이어와 영역이 겹치거나 닿았을 때 신호를 보냅니다.',
-      defaultParams: { condition: 'always', targetLayerId: null, bounceBack: true }
+      description: '대상 스프라이트(비우면 모든 스프라이트)와 겹치면 트리거와 신호를 발생시키고, 선택하면 튕겨 나갑니다.',
+      defaultParams: { condition: 'always', targetSpriteId: '', bounceBack: true, signalName: 'collision' },
+      paramLabels: { targetSpriteId: '충돌 대상', bounceBack: '튕겨내기', signalName: '충돌 신호 이름' }
     },
     viewport_visibility: {
       category: 'sensor', name: '화면 가시성 감지', icon: 'VIEW',
-      description: '캔버스 가시 영역 내에 들어왔을 때 트리거를 발동합니다.',
-      defaultParams: { condition: 'always', triggerOnce: false }
+      description: '스프라이트가 화면(스크롤 영역) 안에 보이면 트리거를 발동하고 신호를 보냅니다.',
+      defaultParams: { condition: 'always', triggerOnce: false, signalName: 'visible' },
+      paramLabels: { triggerOnce: '한 번만 발동', signalName: '진입 신호 이름' }
     },
     timer_interval: {
       category: 'sensor', name: '타이머 및 주기 발신', icon: 'TIME',
-      description: '지정한 주기(초)마다 반복 신호를 발생시킵니다.',
-      defaultParams: { condition: 'always', intervalSec: 1.0, autoStart: true }
+      description: '지정한 주기(초)마다 반복 신호를 보내고, 누적 횟수를 다음 모듈의 입력 값으로 넘깁니다.',
+      defaultParams: { condition: 'always', intervalSec: 1.0, autoStart: true, signalName: 'timer_tick' },
+      paramLabels: { intervalSec: '주기 (초)', autoStart: '즉시 시작', signalName: '신호 이름' }
     },
 
     // 2. Link & Logic
@@ -468,13 +474,20 @@
     },
     distance_rope: {
       category: 'logic', name: '거리 제한 로프', icon: 'ROPE',
-      description: '타겟과의 최대 거리를 제한하여 밧줄처럼 매달리게 만듭니다.',
-      defaultParams: { condition: 'always', targetLayerId: null, maxDistance: 150 }
+      description: '대상(비우면 마우스)과의 거리를 최대 거리 이내로 제한해 밧줄에 매달린 것처럼 움직입니다.',
+      defaultParams: { condition: 'always', targetSpriteId: '', maxDistance: 150 },
+      paramLabels: { targetSpriteId: '연결 대상', maxDistance: '최대 거리 (px)' }
     },
     value_remapper: {
       category: 'logic', name: '값 매핑기', icon: 'MAP',
       description: '입력 수치를 원하는 출력 범위로 비례 환산하여 속성이나 필터에 연결합니다.',
-      defaultParams: { condition: 'always', inputSource: 'mouse_x', inMin: 0, inMax: 800, outMin: 0, outMax: 360, outputProperty: 'rotation' }
+      defaultParams: { condition: 'always', inputSource: 'mouse_x', inMin: 0, inMax: 800, outMin: 0, outMax: 360, outputProperty: 'rotation', outputMode: 'absolute', clamp: true },
+      paramOptions: {
+        inputSource: [['mouse_x', '마우스 X'], ['mouse_y', '마우스 Y'], ['mouse_distance', '마우스와의 거리'], ['mouse_speed', '마우스 속도'], ['time', '경과 시간 (초)'], ['scroll', '스크롤 위치'], ['stack', '이전 모듈 값']],
+        outputProperty: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'], ['filter_blur', '필터: 흐림'], ['filter_brightness', '필터: 밝기'], ['filter_hueRotate', '필터: 색조 회전'], ['filter_grayscale', '필터: 흑백'], ['none', '출력 없음 (값만 전달)']],
+        outputMode: [['absolute', '절댓값으로 설정'], ['offset', '원래 값에 더하기']]
+      },
+      paramLabels: { inputSource: '입력 소스', inMin: '입력 최소', inMax: '입력 최대', outMin: '출력 최소', outMax: '출력 최대', outputProperty: '출력 속성', outputMode: '출력 방식', clamp: '범위 제한' }
     },
     signal_relay: {
       category: 'logic', name: '신호 전달기 (Signal Relay)', icon: 'RLY',
@@ -504,20 +517,26 @@
     },
     node_merge: {
       category: 'logic', name: '모듈 합치기', icon: 'MRG',
-      description: '여러 모듈의 출력 신호 또는 변형 효과를 하나로 병합하여 적용합니다.',
-      defaultParams: { condition: 'always', blendMode: 'add', weight: 1.0 }
+      description: '앞선 모듈들이 만든 변형 효과(또는 전달 값)에 가중치를 곱해 하나로 합칩니다.',
+      defaultParams: { condition: 'always', blendMode: 'mix', weight: 1.0 },
+      paramOptions: { blendMode: [['mix', '변형 효과 혼합'], ['value', '전달 값에 곱하기']] },
+      paramLabels: { blendMode: '합치기 방식', weight: '가중치' }
     },
     node_math: {
       category: 'logic', name: '계산 및 설정 노드', icon: 'CALC',
-      description: '입력 수치에 사칙연산(+ - * /) 및 범위 제한(Clamp) 연산을 수행합니다.',
-      defaultParams: { condition: 'always', op: 'multiply', factor: 1.5, offset: 0 }
+      description: '이전 모듈이 전달한 수치에 연산(값 = 연산(입력, 계수) + 오프셋)을 적용해 다음 모듈로 넘깁니다.',
+      defaultParams: { condition: 'always', op: 'multiply', factor: 1.5, offset: 0 },
+      paramOptions: { op: [['add', '더하기'], ['subtract', '빼기'], ['multiply', '곱하기'], ['divide', '나누기'], ['power', '거듭제곱'], ['min', '최솟값'], ['max', '최댓값'], ['clamp', '0~계수 범위 제한'], ['modulo', '나머지']] },
+      paramLabels: { op: '연산', factor: '계수', offset: '오프셋' }
     },
 
     // 3. Motion & Visual FX
     tween_interpolator: {
       category: 'motion', name: '트윈 보간 모션', icon: 'TWN',
-      description: '시작값에서 끝값까지 지정 시간 동안 부드럽게 변형합니다.',
-      defaultParams: { condition: 'always', property: 'x', toValue: 200, duration: 1.0, easing: 'easeOutCubic' }
+      description: '원래 값에서 목표값까지 지정 시간 동안 부드럽게 변형합니다. 앞에 반복 루프·이징 모듈을 두면 그 설정을 따릅니다.',
+      defaultParams: { condition: 'always', property: 'x', toValue: 200, duration: 1.0, easing: 'easeOutCubic' },
+      paramOptions: { property: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)']], easing: [['linear','선형 (Linear)'], ['easeInQuad','가속 (In Quad)'], ['easeOutQuad','감속 (Out Quad)'], ['easeInOutQuad','가감속 (InOut Quad)'], ['easeOutCubic','감속 (Out Cubic)'], ['easeInOutCubic','가감속 (InOut Cubic)'], ['easeOutBack','반동 (Out Back)'], ['elasticOut','탄성 (Elastic)'], ['bounceOut','바운스 (Bounce)'], ['expoOut','지수 감속 (Expo)']] },
+      paramLabels: { property: '속성', toValue: '목표값', duration: '시간 (초)', easing: '이징' }
     },
     path_follower: {
       category: 'motion', name: '패스 주행 (Path)', icon: 'PATH',
@@ -527,7 +546,8 @@
     mouse_tilt_3d: {
       category: 'motion', name: '마우스 3D 틸트', icon: '3D',
       description: '마우스 위치에 따라 카드처럼 입체적으로 기울어지는 효과를 냅니다.',
-      defaultParams: { condition: 'always', maxTilt: 20, perspective: 800 }
+      defaultParams: { condition: 'always', maxTilt: 20, perspective: 800 },
+      paramLabels: { maxTilt: '최대 기울기 (도)', perspective: '원근 거리 (작을수록 강함)' }
     },
     particle_emitter: {
       category: 'motion', name: '파티클 분출기', icon: 'FX',
@@ -573,40 +593,51 @@
     },
     duration_delay: {
       category: 'timing', name: '듀레이션 및 지연', icon: 'DUR',
-      description: '지정 초 동안 대기 후 작동하거나 실행 유지 시간을 제어합니다.',
-      defaultParams: { condition: 'always', delay: 0.5, duration: 1.5 }
+      description: '아래에 있는 모듈들을 지연 시간 뒤에 시작해 지속 시간 동안만 실행합니다 (지속 0 = 계속).',
+      defaultParams: { condition: 'always', delay: 0.5, duration: 1.5 },
+      paramLabels: { delay: '지연 (초)', duration: '지속 (초, 0=계속)' }
     },
     step_sequencer: {
       category: 'timing', name: '단계별 시퀀서', icon: 'SEQ',
-      description: '1단계 ➔ 2단계 ➔ 3단계 등을 순차적으로 실행합니다.',
-      defaultParams: { condition: 'always', stepCount: 4, stepInterval: 0.5 }
+      description: '단계(0, 1, 2, …)를 일정 간격으로 넘기며 단계마다 신호를 보내고, 현재 단계를 다음 모듈의 입력 값으로 넘깁니다.',
+      defaultParams: { condition: 'always', stepCount: 4, stepInterval: 0.5, signalPrefix: 'step_' },
+      paramLabels: { stepCount: '단계 수', stepInterval: '간격 (초)', signalPrefix: '신호 접두어' }
     },
     stagger_domino: {
       category: 'timing', name: '시차 도미노 모션', icon: 'STAG',
-      description: '여러 레이어에 순차적인 시간차(Stagger)를 두고 효과를 발동합니다.',
-      defaultParams: { condition: 'always', staggerDelay: 0.08 }
+      description: '레이어 안 순서에 따라 (순서 × 시차)만큼 늦게 아래 모듈들을 시작해 도미노처럼 연쇄 동작합니다.',
+      defaultParams: { condition: 'always', staggerDelay: 0.08 },
+      paramLabels: { staggerDelay: '시차 (초)' }
     },
     easing_presets: {
       category: 'timing', name: '이징 커브 프리셋', icon: 'EASE',
-      description: 'Elastic, Bounce, Back, Expo 등의 가속도 곡선을 적용합니다.',
-      defaultParams: { condition: 'always', curve: 'bounceOut' }
+      description: '아래에 있는 트윈 모듈에 Elastic, Bounce, Back, Expo 등의 가속도 곡선을 적용합니다.',
+      defaultParams: { condition: 'always', curve: 'bounceOut' },
+      paramOptions: { curve: [['linear','선형 (Linear)'], ['easeInQuad','가속 (In Quad)'], ['easeOutQuad','감속 (Out Quad)'], ['easeInOutQuad','가감속 (InOut Quad)'], ['easeOutCubic','감속 (Out Cubic)'], ['easeInOutCubic','가감속 (InOut Cubic)'], ['easeOutBack','반동 (Out Back)'], ['elasticOut','탄성 (Elastic)'], ['bounceOut','바운스 (Bounce)'], ['expoOut','지수 감속 (Expo)']] },
+      paramLabels: { curve: '곡선' }
     },
     loop_mode: {
       category: 'timing', name: '반복 루프 모드', icon: 'LOOP',
-      description: '1회 실행(Once), 무한 반복(Infinite), 왕복 재생(Ping-Pong)을 제어합니다.',
-      defaultParams: { condition: 'always', mode: 'infinite' }
+      description: '아래에 있는 트윈·시퀀서·지연 모듈을 1회 실행, 무한 반복, 왕복 재생 중 하나로 동작시킵니다.',
+      defaultParams: { condition: 'always', mode: 'infinite' },
+      paramOptions: { mode: [['once', '1회 실행'], ['infinite', '무한 반복'], ['pingpong', '왕복 재생']] },
+      paramLabels: { mode: '반복 방식' }
     },
 
     // 5. Audio
     synth_sfx: {
       category: 'audio', name: '내장 신디사이저 SFX', icon: 'SFX',
-      description: '외부 파일 없이 즉시 뾱, 찰칵, 딩동, 팝, 스위치 효과음을 합성 재생합니다.',
-      defaultParams: { condition: 'always', sound: 'pop', trigger: 'click' }
+      description: '외부 파일 없이 뾱, 찰칵, 딩동, 팝, 스위치 효과음을 합성 재생합니다.',
+      defaultParams: { condition: 'always', sound: 'pop', trigger: 'click', listenSignal: '', volume: 0.6 },
+      paramOptions: { sound: [['pop', '팝'], ['click', '찰칵'], ['ding', '딩동'], ['switch', '스위치'], ['boop', '뾱'], ['whoosh', '휙']], trigger: [['click','클릭 시'],['hover','마우스 진입 시'],['trigger','트리거 발동 시'],['signal','신호 수신 시']] },
+      paramLabels: { sound: '효과음', trigger: '재생 시점', listenSignal: '수신 신호 (신호 수신 시)', volume: '볼륨 (0~1)' }
     },
     audio_clip: {
       category: 'audio', name: '오디오 파일 재생', icon: 'AUD',
-      description: '오디오 파일을 지정하여 특정 타이밍이나 클릭 시 재생합니다.',
-      defaultParams: { condition: 'always', audioUrl: '', volume: 0.8 }
+      description: '오디오 파일(URL)을 클릭, 진입, 트리거, 신호 시점에 재생합니다.',
+      defaultParams: { condition: 'always', audioUrl: '', volume: 0.8, trigger: 'click', listenSignal: '', loop: false },
+      paramOptions: { trigger: [['click','클릭 시'],['hover','마우스 진입 시'],['trigger','트리거 발동 시'],['signal','신호 수신 시']] },
+      paramLabels: { audioUrl: '오디오 URL', volume: '볼륨 (0~1)', trigger: '재생 시점', listenSignal: '수신 신호 (신호 수신 시)', loop: '반복 재생' }
     }
   };
 
@@ -3081,6 +3112,17 @@
       if (dp.constrainAxis !== 'x') this.draggedSprite.runtime.y = ny;
     }
 
+    // Host -> engine wheel input (consumed on the next update).
+    addWheel(deltaY) {
+      this._pendingWheel = (this._pendingWheel || 0) + deltaY;
+    }
+
+    // True when a sprite under the pointer listens to the wheel.
+    wantsWheel(wx, wy) {
+      const sp = this.pickSprite(wx, wy);
+      return !!(sp && (sp.modules || []).some(m => m.enabled !== false && m.type === 'scroll_wheel'));
+    }
+
     // Topmost visible sprite under (wx, wy) using runtime (animated) transforms.
     pickSprite(wx, wy) {
       for (let li = this.doc.layers.length - 1; li >= 0; li--) {
@@ -3111,7 +3153,149 @@
     start() {
       this.active = true;
       this.bus.particles = [];
-      for (const l of this.doc.layers) l.resetRuntime();
+      this.bus.time = 0;
+      this.bus.signals.clear();
+      this.bus.scroll.deltaY = 0;
+      this._frame = 0;
+      for (const l of this.doc.layers) {
+        l.resetRuntime();
+        for (const sp of l.sprites) {
+          const rt = sp.runtime;
+          for (const k of Object.keys(rt)) {
+            if (k.startsWith('_') || ['toggleState', 'counterValue', 'isTriggered', 'wasTriggered', 'visible', 'activeLink', 'step'].includes(k)) delete rt[k];
+          }
+        }
+      }
+    }
+
+    // Seconds since `mod` became active on `sprite` (it restarts when the module
+    // was not executed on the previous frame, e.g. its condition was false or a
+    // timing gate above it was closed).
+    moduleClock(sprite, mod) {
+      const rt = sprite.runtime;
+      rt._clocks = rt._clocks || {};
+      const c = rt._clocks[mod.id];
+      if (!c || c.frame < this._frame - 1) {
+        rt._clocks[mod.id] = { start: this.bus.time, frame: this._frame };
+        return 0;
+      }
+      c.frame = this._frame;
+      return this.bus.time - c.start;
+    }
+
+    // Normalised progress (0..1) of a clock for a given loop mode.
+    static loopProgress(t, duration, loopMode) {
+      if (!(duration > 0)) return 1;
+      const r = t / duration;
+      if (loopMode === 'infinite') return r % 1;
+      if (loopMode === 'pingpong') { const f = r % 2; return f > 1 ? 2 - f : f; }
+      return Math.min(1, r);
+    }
+
+    static ease(name, t) {
+      t = Math.max(0, Math.min(1, t));
+      switch (name) {
+        case 'linear': return t;
+        case 'easeInQuad': return t * t;
+        case 'easeOutQuad': return t * (2 - t);
+        case 'easeInOutQuad': return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+        case 'easeInOutCubic': return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        case 'easeOutBack': { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+        case 'elasticOut': return t === 0 || t === 1 ? t : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * (2 * Math.PI) / 3) + 1;
+        case 'bounceOut': {
+          const n1 = 7.5625, d1 = 2.75;
+          if (t < 1 / d1) return n1 * t * t;
+          if (t < 2 / d1) { t -= 1.5 / d1; return n1 * t * t + 0.75; }
+          if (t < 2.5 / d1) { t -= 2.25 / d1; return n1 * t * t + 0.9375; }
+          t -= 2.625 / d1; return n1 * t * t + 0.984375;
+        }
+        case 'expoOut': return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
+        case 'easeOutCubic':
+        default: return 1 - Math.pow(1 - t, 3);
+      }
+    }
+
+    // Read / write a transform property in runtime space ('scale' = both axes).
+    static getProp(sprite, prop, fromRest = false) {
+      const src = fromRest ? sprite : sprite.runtime;
+      if (prop === 'scale') return src.scaleX;
+      return src[prop];
+    }
+
+    static setProp(sprite, prop, value) {
+      if (!isFinite(value)) return;
+      const rt = sprite.runtime;
+      if (prop === 'scale') { rt.scaleX = value; rt.scaleY = value; }
+      else if (prop === 'opacity') rt.opacity = Math.max(0, Math.min(1, value));
+      else if (prop === 'x' || prop === 'y' || prop === 'rotation' || prop === 'scaleX' || prop === 'scaleY') rt[prop] = value;
+      else if (prop && prop.startsWith('filter_')) {
+        if (!sprite.filters) sprite.filters = {};
+        sprite.filters[prop.slice(7)] = value;
+      }
+    }
+
+    // Built-in synthesizer for synth_sfx (Web Audio, no files).
+    static playSynth(sound, volume = 0.6) {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        const ac = ModuleEngine._audioCtx || (ModuleEngine._audioCtx = new AC());
+        if (ac.state === 'suspended') ac.resume();
+        const now = ac.currentTime;
+        const out = ac.createGain();
+        out.gain.value = Math.max(0, Math.min(1, volume));
+        out.connect(ac.destination);
+        const tone = (type, f0, f1, t0, dur, peak = 0.6) => {
+          const o = ac.createOscillator(), g = ac.createGain();
+          o.type = type;
+          o.frequency.setValueAtTime(f0, now + t0);
+          o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), now + t0 + dur);
+          g.gain.setValueAtTime(0.0001, now + t0);
+          g.gain.exponentialRampToValueAtTime(peak, now + t0 + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + t0 + dur);
+          o.connect(g); g.connect(out);
+          o.start(now + t0); o.stop(now + t0 + dur + 0.02);
+        };
+        if (sound === 'click') tone('square', 1800, 900, 0, 0.03, 0.3);
+        else if (sound === 'ding') { tone('sine', 1320, 1318, 0, 0.35); tone('sine', 990, 988, 0.12, 0.45); }
+        else if (sound === 'switch') { tone('square', 600, 600, 0, 0.025, 0.25); tone('square', 900, 900, 0.05, 0.025, 0.25); }
+        else if (sound === 'boop') tone('sine', 520, 260, 0, 0.18);
+        else if (sound === 'whoosh') {
+          const len = Math.floor(ac.sampleRate * 0.35);
+          const buf = ac.createBuffer(1, len, ac.sampleRate);
+          const d = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / len);
+          const src = ac.createBufferSource(), f = ac.createBiquadFilter();
+          f.type = 'bandpass'; f.frequency.setValueAtTime(400, now); f.frequency.exponentialRampToValueAtTime(3000, now + 0.35);
+          src.buffer = buf; src.connect(f); f.connect(out); src.start(now);
+        }
+        else tone('sine', 900, 200, 0, 0.12); // pop
+      } catch (_) { /* audio unavailable */ }
+    }
+
+    // Shared "when to play" logic for synth_sfx / audio_clip.
+    shouldFireSound(sprite, mod, p) {
+      const rt = sprite.runtime;
+      const trig = p.trigger || 'click';
+      let fire = false;
+      if (trig === 'click') {
+        fire = this.bus.mouse.clicked && this.isPointInside(this.bus.mouse.pressX, this.bus.mouse.pressY, sprite);
+      } else if (trig === 'hover') {
+        const key = '_sndHover_' + mod.id;
+        fire = rt.isHovered && !rt[key];
+        rt[key] = rt.isHovered;
+      } else if (trig === 'trigger') {
+        const key = '_sndTrig_' + mod.id;
+        const on = !!(rt.isTriggered || rt.wasTriggered || this.bus.activeTriggerTargets.has(sprite.id));
+        fire = on && !rt[key];
+        rt[key] = on;
+      } else if (trig === 'signal') {
+        const sName = p.listenSignal || '';
+        const sig = sName ? this.bus.signals.get(sName) : null;
+        const key = '_sndSig_' + mod.id;
+        if (sig && sig.time !== rt[key] && this.bus.time - sig.time <= 0.35) { fire = true; rt[key] = sig.time; }
+      }
+      return fire;
     }
 
     stop() {
@@ -3149,7 +3333,7 @@
         return this.doc.currentFrame >= sf && this.doc.currentFrame <= ef;
       }
       if (cond === 'on_trigger') {
-        if (sprite.runtime && sprite.runtime.isTriggered) return true;
+        if (sprite.runtime && (sprite.runtime.isTriggered || sprite.runtime.wasTriggered)) return true;
         if (bus.activeTriggerTargets && bus.activeTriggerTargets.has(sprite.id)) return true;
         if (mod.params?.triggerId && bus.activeTriggers && bus.activeTriggers.has(mod.params.triggerId)) return true;
         return false;
@@ -3168,6 +3352,19 @@
     // processed a frame after the pointer already moved on).
     update(dt, mw, ms, isDown, clicked, pressPos = null) {
       if (!this.active) return;
+      this._frame = (this._frame || 0) + 1;
+      // Trigger flags live for one frame (kept one more as wasTriggered so
+      // modules evaluated earlier in the next frame still see them).
+      for (const layer of this.doc.layers) {
+        for (const sp of layer.sprites) {
+          if (!sp.runtime) continue;
+          sp.runtime.wasTriggered = !!sp.runtime.isTriggered;
+          sp.runtime.isTriggered = false;
+        }
+      }
+      // Wheel delta accumulated by the host since the last frame.
+      this.bus.scroll.deltaY = this._pendingWheel || 0;
+      this._pendingWheel = 0;
       this.bus.mouse.pressX = pressPos ? pressPos.x : mw.x;
       this.bus.mouse.pressY = pressPos ? pressPos.y : mw.y;
       this.bus.time += dt;
@@ -3294,12 +3491,22 @@
         for (const sprite of layer.sprites) {
           if (!sprite.visible) continue;
 
+          // Module stack context: modules run top to bottom; timing modules can
+          // close the gate for the modules below them, settings modules
+          // (loop_mode, easing_presets) configure them, and value modules pass
+          // a number down the stack (ctx.value).
+          const ctx = { value: 0, loopMode: null, easing: null, gateOpen: true, index: layer.sprites.indexOf(sprite) };
+          const rest = { x: sprite.runtime.x, y: sprite.runtime.y, rotation: sprite.runtime.rotation,
+            scaleX: sprite.runtime.scaleX, scaleY: sprite.runtime.scaleY, opacity: sprite.runtime.opacity };
+
           for (const mod of (sprite.modules || [])) {
             if (!mod.enabled) continue;
             if (this.disabledModuleIds && this.disabledModuleIds.has(mod.id)) continue;
+            if (!ctx.gateOpen) continue;
             if (!this.evaluateCondition(mod, sprite, this.bus)) continue;
 
             const p = mod.params || {};
+            const clock = this.moduleClock(sprite, mod);
 
             switch (mod.type) {
               case 'path_follower': {
@@ -3556,7 +3763,7 @@
                       sprite.runtime.counterValue = p.startVal || 0;
                       this.bus.emitSignal('counter_max', sprite.id);
                     }
-                    if (sprite.type === 'text') sprite.text = String(sprite.runtime.counterValue);
+                    if (sprite.type === 'text') { sprite.text = String(sprite.runtime.counterValue); sprite._wrapCache = null; }
                     this.bus.emitSignal('counter_tick', sprite.id, sprite.runtime.counterValue);
                   }
                 }
@@ -3652,6 +3859,7 @@
                   default: res = valA + valB; break;
                 }
                 p.outputResult = res;
+                ctx.value = res;
 
                 const tgt = p.targetParam || 'none';
                 if (tgt === 'x') sprite.runtime.x = res;
@@ -3772,6 +3980,285 @@
 
               case 'timeline_keyframes': {
                 sprite.evaluateKeyframes(this.doc.currentFrame);
+                break;
+              }
+
+              case 'mouse_tilt_3d': {
+                // 2D approximation of a card tilt: rotate toward the pointer and
+                // squash the axis facing away (perspective foreshortening).
+                const rt = sprite.runtime;
+                const hw = Math.max(1, sprite.width / 2), hh = Math.max(1, sprite.height / 2);
+                let nx = 0, ny = 0;
+                if (rt.isHovered) {
+                  nx = Math.max(-1, Math.min(1, (this.bus.mouse.x - rt.x) / hw));
+                  ny = Math.max(-1, Math.min(1, (this.bus.mouse.y - rt.y) / hh));
+                }
+                const k = Math.min(1, dt * 10);
+                rt._tnx = (rt._tnx || 0) + (nx - (rt._tnx || 0)) * k;
+                rt._tny = (rt._tny || 0) + (ny - (rt._tny || 0)) * k;
+                const maxTilt = parseFloat(p.maxTilt) || 20;
+                const strength = 800 / Math.max(100, parseFloat(p.perspective) || 800);
+                rt.tiltAngle = rt._tnx * rt._tny * maxTilt * 0.25 * strength;
+                const squash = maxTilt / 300 * strength;
+                rt.scaleX *= 1 - Math.abs(rt._tnx) * squash;
+                rt.scaleY *= 1 - Math.abs(rt._tny) * squash;
+                break;
+              }
+
+              // ---------------- Sensors ----------------
+              case 'mouse_position': {
+                const rt = sprite.runtime;
+                const k = Math.max(0.01, Math.min(1, parseFloat(p.smoothFactor) || 0.15));
+                const tx = this.bus.mouse.x, ty = this.bus.mouse.y;
+                if (rt._mx === undefined) { rt._mx = tx; rt._my = ty; }
+                rt._mx += (tx - rt._mx) * k;
+                rt._my += (ty - rt._my) * k;
+                const speed = Math.hypot(this.bus.mouse.vx, this.bus.mouse.vy);
+                rt._mspeed = (rt._mspeed || 0) + (speed - (rt._mspeed || 0)) * k;
+                const rel = p.coordinateMode !== 'absolute';
+                rt.mouseX = rel ? rt._mx - rt.x : rt._mx;
+                rt.mouseY = rel ? rt._my - rt.y : rt._my;
+                p.outputX = rt.mouseX; p.outputY = rt.mouseY; p.outputSpeed = rt._mspeed;
+                ctx.value = rt._mspeed;
+                if (speed > 20 && p.signalName) this.bus.emitSignal(p.signalName, sprite.id, { x: rt.mouseX, y: rt.mouseY });
+                break;
+              }
+
+              case 'scroll_wheel': {
+                const rt = sprite.runtime;
+                const lo = parseFloat(p.minVal) || 0;
+                const hi = p.maxVal !== undefined ? parseFloat(p.maxVal) : 100;
+                if (rt._wheel === undefined) rt._wheel = Math.max(lo, Math.min(hi, parseFloat(p.startVal) || lo));
+                const dy = this.bus.scroll.deltaY || 0;
+                if (dy && rt.isHovered) {
+                  rt._wheel = Math.max(lo, Math.min(hi, rt._wheel - dy * 0.05 * (parseFloat(p.sensitivity) || 1)));
+                  this.bus.emitSignal(dy < 0 ? 'wheel_up' : 'wheel_down', sprite.id, rt._wheel);
+                }
+                p.outputValue = rt._wheel;
+                ctx.value = rt._wheel;
+                break;
+              }
+
+              case 'collision_detector': {
+                const rt = sprite.runtime;
+                const box = sp => {
+                  const w = Math.abs(sp.width * (sp.runtime.scaleX ?? sp.scaleX ?? 1)) / 2;
+                  const h = Math.abs(sp.height * (sp.runtime.scaleY ?? sp.scaleY ?? 1)) / 2;
+                  return { x: sp.runtime.x, y: sp.runtime.y, w, h };
+                };
+                let targets;
+                if (p.targetSpriteId) targets = [this.doc.findSpriteById(p.targetSpriteId)].filter(Boolean);
+                else if (p.targetLayerId) targets = (this.doc.getLayer(p.targetLayerId)?.sprites || []).slice();
+                else targets = this.doc.layers.filter(l => l.visible).flatMap(l => l.sprites);
+                const a = box(sprite);
+                let hit = null;
+                for (const t of targets) {
+                  if (!t || t === sprite || !t.visible || t.type === 'screen_trigger' || t.runtime.visible === false) continue;
+                  const b = box(t);
+                  const ox = (a.w + b.w) - Math.abs(a.x - b.x);
+                  const oy = (a.h + b.h) - Math.abs(a.y - b.y);
+                  if (ox > 0 && oy > 0) { hit = { t, ox, oy, b }; break; }
+                }
+                if (hit) {
+                  rt.isTriggered = true;
+                  this.bus.activeTriggerTargets.add(sprite.id);
+                  if (!rt._colliding) this.bus.emitSignal(p.signalName || 'collision', sprite.id, hit.t.id);
+                  if (p.bounceBack !== false) {
+                    if (hit.ox < hit.oy) {
+                      rt.x += a.x < hit.b.x ? -hit.ox : hit.ox;
+                      if (rt.vx) rt.vx = Math.abs(rt.vx) * (a.x < hit.b.x ? -1 : 1);
+                    } else {
+                      rt.y += a.y < hit.b.y ? -hit.oy : hit.oy;
+                      if (rt.vy) rt.vy = Math.abs(rt.vy) * (a.y < hit.b.y ? -1 : 1);
+                    }
+                  }
+                }
+                rt._colliding = !!hit;
+                break;
+              }
+
+              case 'viewport_visibility': {
+                const rt = sprite.runtime;
+                const top = this.bus.scroll?.scrollY || 0;
+                const vh = this.doc.viewportHeight || this.doc.height || 900;
+                const hh = Math.abs(sprite.height * (rt.scaleY || 1)) / 2;
+                let visible = (rt.y + hh >= top) && (rt.y - hh <= top + vh);
+                if (p.triggerOnce && rt._seenOnce) visible = true;
+                if (visible && !rt._wasVisible) this.bus.emitSignal(p.signalName || 'visible', sprite.id);
+                if (visible) { rt._seenOnce = true; rt.isTriggered = true; this.bus.activeTriggerTargets.add(sprite.id); }
+                rt._wasVisible = visible;
+                break;
+              }
+
+              case 'timer_interval': {
+                const rt = sprite.runtime;
+                const iv = Math.max(0.05, parseFloat(p.intervalSec) || 1);
+                const t = p.autoStart === false ? clock : this.bus.time;
+                const ticks = Math.floor(t / iv);
+                if (rt._ticks === undefined) rt._ticks = p.autoStart === false ? 0 : ticks;
+                if (ticks > rt._ticks) {
+                  rt._ticks = ticks;
+                  rt._tickCount = (rt._tickCount || 0) + 1;
+                  this.bus.emitSignal(p.signalName || 'timer_tick', sprite.id, rt._tickCount);
+                  rt.isTriggered = true;
+                }
+                ctx.value = rt._tickCount || 0;
+                break;
+              }
+
+              // ---------------- Logic ----------------
+              case 'distance_rope': {
+                const rt = sprite.runtime;
+                let tx = this.bus.mouse.x, ty = this.bus.mouse.y;
+                const tgt = p.targetSpriteId ? this.doc.findSpriteById(p.targetSpriteId)
+                  : (p.targetLayerId ? this.doc.getLayer(p.targetLayerId)?.primarySprite : null);
+                if (tgt) { tx = tgt.runtime.x; ty = tgt.runtime.y; }
+                const maxD = Math.max(0, parseFloat(p.maxDistance) || 0);
+                const dx = rt.x - tx, dy = rt.y - ty;
+                const d = Math.hypot(dx, dy);
+                if (d > maxD && d > 0) {
+                  rt.x = tx + dx / d * maxD;
+                  rt.y = ty + dy / d * maxD;
+                }
+                ctx.value = Math.min(d, maxD);
+                break;
+              }
+
+              case 'value_remapper': {
+                const rt = sprite.runtime;
+                let v;
+                switch (p.inputSource) {
+                  case 'mouse_y': v = this.bus.mouse.y; break;
+                  case 'mouse_distance': v = Math.hypot(this.bus.mouse.x - rt.x, this.bus.mouse.y - rt.y); break;
+                  case 'mouse_speed': v = Math.hypot(this.bus.mouse.vx, this.bus.mouse.vy); break;
+                  case 'time': v = clock; break;
+                  case 'scroll': v = this.bus.scroll?.scrollY || 0; break;
+                  case 'stack': v = ctx.value; break;
+                  default: v = this.bus.mouse.x;
+                }
+                if (!isFinite(v)) v = 0;
+                const inMin = parseFloat(p.inMin) || 0, inMax = parseFloat(p.inMax);
+                const outMin = parseFloat(p.outMin) || 0, outMax = parseFloat(p.outMax);
+                let t = (isFinite(inMax) && inMax !== inMin) ? (v - inMin) / (inMax - inMin) : 0;
+                if (p.clamp !== false) t = Math.max(0, Math.min(1, t));
+                const out = outMin + t * ((isFinite(outMax) ? outMax : 1) - outMin);
+                p.outputResult = out;
+                ctx.value = out;
+                const prop = p.outputProperty || 'none';
+                if (prop !== 'none') {
+                  const base = prop.startsWith('filter_') ? 0 : (ModuleEngine.getProp(sprite, prop) || 0);
+                  ModuleEngine.setProp(sprite, prop, p.outputMode === 'offset' ? base + out : out);
+                }
+                break;
+              }
+
+              case 'node_math': {
+                const v = ctx.value, f = parseFloat(p.factor);
+                const k = isFinite(f) ? f : 1;
+                let r;
+                switch (p.op) {
+                  case 'add': r = v + k; break;
+                  case 'subtract': r = v - k; break;
+                  case 'divide': r = k !== 0 ? v / k : 0; break;
+                  case 'power': r = Math.pow(v, k); break;
+                  case 'min': r = Math.min(v, k); break;
+                  case 'max': r = Math.max(v, k); break;
+                  case 'clamp': r = Math.max(0, Math.min(k, v)); break;
+                  case 'modulo': r = k !== 0 ? v % k : 0; break;
+                  default: r = v * k;
+                }
+                ctx.value = r + (parseFloat(p.offset) || 0);
+                p.outputResult = ctx.value;
+                break;
+              }
+
+              case 'node_merge': {
+                const w = parseFloat(p.weight);
+                const k = isFinite(w) ? w : 1;
+                if (p.blendMode === 'value') {
+                  ctx.value *= k;
+                } else {
+                  // Scale the transform changes made by the modules above by `weight`.
+                  const rt = sprite.runtime;
+                  for (const key of ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity']) {
+                    rt[key] = rest[key] + (rt[key] - rest[key]) * k;
+                  }
+                  rt.opacity = Math.max(0, Math.min(1, rt.opacity));
+                }
+                break;
+              }
+
+              // ---------------- Motion / timing ----------------
+              case 'tween_interpolator': {
+                const prop = p.property || 'x';
+                const from = ModuleEngine.getProp(sprite, prop, true) ?? 0;
+                const to = parseFloat(p.toValue);
+                const prog = ModuleEngine.loopProgress(clock, parseFloat(p.duration) || 0, ctx.loopMode || 'once');
+                const e = ModuleEngine.ease(ctx.easing || p.easing || 'easeOutCubic', prog);
+                const val = from + ((isFinite(to) ? to : from) - from) * e;
+                ModuleEngine.setProp(sprite, prop, val);
+                ctx.value = val;
+                break;
+              }
+
+              case 'duration_delay': {
+                const delay = Math.max(0, parseFloat(p.delay) || 0);
+                const dur = Math.max(0, parseFloat(p.duration) || 0);
+                let t = clock;
+                if (ctx.loopMode === 'infinite' && dur > 0) t = t % (delay + dur);
+                else if (ctx.loopMode === 'pingpong' && dur > 0) { const c = delay + dur; const f = t % (2 * c); t = f > c ? 2 * c - f : f; }
+                ctx.gateOpen = t >= delay && (dur === 0 || t <= delay + dur);
+                break;
+              }
+
+              case 'stagger_domino': {
+                const delay = Math.max(0, ctx.index) * Math.max(0, parseFloat(p.staggerDelay) || 0);
+                ctx.gateOpen = clock >= delay;
+                break;
+              }
+
+              case 'step_sequencer': {
+                const rt = sprite.runtime;
+                const n = Math.max(1, Math.round(parseFloat(p.stepCount) || 1));
+                const iv = Math.max(0.05, parseFloat(p.stepInterval) || 0.5);
+                const raw = Math.floor(clock / iv);
+                let step;
+                if ((ctx.loopMode || 'infinite') === 'once') step = Math.min(n - 1, raw);
+                else if (ctx.loopMode === 'pingpong' && n > 1) { const f = raw % (2 * n - 2); step = f < n ? f : 2 * n - 2 - f; }
+                else step = raw % n;
+                if (step !== rt.step) {
+                  rt.step = step;
+                  this.bus.emitSignal((p.signalPrefix || 'step_') + step, sprite.id, step);
+                }
+                ctx.value = step;
+                break;
+              }
+
+              case 'easing_presets':
+                ctx.easing = p.curve || 'easeOutCubic';
+                break;
+
+              case 'loop_mode':
+                ctx.loopMode = p.mode || 'infinite';
+                break;
+
+              // ---------------- Audio ----------------
+              case 'synth_sfx':
+                if (this.shouldFireSound(sprite, mod, p)) ModuleEngine.playSynth(p.sound || 'pop', p.volume !== undefined ? parseFloat(p.volume) : 0.6);
+                break;
+
+              case 'audio_clip': {
+                if (!this.shouldFireSound(sprite, mod, p)) break;
+                const url = String(p.audioUrl || '').trim();
+                const ok = safeUrl(url) || /^data:audio\//i.test(url);
+                if (!url || !ok || typeof Audio === 'undefined') break;
+                const rt = sprite.runtime;
+                if (!rt._audio || rt._audioSrc !== url) { rt._audio = new Audio(url); rt._audioSrc = url; }
+                rt._audio.volume = Math.max(0, Math.min(1, p.volume !== undefined ? parseFloat(p.volume) : 0.8));
+                rt._audio.loop = !!p.loop;
+                try { rt._audio.currentTime = 0; } catch (_) {}
+                const pr = rt._audio.play();
+                if (pr && pr.catch) pr.catch(() => {});
                 break;
               }
 
@@ -3927,6 +4414,10 @@ ${this.getRuntimeSource()}
       if (link) engine.navigateHyperlink(link.href, link.target);
     });
     canvas.addEventListener('pointercancel', release);
+    canvas.addEventListener('wheel', e => {
+      const p = toDoc(e);
+      if (engine.wantsWheel(p.x, p.y)) { e.preventDefault(); engine.addWheel(e.deltaY); }
+    }, { passive: false });
     canvas.addEventListener('pointerleave', () => { if (!pointer.isDown) pointer.mw = { x: -1e9, y: -1e9 }; });
     window.addEventListener('keydown', e => { engine.bus.keyState[e.code] = true; engine.bus.keyState[e.key] = true; });
     window.addEventListener('keyup', e => { delete engine.bus.keyState[e.code]; delete engine.bus.keyState[e.key]; });
@@ -5347,19 +5838,41 @@ ${sprite.type === 'text' ? `
         `;
       } else {
         typeSpecificHtml = `
-          ${Object.keys(params).filter(k => k !== 'condition' && k !== 'targetSpriteId' && k !== 'targetModuleId').map(key => `
+          ${Object.keys(params).filter(k => k !== 'condition' && k !== 'targetModuleId' && k !== 'outputResult').map(key => {
+            const opts = def.paramOptions && def.paramOptions[key];
+            const label = (def.paramLabels && def.paramLabels[key]) || key;
+            if (key === 'targetSpriteId') {
+              return `
             <div class="ps-prop-row">
-              <label class="ps-prop-label">${escapeHtml(key)}:</label>
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <select class="ps-select" data-param-key="targetSpriteId">
+                <option value="">${mod.type === 'distance_rope' || mod.type === 'follow_target' ? '(마우스 커서)' : '(모든 스프라이트)'}</option>
+                ${allSprites.filter(sp => sp.id !== (sprite && sprite.id)).map(sp => `<option value="${escapeHtml(sp.id)}" ${params.targetSpriteId === sp.id ? 'selected' : ''}>${escapeHtml(sp.name)}</option>`).join('')}
+              </select>
+            </div>`;
+            }
+            if (opts) {
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <select class="ps-select" data-param-key="${escapeHtml(key)}">
+                ${opts.map(([v, l]) => `<option value="${escapeHtml(v)}" ${String(params[key]) === String(v) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+              </select>
+            </div>`;
+            }
+            return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
               ${typeof params[key] === 'boolean' ? `
                 <select class="ps-select" data-param-key="${escapeHtml(key)}">
                   <option value="true" ${params[key] ? 'selected' : ''}>true</option>
                   <option value="false" ${!params[key] ? 'selected' : ''}>false</option>
                 </select>
               ` : `
-                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" class="ps-input" data-param-key="${escapeHtml(key)}" value="${escapeHtml(params[key])}">
+                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" ${typeof params[key] === 'number' ? 'step="any"' : ''} class="ps-input" data-param-key="${escapeHtml(key)}" value="${escapeHtml(params[key])}">
               `}
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
         `;
       }
 
@@ -10060,6 +10573,11 @@ ${sprite.type === 'text' ? `
         const r = this.canvas.getBoundingClientRect();
         const sx = e.clientX - r.left;
         const sy = e.clientY - r.top;
+        // Live preview: the wheel goes to scroll_wheel modules under the pointer.
+        if (this.moduleEngine.active && !e.ctrlKey) {
+          const w = this.renderer.screenToWorld(sx, sy);
+          if (this.moduleEngine.wantsWheel(w.x, w.y)) { this.moduleEngine.addWheel(e.deltaY); return; }
+        }
         const factor = e.deltaY < 0 ? 1.1 : 0.9;
         this.tools.zoomAt(sx, sy, factor);
         if (this.optionBar) this.optionBar.render();
