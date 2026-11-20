@@ -484,6 +484,9 @@ input, select, textarea, button {
 }
 
 #viewportCanvas {
+  /* Canvas text inherits CSS letter-spacing in Chromium; keep it at the
+     default so studio text metrics match the exported JS/HTML output. */
+  letter-spacing: normal;
   position: absolute;
   top: 0;
   left: 0;

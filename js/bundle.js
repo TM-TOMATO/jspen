@@ -3612,158 +3612,118 @@
   // 9. Photoshop JS Exporter (Pure Vanilla HTML5 Canvas 2D)
   // ==========================================================================
   class PhotoshopJSExporter {
+    // The exported player embeds the studio's own model and renderer classes
+    // (Sprite, Layer, DocumentModel, PhotoshopCanvas) via their source text, so
+    // the output is drawn by exactly the same code as the studio canvas:
+    // shapes, paths, brush strokes, text and text_label modules, gradients,
+    // images, filters, masks and timeline keyframes.
+    static getRuntimeSource() {
+      return [Sprite, Layer, DocumentModel, PhotoshopCanvas].map(c => c.toString()).join('\n\n');
+    }
+
     static generateJS(doc, activeModuleIds = null) {
       const docData = jsonForScript(doc.toJSON(), 2);
       return `/**
- * JSPen Studio - Zero-Discrepancy Vanilla Canvas 2D Engine
- * Exported pure JavaScript: 0 external dependencies!
+ * JSPen Studio - Exported Vanilla Canvas 2D Player
+ * Uses the same rendering engine as the studio. No external dependencies.
+ * Expects a <canvas id="viewportCanvas"> (or any <canvas>) on the page.
  */
-(function() {
+(function () {
   'use strict';
-  const doc = ${docData};
-  const canvas = document.getElementById('viewportCanvas') || document.querySelector('canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  canvas.width = doc.width;
-  canvas.height = doc.height;
+  const DOC_DATA = ${docData};
 
-  const bus = {
-    mouse: { x: 0, y: 0, vx: 0, vy: 0, isDown: false, clicked: false },
-    time: 0
-  };
-  let prevX = 0, prevY = 0, frameAcc = 0;
-  let currentFrame = 0;
+  // ---- JSPen engine (identical to the studio) ----
+${this.getRuntimeSource()}
 
-  for (const l of doc.layers) {
-    for (const s of l.sprites) {
-      s.runtime = { x: s.x, y: s.y, rotation: s.rotation, scaleX: s.scaleX, scaleY: s.scaleY, opacity: s.opacity, vx: 0, vy: 0 };
+  // ---- Player ----
+  class JSPenPlayerCanvas extends PhotoshopCanvas {
+    centerArtboard() { this.panX = 0; this.panY = 0; this.zoom = 1; }
+
+    drawSprite(ctx, sprite) {
+      // Editor-only helpers are not part of the output.
+      if (sprite.type === 'screen_trigger') return;
+      super.drawSprite(ctx, sprite);
+      // Images load asynchronously: redraw once they are ready.
+      const img = sprite._imgObj;
+      if (img && !img._jspenHooked) {
+        img._jspenHooked = true;
+        img.addEventListener('load', () => player.requestDraw());
+      }
     }
   }
 
-  canvas.addEventListener('mousemove', e => {
-    const r = canvas.getBoundingClientRect();
-    bus.mouse.x = (e.clientX - r.left) * (canvas.width / r.width);
-    bus.mouse.y = (e.clientY - r.top) * (canvas.height / r.height);
-  });
-  canvas.addEventListener('mousedown', () => { bus.mouse.isDown = true; bus.mouse.clicked = true; });
-  window.addEventListener('mouseup', () => { bus.mouse.isDown = false; });
+  const canvas = document.getElementById('viewportCanvas') || document.querySelector('canvas');
+  if (!canvas) return;
 
-  let lastTime = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-  function loop(now) {
-    const dt = Math.min((now - lastTime) / 1000, 0.1);
-    lastTime = now;
-    bus.time += dt;
-    bus.mouse.vx = (bus.mouse.x - prevX) / (dt || 0.016);
-    bus.mouse.vy = (bus.mouse.y - prevY) / (dt || 0.016);
-    prevX = bus.mouse.x; prevY = bus.mouse.y;
+  const model = new DocumentModel();
+  model.loadFromData(DOC_DATA, false);
+  model.selectedSpriteIds = new Set();
 
-    // Timeline stepping
-    frameAcc += dt;
-    const interval = 1 / doc.fps;
-    while (frameAcc >= interval) {
-      frameAcc -= interval;
-      currentFrame = (currentFrame + 1) % doc.totalFrames;
-    }
+  const renderer = new JSPenPlayerCanvas(canvas, model);
+  renderer.showRulers = false;
+  const ctx = renderer.ctx;
 
-    // Render Clean Canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!doc.transparentBackground) {
-      ctx.fillStyle = doc.backgroundColor;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
+  const hasKeyframes = model.layers.some(l => l.sprites.some(s =>
+    s.keyframes && Object.keys(s.keyframes).some(k => Array.isArray(s.keyframes[k]) && s.keyframes[k].length > 0)));
 
-    for (const l of doc.layers) {
-      if (!l.visible) continue;
+  const player = {
+    dirty: true,
+    requestDraw() { this.dirty = true; },
+    resize() {
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width = Math.round(model.width * dpr);
+      canvas.height = Math.round(model.height * dpr);
+      canvas.style.width = model.width + 'px';
+      canvas.style.aspectRatio = model.width + ' / ' + model.height;
+      this.dpr = dpr;
+      this.dirty = true;
+    },
+    draw() {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      if (!model.transparentBackground) {
+        ctx.fillStyle = model.backgroundColor;
+        ctx.fillRect(0, 0, model.width, model.height);
+      }
       ctx.save();
-      ctx.globalAlpha = Math.max(0, Math.min(1, l.opacity));
-      if (l.blendMode) ctx.globalCompositeOperation = l.blendMode;
-
-      for (const s of l.sprites) {
-        if (!s.visible) continue;
-        ctx.save();
-        ctx.translate(s.runtime.x, s.runtime.y);
-        ctx.rotate((s.runtime.rotation * Math.PI) / 180);
-        ctx.scale(s.runtime.scaleX, s.runtime.scaleY);
-        ctx.globalAlpha = Math.max(0, Math.min(1, s.runtime.opacity));
-
-        const hw = s.width / 2, hh = s.height / 2;
-        ctx.fillStyle = s.fill || '#38bdf8';
-        ctx.strokeStyle = s.stroke || '#0284c7';
-        ctx.lineWidth = s.strokeWidth || 0;
-
-        if (s.type === 'rect' || s.type === 'bevel_rect') {
-          ctx.beginPath();
-          const cr = s.cornerRadius || 0, bv = s.bevel || 0;
-          if (cr > 0 && bv > 0) {
-            const b = Math.min(bv, hw, hh);
-            const r = Math.min(cr, b * 0.5);
-            ctx.moveTo(-hw + b + r, -hh);
-            ctx.arcTo(hw - b, -hh, hw, -hh + b, r);
-            ctx.arcTo(hw, -hh + b, hw, hh - b, r);
-            ctx.arcTo(hw, hh - b, hw - b, hh, r);
-            ctx.arcTo(hw - b, hh, -hw + b, hh, r);
-            ctx.arcTo(-hw + b, hh, -hw, hh - b, r);
-            ctx.arcTo(-hw, hh - b, -hw, -hh + b, r);
-            ctx.arcTo(-hw, -hh + b, -hw + b, -hh, r);
-            ctx.arcTo(-hw + b, -hh, hw - b, -hh, r);
-          } else if (cr > 0) {
-            ctx.roundRect(-hw, -hh, s.width, s.height, cr);
-          } else {
-            ctx.rect(-hw, -hh, s.width, s.height);
-          }
-          if (s.fill !== 'transparent') ctx.fill();
-          if (s.strokeWidth > 0) ctx.stroke();
-        } else if (s.type === 'circle') {
-          ctx.beginPath();
-          ctx.ellipse(0, 0, Math.max(1, hw), Math.max(1, hh), 0, 0, Math.PI * 2);
-          if (s.fill !== 'transparent') ctx.fill();
-          if (s.strokeWidth > 0) ctx.stroke();
-        } else if (s.type === 'star') {
-          const outerR = Math.min(hw, hh);
-          const innerR = outerR * (s.starInnerRatio || 0.45);
-          const points = s.starPoints || 5;
-          const totalPts = points * 2;
-          const step = Math.PI / points;
-          ctx.beginPath();
-          for (let i = 0; i < totalPts; i++) {
-            const r = (i % 2 === 0) ? outerR : innerR;
-            const a = i * step - Math.PI / 2;
-            const px = Math.cos(a) * r;
-            const py = Math.sin(a) * r;
-            if (i === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-          }
-          ctx.closePath();
-          if (s.fill !== 'transparent') ctx.fill();
-          if (s.strokeWidth > 0) ctx.stroke();
-        } else if (s.type === 'path' && s.pathPoints) {
-          ctx.beginPath();
-          ctx.moveTo(s.pathPoints[0].x, s.pathPoints[0].y);
-          for (let i = 1; i < s.pathPoints.length; i++) {
-            const p = s.pathPoints[i];
-            if (p.type === 'C') ctx.bezierCurveTo(p.cp1x, p.cp1y, p.cp2x, p.cp2y, p.x, p.y);
-            else ctx.lineTo(p.x, p.y);
-          }
-          if (s.isClosedPath || s.pathClosed) {
-            const last = s.pathPoints[s.pathPoints.length - 1];
-            const first = s.pathPoints[0];
-            if (last && first && (last.type === 'C' || first.type === 'C')) {
-              ctx.bezierCurveTo(last.cp2x ?? last.x, last.cp2y ?? last.y, first.cp1x ?? first.x, first.cp1y ?? first.y, first.x, first.y);
-            }
-            ctx.closePath();
-          }
-          if (s.fill && s.fill !== 'transparent' && s.fillType !== 'none') ctx.fill();
-          if (s.strokeWidth > 0) ctx.stroke();
-        }
-        ctx.restore();
+      ctx.beginPath();
+      ctx.rect(0, 0, model.width, model.height);
+      ctx.clip();
+      for (const layer of model.layers) {
+        if (layer.visible) renderer.drawLayer(ctx, layer);
       }
       ctx.restore();
+      this.dirty = false;
     }
-    bus.mouse.clicked = false;
+  };
+
+  player.resize();
+  model.setFrame(0);
+  window.addEventListener('resize', () => {
+    if (Math.max(1, window.devicePixelRatio || 1) !== player.dpr) player.resize();
+  });
+
+  let last = performance.now();
+  let frameAcc = 0;
+  function loop(now) {
+    const dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+    if (hasKeyframes && model.fps > 0) {
+      frameAcc += dt;
+      const interval = 1 / model.fps;
+      while (frameAcc >= interval) {
+        frameAcc -= interval;
+        model.stepFrame(1);
+        player.dirty = true;
+      }
+    }
+    if (player.dirty) player.draw();
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-})();`;
+})();
+`;
     }
 
     static generateHTML(doc) {
@@ -3772,15 +3732,17 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(doc.name || 'JSPen Output')}</title>
   <style>
-    body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; }
-    canvas { box-shadow: 0 10px 40px rgba(0,0,0,0.8); }
+    html, body { margin: 0; min-height: 100%; background: #000; }
+    body { display: flex; align-items: flex-start; justify-content: center; overflow: auto; }
+    canvas { display: block; max-width: 100%; height: auto; letter-spacing: normal; box-shadow: 0 10px 40px rgba(0,0,0,0.8); }
   </style>
 </head>
 <body>
   <canvas id="viewportCanvas"></canvas>
-  <script>${jsCode}<\/script>
+  <script>${jsCode.replace(/<\/script/gi, '<\\/script')}<\/script>
 </body>
 </html>`;
     }
