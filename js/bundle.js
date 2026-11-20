@@ -1633,17 +1633,7 @@
       }
 
       // Draw particles if emitter active
-      if (window.jspenApp?.moduleEngine?.bus?.particles) {
-        for (const p of window.jspenApp.moduleEngine.bus.particles) {
-          ctx.save();
-          ctx.fillStyle = p.color;
-          ctx.globalAlpha = Math.max(0, p.life);
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size || 3, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
-        }
-      }
+      if (this.mode === 'preview') this.drawParticles(ctx);
 
       ctx.restore(); // end clip
 
@@ -1930,7 +1920,25 @@
       ctx.restore();
     }
 
+    // Particles emitted by the module engine (studio preview / exported player).
+    drawParticles(ctx) {
+      const engine = this.moduleEngine || (typeof window !== 'undefined' && window.jspenApp ? window.jspenApp.moduleEngine : null);
+      const particles = engine && engine.active && engine.bus ? engine.bus.particles : null;
+      if (!particles || particles.length === 0) return;
+      for (const p of particles) {
+        ctx.save();
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size || 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
     drawSprite(ctx, sprite) {
+      // Sprites hidden at runtime by a trigger (hide_sprite) are skipped in preview.
+      if (this.mode === 'preview' && sprite.runtime && sprite.runtime.visible === false) return;
       ctx.save();
       const lx = this.mode === 'preview' ? sprite.runtime.x : sprite.x;
       const ly = this.mode === 'preview' ? sprite.runtime.y : sprite.y;
@@ -3017,7 +3025,37 @@
       this.active = false;
       this.draggedSprite = null;
       this.dragOffset = { x: 0, y: 0 };
-      this.activeModuleIds = null; // Filtered by Node Graph OUTPUT connectivity
+      // Module ids disconnected from the Node Graph OUTPUT; these do not run.
+      this.disabledModuleIds = null;
+      // Anchor (#id) navigation is host specific (studio pans, exported page scrolls).
+      this.onNavigateAnchor = null;
+    }
+
+    // Topmost visible sprite under (wx, wy) using runtime (animated) transforms.
+    pickSprite(wx, wy) {
+      for (let li = this.doc.layers.length - 1; li >= 0; li--) {
+        const layer = this.doc.layers[li];
+        if (!layer.visible) continue;
+        for (let si = layer.sprites.length - 1; si >= 0; si--) {
+          const sp = layer.sprites[si];
+          if (!sp.visible || sp.type === 'screen_trigger') continue;
+          if (sp.runtime && sp.runtime.visible === false) continue;
+          if (this.isPointInside(wx, wy, sp)) return sp;
+        }
+      }
+      return null;
+    }
+
+    // Link of a sprite for click navigation (hyperlink module first, then sprite.linkUrl).
+    getClickLink(sprite) {
+      if (!sprite) return null;
+      const linkMod = (sprite.modules || []).find(m => m.enabled !== false && m.type === 'hyperlink' &&
+        !(this.disabledModuleIds && this.disabledModuleIds.has(m.id)));
+      const href = String((linkMod ? (linkMod.params?.url || sprite.linkUrl) : sprite.linkUrl) || '').trim();
+      if (!href) return null;
+      const trigger = linkMod ? (linkMod.params?.trigger || 'click') : 'click';
+      if (trigger !== 'click') return null;
+      return { href, target: (linkMod ? linkMod.params?.target : sprite.linkTarget) || '_blank' };
     }
 
     start() {
@@ -3039,10 +3077,7 @@
       if (href.startsWith('#')) {
         const targetId = href.slice(1);
         const targetSp = this.doc.layers.flatMap(l => l.sprites).find(s => s.anchorId === targetId || s.id === targetId);
-        if (targetSp && window.jspenApp?.renderer) {
-          window.jspenApp.renderer.panY = -(targetSp.y - 120);
-          window.jspenApp.renderCanvas();
-        }
+        if (targetSp && typeof this.onNavigateAnchor === 'function') this.onNavigateAnchor(targetSp);
       } else {
         const safeHref = safeUrl(href);
         if (safeHref) window.open(safeHref, target);
@@ -3079,8 +3114,12 @@
       return true;
     }
 
-    update(dt, mw, ms, isDown, clicked) {
+    // pressPos: document coords where the button went down (a click can be
+    // processed a frame after the pointer already moved on).
+    update(dt, mw, ms, isDown, clicked, pressPos = null) {
       if (!this.active) return;
+      this.bus.mouse.pressX = pressPos ? pressPos.x : mw.x;
+      this.bus.mouse.pressY = pressPos ? pressPos.y : mw.y;
       this.bus.time += dt;
       const prevX = this.bus.mouse.x, prevY = this.bus.mouse.y;
       this.bus.mouse.x = mw.x; this.bus.mouse.y = mw.y;
@@ -3099,12 +3138,33 @@
       this.bus.activeTriggers.clear();
       this.bus.activeTriggerTargets.clear();
 
+      // Scale is a per-frame effect (pulse modules / pulse triggers set it every
+      // frame they are active); reset it so it returns to rest when they stop.
+      for (const layer of this.doc.layers) {
+        for (const sprite of layer.sprites) {
+          if (!sprite.runtime) continue;
+          sprite.runtime.scaleX = sprite.scaleX;
+          sprite.runtime.scaleY = sprite.scaleY;
+        }
+      }
+
       // Free dragging
       if (this.draggedSprite) {
-        if (this.bus.mouse.isDown) {
-          this.draggedSprite.runtime.x = this.bus.mouse.x - this.dragOffset.x;
-          this.draggedSprite.runtime.y = this.bus.mouse.y - this.dragOffset.y;
-        } else {
+        // Also apply the final pointer position on the frame the button is released.
+        {
+          const dp = this.dragParams || {};
+          let nx = this.bus.mouse.x - this.dragOffset.x;
+          let ny = this.bus.mouse.y - this.dragOffset.y;
+          if (dp.snapToGrid) {
+            const g = Math.max(1, parseFloat(dp.gridSize) || 20);
+            nx = Math.round(nx / g) * g;
+            ny = Math.round(ny / g) * g;
+          }
+          if (dp.constrainAxis !== 'y') this.draggedSprite.runtime.x = nx;
+          if (dp.constrainAxis !== 'x') this.draggedSprite.runtime.y = ny;
+        }
+        if (!this.bus.mouse.isDown) {
+          this.bus.emitSignal('drag_end', this.draggedSprite.id);
           this.draggedSprite = null;
         }
       }
@@ -3201,7 +3261,7 @@
 
           for (const mod of (sprite.modules || [])) {
             if (!mod.enabled) continue;
-            if (this.activeModuleIds && !this.activeModuleIds.has(mod.id)) continue;
+            if (this.disabledModuleIds && this.disabledModuleIds.has(mod.id)) continue;
             if (!this.evaluateCondition(mod, sprite, this.bus)) continue;
 
             const p = mod.params || {};
@@ -3297,11 +3357,80 @@
               }
 
               case 'draggable':
-                if (this.bus.mouse.clicked && !this.draggedSprite && sprite.runtime.isHovered) {
+                if (this.bus.mouse.clicked && !this.draggedSprite &&
+                    this.isPointInside(this.bus.mouse.pressX, this.bus.mouse.pressY, sprite)) {
                   this.draggedSprite = sprite;
-                  this.dragOffset = { x: this.bus.mouse.x - sprite.runtime.x, y: this.bus.mouse.y - sprite.runtime.y };
+                  this.dragParams = p;
+                  this.dragOffset = { x: this.bus.mouse.pressX - sprite.runtime.x, y: this.bus.mouse.pressY - sprite.runtime.y };
+                  this.bus.emitSignal('drag_start', sprite.id);
                 }
                 break;
+
+              case 'hover_proximity': {
+                // Hover or within detectionRadius of the sprite edge: scale up and signal.
+                const radius = Math.max(0, parseFloat(p.detectionRadius) || 0);
+                const hw = (sprite.width * (sprite.scaleX || 1)) / 2 + radius;
+                const hh = (sprite.height * (sprite.scaleY || 1)) / 2 + radius;
+                const near = sprite.runtime.isHovered ||
+                  (Math.abs(this.bus.mouse.x - sprite.runtime.x) <= hw && Math.abs(this.bus.mouse.y - sprite.runtime.y) <= hh);
+                const target = near ? (parseFloat(p.scaleOnHover) || 1) : 1;
+                const cur = sprite.runtime._hoverScale || 1;
+                const next = cur + (target - cur) * Math.min(1, dt * 12);
+                sprite.runtime._hoverScale = next;
+                sprite.runtime.scaleX *= next;
+                sprite.runtime.scaleY *= next;
+                if (near && !sprite.runtime._wasNear) this.bus.emitSignal('hover_enter', sprite.id);
+                if (!near && sprite.runtime._wasNear) this.bus.emitSignal('hover_exit', sprite.id);
+                sprite.runtime._wasNear = near;
+                sprite.runtime.isTriggered = sprite.runtime.isTriggered || near;
+                break;
+              }
+
+              case 'click_gesture': {
+                // click / double_click / long_press on the sprite -> signal + short trigger pulse.
+                const rt = sprite.runtime;
+                const gesture = p.gestureType || 'click';
+                const hold = parseFloat(p.activeDuration) || 0.2;
+                let fired = false;
+                if (this.bus.mouse.clicked && rt.isHovered) {
+                  if (gesture === 'click') fired = true;
+                  if (gesture === 'double_click') {
+                    fired = rt._lastClickTime !== undefined && (this.bus.time - rt._lastClickTime) < 0.35;
+                    rt._lastClickTime = fired ? undefined : this.bus.time;
+                  }
+                  rt._pressStart = this.bus.time;
+                  rt._longFired = false;
+                }
+                if (gesture === 'long_press' && this.bus.mouse.isDown && rt.isHovered && rt._pressStart !== undefined &&
+                    !rt._longFired && (this.bus.time - rt._pressStart) >= 0.5) {
+                  fired = true;
+                  rt._longFired = true;
+                }
+                if (!this.bus.mouse.isDown) rt._pressStart = undefined;
+                if (fired) {
+                  rt._gestureUntil = this.bus.time + hold;
+                  this.bus.emitSignal(p.signalName || ('gesture_' + gesture), sprite.id);
+                }
+                if (rt._gestureUntil !== undefined && this.bus.time <= rt._gestureUntil) {
+                  rt.isTriggered = true;
+                  this.bus.activeTriggerTargets.add(sprite.id);
+                }
+                break;
+              }
+
+              case 'keyboard_trigger': {
+                // Arrow keys / WASD move the sprite; any configured key emits a signal.
+                const speed = parseFloat(p.moveSpeed) || 5;
+                const k = this.bus.keyState;
+                const step = speed * 60 * dt;
+                if (k.ArrowLeft || k.KeyA) sprite.runtime.x -= step;
+                if (k.ArrowRight || k.KeyD) sprite.runtime.x += step;
+                if (k.ArrowUp || k.KeyW) sprite.runtime.y -= step;
+                if (k.ArrowDown || k.KeyS) sprite.runtime.y += step;
+                const tk = p.targetKey || 'ArrowRight';
+                if (k[tk]) this.bus.emitSignal('key_' + tk, sprite.id);
+                break;
+              }
 
               case 'screen_trigger':
                 // Already evaluated in Phase 1
@@ -3411,7 +3540,10 @@
                 const mode = p.trackMode || 'spring';
                 const st = parseFloat(p.stiffness !== undefined ? p.stiffness : 0.1);
                 const dp = parseFloat(p.damping !== undefined ? p.damping : 0.8);
-                const maxS = parseFloat(p.maxSpeed !== undefined ? p.maxSpeed : 15);
+                // constantSpeed is px/sec (registry); maxSpeed is the legacy px/frame cap.
+                const maxS = p.constantSpeed !== undefined ? parseFloat(p.constantSpeed) * dt : parseFloat(p.maxSpeed !== undefined ? p.maxSpeed : 15);
+                const axis = p.followAxis || 'both';
+                const baseX = sprite.runtime.x, baseY = sprite.runtime.y;
                 const ox = parseFloat(p.offsetX || 0);
                 const oy = parseFloat(p.offsetY || 0);
                 const destX = tx + ox, destY = ty + oy;
@@ -3422,7 +3554,7 @@
                   sprite.runtime.x = destX;
                   sprite.runtime.y = destY;
                 } else if (mode === 'lerp') {
-                  const factor = Math.min(1, Math.max(0, st * 2));
+                  const factor = Math.min(1, Math.max(0, p.smoothSpeed !== undefined ? parseFloat(p.smoothSpeed) : st * 2));
                   sprite.runtime.x += dx * factor;
                   sprite.runtime.y += dy * factor;
                 } else if (mode === 'constant') {
@@ -3432,7 +3564,8 @@
                     sprite.runtime.y += (dy / dist) * step;
                   }
                 } else if (mode === 'orbit') {
-                  const spd = parseFloat(p.orbitSpeed || 2);
+                  // orbitSpeed is degrees per second
+                  const spd = parseFloat(p.orbitSpeed || 90) * Math.PI / 180;
                   const rad = parseFloat(p.orbitRadius || 80);
                   const angle = this.bus.time * spd;
                   sprite.runtime.x = tx + Math.cos(angle) * rad;
@@ -3443,6 +3576,9 @@
                   sprite.runtime.x += sprite.runtime.vx;
                   sprite.runtime.y += sprite.runtime.vy;
                 }
+
+                if (axis === 'x_only') sprite.runtime.y = baseY;
+                else if (axis === 'y_only') sprite.runtime.x = baseX;
 
                 if (p.rotateToTarget) {
                   sprite.runtime.rotation = Math.atan2(dy, dx) * 180 / Math.PI;
@@ -3559,9 +3695,13 @@
               }
 
               case 'shake_vibrate': {
+                // Jitter around the current position without accumulating drift.
                 const intensity = parseFloat(p.intensity || 8);
-                sprite.runtime.x += (Math.random() - 0.5) * intensity;
-                sprite.runtime.y += (Math.random() - 0.5) * intensity;
+                const prev = sprite.runtime._shake || { x: 0, y: 0 };
+                const next = { x: (Math.random() - 0.5) * intensity, y: (Math.random() - 0.5) * intensity };
+                sprite.runtime.x += next.x - prev.x;
+                sprite.runtime.y += next.y - prev.y;
+                sprite.runtime._shake = next;
                 break;
               }
 
@@ -3620,7 +3760,8 @@
     }
 
     isPointInside(wx, wy, sprite) {
-      const rad = (-sprite.rotation * Math.PI) / 180;
+      const rot = sprite.runtime && sprite.runtime.rotation !== undefined ? sprite.runtime.rotation : sprite.rotation;
+      const rad = (-(rot || 0) * Math.PI) / 180;
       const dx = wx - sprite.runtime.x, dy = wy - sprite.runtime.y;
       const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
       const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
@@ -3640,11 +3781,18 @@
     // shapes, paths, brush strokes, text and text_label modules, gradients,
     // images, filters, masks and timeline keyframes.
     static getRuntimeSource() {
-      return [Sprite, Layer, DocumentModel, PhotoshopCanvas].map(c => c.toString()).join('\n\n');
+      return [safeUrl, Sprite, Layer, DocumentModel, PhotoshopCanvas, ModuleEngine].map(c => c.toString()).join('\n\n');
     }
 
-    static generateJS(doc, activeModuleIds = null) {
+    // disabledModuleIds: modules disconnected from the Node Graph OUTPUT
+    // (defaults to the studio's current node graph).
+    static generateJS(doc, disabledModuleIds = undefined) {
       const docData = jsonForScript(doc.toJSON(), 2);
+      if (disabledModuleIds === undefined) {
+        disabledModuleIds = (typeof window !== 'undefined' && window.jspenApp?.nodeEditor)
+          ? window.jspenApp.nodeEditor.getDisabledModuleIds() : null;
+      }
+      const disabledData = jsonForScript(disabledModuleIds ? [...disabledModuleIds] : []);
       return `/**
  * JSPen Studio - Exported Vanilla Canvas 2D Player
  * Uses the same rendering engine as the studio. No external dependencies.
@@ -3653,6 +3801,7 @@
 (function () {
   'use strict';
   const DOC_DATA = ${docData};
+  const DISABLED_MODULE_IDS = ${disabledData};
 
   // ---- JSPen engine (identical to the studio) ----
 ${this.getRuntimeSource()}
@@ -3688,6 +3837,65 @@ ${this.getRuntimeSource()}
   const hasKeyframes = model.layers.some(l => l.sprites.some(s =>
     s.keyframes && Object.keys(s.keyframes).some(k => Array.isArray(s.keyframes[k]) && s.keyframes[k].length > 0)));
 
+  // ---- Interactions: the studio's module engine ----
+  const engine = new ModuleEngine(model);
+  engine.disabledModuleIds = new Set(DISABLED_MODULE_IDS);
+  const hasModules = model.layers.some(l => l.sprites.some(s => s.type === 'screen_trigger' ||
+    (s.modules || []).some(m => m.enabled !== false && m.type !== 'text_label' && !engine.disabledModuleIds.has(m.id))));
+  const interactive = hasModules || model.layers.some(l => l.sprites.some(s => s.linkUrl));
+  renderer.moduleEngine = engine;
+  renderer.mode = 'preview';
+  engine.start();
+
+  // Document coordinates of a pointer event (the canvas may be scaled by CSS).
+  const toDoc = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const sx = r.width ? model.width / r.width : 1;
+    const sy = r.height ? model.height / r.height : 1;
+    return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy, sx: e.clientX - r.left, sy: e.clientY - r.top };
+  };
+  const pointer = { mw: { x: -1e9, y: -1e9 }, ms: { x: 0, y: 0 }, isDown: false, clicked: false, downAt: null };
+
+  // #anchor links scroll the page to the target sprite.
+  engine.onNavigateAnchor = (sp) => {
+    const r = canvas.getBoundingClientRect();
+    const scale = r.height / model.height;
+    window.scrollTo({ top: window.scrollY + r.top + (sp.y - sp.height / 2) * scale, behavior: 'smooth' });
+  };
+
+  if (interactive) {
+    canvas.style.touchAction = 'none';
+    canvas.addEventListener('pointermove', e => {
+      const p = toDoc(e);
+      pointer.mw = { x: p.x, y: p.y }; pointer.ms = { x: p.sx, y: p.sy };
+      const link = engine.getClickLink(engine.pickSprite(p.x, p.y));
+      canvas.style.cursor = link ? 'pointer' : (engine.draggedSprite ? 'grabbing' : 'default');
+    });
+    canvas.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      const p = toDoc(e);
+      pointer.mw = { x: p.x, y: p.y }; pointer.ms = { x: p.sx, y: p.sy };
+      pointer.isDown = true; pointer.clicked = true; pointer.downAt = { x: p.x, y: p.y }; pointer.press = { x: p.x, y: p.y };
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    const release = () => { pointer.isDown = false; };
+    canvas.addEventListener('pointerup', e => {
+      release();
+      // Treat as a click only when the pointer did not travel (not a drag).
+      const p = toDoc(e);
+      const d = pointer.downAt;
+      pointer.downAt = null;
+      if (!d || Math.hypot(p.x - d.x, p.y - d.y) > 6) return;
+      const link = engine.getClickLink(engine.pickSprite(p.x, p.y));
+      if (link) engine.navigateHyperlink(link.href, link.target);
+    });
+    canvas.addEventListener('pointercancel', release);
+    canvas.addEventListener('pointerleave', () => { if (!pointer.isDown) pointer.mw = { x: -1e9, y: -1e9 }; });
+    window.addEventListener('keydown', e => { engine.bus.keyState[e.code] = true; engine.bus.keyState[e.key] = true; });
+    window.addEventListener('keyup', e => { delete engine.bus.keyState[e.code]; delete engine.bus.keyState[e.key]; });
+    window.addEventListener('blur', () => { engine.bus.keyState = {}; pointer.isDown = false; });
+  }
+
   const player = {
     dirty: true,
     requestDraw() { this.dirty = true; },
@@ -3715,6 +3923,7 @@ ${this.getRuntimeSource()}
       for (const layer of model.layers) {
         if (layer.visible) renderer.drawLayer(ctx, layer);
       }
+      renderer.drawParticles(ctx);
       ctx.restore();
       this.dirty = false;
     }
@@ -3722,6 +3931,7 @@ ${this.getRuntimeSource()}
 
   player.resize();
   model.setFrame(0);
+  for (const l of model.layers) l.resetRuntime();
   window.addEventListener('resize', () => {
     if (Math.max(1, window.devicePixelRatio || 1) !== player.dpr) player.resize();
   });
@@ -3739,6 +3949,16 @@ ${this.getRuntimeSource()}
         model.stepFrame(1);
         player.dirty = true;
       }
+    }
+    if (hasModules) {
+      // Scroll position of the canvas inside the page, in document units.
+      const r = canvas.getBoundingClientRect();
+      const scale = r.height ? model.height / r.height : 1;
+      engine.bus.scroll.scrollY = Math.max(0, -r.top * scale);
+      model.viewportHeight = window.innerHeight * scale;
+      engine.update(dt, pointer.mw, pointer.ms, pointer.isDown, pointer.clicked, pointer.press);
+      pointer.clicked = false;
+      player.dirty = true;
     }
     if (player.dirty) player.draw();
     requestAnimationFrame(loop);
@@ -6577,6 +6797,16 @@ ${sprite.type === 'text' ? `
       return activeMods;
     }
 
+    // Module nodes present in the graph but not connected to OUTPUT.
+    getDisabledModuleIds() {
+      const active = this.getActiveModuleIds();
+      const disabled = new Set();
+      for (const n of this.nodes) {
+        if (n.modId && !active.has(n.modId)) disabled.add(n.modId);
+      }
+      return disabled;
+    }
+
     evaluateParamWires() {
       // Propagate connected parameter sockets
       for (const w of this.wires) {
@@ -8734,6 +8964,9 @@ ${sprite.type === 'text' ? `
       this.doc = new DocumentModel();
       this.renderer = new PhotoshopCanvas(this.canvas, this.doc);
       this.moduleEngine = new ModuleEngine(this.doc);
+      // Pointer state shared by the canvas handlers and the live-preview loop.
+      this.pointer = { ms: { x: 0, y: 0 }, mw: { x: -1e9, y: -1e9 }, isDown: false, clicked: false };
+      this._previewSnapshot = null;
       this.pluginManager = new PluginManager();
       this.isNodeMode = false;
 
@@ -8762,8 +8995,8 @@ ${sprite.type === 'text' ? `
       });
       this.timeline = new TimelineUI(document.getElementById('bottomTimeline'), this.doc, {
         onSeek: () => this.renderCanvas(),
-        onTogglePreview: () => this.openWebPreviewWindow(),
-        get isPreview() { return false; }
+        onTogglePreview: () => this.toggleModulePreview(),
+        get isPreview() { return !!window.jspenApp?.moduleEngine?.active; }
       });
       this.dockerManager = new KritaDockerManager(this);
       this.menuBar = new MenuBarUI(document.getElementById('topMenuBar'), this.doc, {
@@ -8792,7 +9025,7 @@ ${sprite.type === 'text' ? `
       this.templateModal = new TemplateModalUI(this);
       this.nodeEditor = new NodeEditorUI(document.getElementById('nodeEditorContainer'), this.doc, {
         onUpdate: () => {
-          this.moduleEngine.activeModuleIds = this.nodeEditor.getActiveModuleIds();
+          this.moduleEngine.disabledModuleIds = this.nodeEditor.getDisabledModuleIds();
           this.renderCanvas();
         },
         onToggleNodeMode: () => this.toggleNodeMode()
@@ -9123,7 +9356,54 @@ ${sprite.type === 'text' ? `
       this.renderCanvas();
     }
 
+    // Live module preview (Ctrl+Space): runs the module engine on the studio
+    // canvas. The document is snapshotted on start and restored on stop because
+    // modules change sprite data (filters, visibility, text, ...) while running.
+    toggleModulePreview(force) {
+      const on = force === undefined ? !this.moduleEngine.active : !!force;
+      if (on === this.moduleEngine.active) return;
+      if (on) {
+        if (this.isNodeMode) this.toggleNodeMode();
+        this._previewSnapshot = {
+          data: this.doc.toJSON(),
+          history: this.doc.history.slice(),
+          historyIndex: this.doc.historyIndex,
+          selectedSpriteIds: new Set(this.doc.selectedSpriteIds || [])
+        };
+        this.moduleEngine.disabledModuleIds = this.nodeEditor ? this.nodeEditor.getDisabledModuleIds() : null;
+        this.moduleEngine.onNavigateAnchor = sp => {
+          this.renderer.panY = -(sp.y - sp.height / 2) * this.renderer.zoom + 24;
+        };
+        this.pointer.clicked = false;
+        this.pointer.isDown = false;
+        this.renderer.mode = 'preview';
+        this.moduleEngine.start();
+        document.body.classList.add('jspen-live-preview');
+        StudioToast.show('실시간 모듈 미리보기: Esc 또는 Ctrl+Space로 편집 모드 복귀');
+      } else {
+        this.moduleEngine.stop();
+        this.renderer.mode = 'edit';
+        document.body.classList.remove('jspen-live-preview');
+        this.canvas.style.cursor = '';
+        const snap = this._previewSnapshot;
+        this._previewSnapshot = null;
+        if (snap) {
+          this.doc.loadFromData(snap.data, false);
+          this.doc.history = snap.history;
+          this.doc.historyIndex = snap.historyIndex;
+          this.doc.currentFrame = snap.data.currentFrame || 0;
+          this.doc.selectedSpriteId = snap.data.selectedSpriteId || this.doc.selectedSpriteId;
+          this.doc.selectedSpriteIds = snap.selectedSpriteIds;
+          this.doc.selectedModuleId = null;
+        }
+      }
+      this.refreshUI();
+      if (this.timeline) this.timeline.render();
+      this.renderCanvas();
+    }
+
     toggleNodeMode() {
+      if (this.moduleEngine?.active) this.toggleModulePreview(false);
       this.isNodeMode = !this.isNodeMode;
       const nodeCont = document.getElementById('nodeEditorContainer');
       const vpCont = document.getElementById('viewportContainer');
@@ -9696,11 +9976,36 @@ ${sprite.type === 'text' ? `
         }
       });
 
+      // Keyboard state for 'key_press' module conditions during live preview.
+      window.addEventListener('keydown', e => {
+        if (!this.moduleEngine.active) return;
+        const ks = this.moduleEngine.bus.keyState;
+        ks[e.code] = true; ks[e.key] = true;
+      });
+      window.addEventListener('keyup', e => {
+        const ks = this.moduleEngine.bus.keyState;
+        delete ks[e.code]; delete ks[e.key];
+      });
+      window.addEventListener('blur', () => {
+        this.moduleEngine.bus.keyState = {};
+        this.pointer.isDown = false;
+      });
+
       // Hyperlink Click Navigation (Preview Mode & Ctrl+Click in Edit Mode)
       this.canvas.addEventListener('click', e => {
         const r = this.canvas.getBoundingClientRect();
         const ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         const mw = this.renderer.screenToWorld(ms.x, ms.y);
+
+        if (this.moduleEngine.active) {
+          const link = this.moduleEngine.getClickLink(this.moduleEngine.pickSprite(mw.x, mw.y));
+          if (link) {
+            e.preventDefault();
+            this.moduleEngine.navigateHyperlink(link.href, link.target);
+          }
+          return;
+        }
+
         const clickedSprite = this.doc.hitTestSprite(mw.x, mw.y);
 
         if (clickedSprite) {
@@ -9711,7 +10016,7 @@ ${sprite.type === 'text' ? `
           const trigger = linkMod ? (linkMod.params?.trigger || 'click') : 'click';
 
           if (href && (trigger === 'click' || !linkMod)) {
-            if (this.moduleEngine.active || e.ctrlKey || e.metaKey) {
+            if (e.ctrlKey || e.metaKey) {
               e.preventDefault();
               if (href.startsWith('#')) {
                 const targetId = href.slice(1);
@@ -9744,6 +10049,22 @@ ${sprite.type === 'text' ? `
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         mw = this.renderer.screenToWorld(ms.x, ms.y);
         isDown = true;
+        this.pointer.ms = ms; this.pointer.mw = mw;
+
+        // Live preview: only the middle button pans; everything else is an
+        // interaction for the module engine.
+        if (this.moduleEngine.active) {
+          if (e.button === 1) {
+            isPanning = true;
+            panStart = { x: e.clientX, y: e.clientY };
+            initPan = { x: this.renderer.panX, y: this.renderer.panY };
+          } else if (e.button === 0) {
+            this.pointer.isDown = true;
+            this.pointer.clicked = true;
+            this.pointer.press = { x: mw.x, y: mw.y };
+          }
+          return;
+        }
 
         if (this.tools.activeTool === 'hand' || e.spaceKey || e.button === 1) {
           isPanning = true;
@@ -9787,16 +10108,12 @@ ${sprite.type === 'text' ? `
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         mw = this.renderer.screenToWorld(ms.x, ms.y);
 
+        this.pointer.ms = ms; this.pointer.mw = mw;
+
         // Pointer cursor for hyperlinks during preview mode
         if (this.moduleEngine.active) {
-          const hoveredSp = this.doc.hitTestSprite(mw.x, mw.y);
-          const hasLinkMod = hoveredSp && (hoveredSp.modules || []).some(m => m.enabled && m.type === 'hyperlink' && m.params?.url);
-          const hasDirectLink = hoveredSp && !!hoveredSp.linkUrl;
-          if (hasLinkMod || hasDirectLink) {
-            this.canvas.style.cursor = 'pointer';
-          } else {
-            this.canvas.style.cursor = 'default';
-          }
+          const hoveredSp = this.moduleEngine.pickSprite(mw.x, mw.y);
+          this.canvas.style.cursor = this.moduleEngine.getClickLink(hoveredSp) ? 'pointer' : 'default';
         }
 
         if (this.tools.activeTool === 'eyedropper' && loupe) {
@@ -9823,6 +10140,8 @@ ${sprite.type === 'text' ? `
           return;
         }
 
+        if (this.moduleEngine.active) return;
+
         if (this.transformBox.mode) {
           this.transformBox.drag(mw.x, mw.y, e.shiftKey);
           this.requestRender();
@@ -9834,7 +10153,9 @@ ${sprite.type === 'text' ? `
 
       window.addEventListener('mouseup', () => {
         isDown = false;
+        this.pointer.isDown = false;
         if (isPanning) isPanning = false;
+        if (this.moduleEngine.active) return;
         if (this.transformBox.mode) {
           this.transformBox.endDrag();
           this.refreshUI();
@@ -9883,6 +10204,14 @@ ${sprite.type === 'text' ? `
         const renKey  = this.settingsModal?.getShortcutKey('rename') || 'F2';
         const deleteKey = this.settingsModal?.getShortcutKey('delete') || 'Delete';
 
+        // While the live module preview runs the document is not editable:
+        // only the preview toggle and Escape (exit) are handled here.
+        if (this.moduleEngine.active && !(checkShortcutMatch(e, prevKey) || (e.ctrlKey && e.code === 'Space'))) {
+          if (e.key === 'Escape') { e.preventDefault(); this.toggleModulePreview(false); }
+          if (e.code === 'Space') e.preventDefault();
+          return;
+        }
+
         // 1. UNDO
         if (checkShortcutMatch(e, undoKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey)) {
           if (!isInput) {
@@ -9913,12 +10242,18 @@ ${sprite.type === 'text' ? `
           }
         }
 
-        // 3. Web Preview (Alt + W or Ctrl + Space)
-        if (checkShortcutMatch(e, 'Alt + W') || (e.altKey && (e.key === 'w' || e.key === 'W')) || checkShortcutMatch(e, prevKey) || (e.ctrlKey && e.code === 'Space')) {
+        // 3. Live module preview (Ctrl + Space) / Web preview window (Alt + W)
+        if (checkShortcutMatch(e, prevKey) || (e.ctrlKey && e.code === 'Space')) {
+          e.preventDefault();
+          this.toggleModulePreview();
+          return;
+        }
+        if (checkShortcutMatch(e, 'Alt + W') || (e.altKey && (e.key === 'w' || e.key === 'W'))) {
           e.preventDefault();
           this.openWebPreviewWindow();
           return;
         }
+
 
         // 4. Node Mode Toggle
         if (checkShortcutMatch(e, nodeKey) || (e.shiftKey && e.key === 'Tab')) {
@@ -10051,6 +10386,26 @@ ${sprite.type === 'text' ? `
         last = now;
 
         if (this.isNodeMode) {
+          requestAnimationFrame(loop);
+          return;
+        }
+
+        // Live module preview: run the module engine every frame.
+        if (this.moduleEngine.active) {
+          if (this.doc.isPlaying) {
+            frameAcc += dt;
+            const frameInterval = 1 / this.doc.fps;
+            while (frameAcc >= frameInterval) {
+              frameAcc -= frameInterval;
+              this.doc.stepFrame(1);
+            }
+          }
+          const r = this.renderer;
+          this.moduleEngine.bus.scroll.scrollY = Math.max(0, -r.panY / r.zoom);
+          this.doc.viewportHeight = this.canvas.height / r.zoom;
+          this.moduleEngine.update(dt, this.pointer.mw, this.pointer.ms, this.pointer.isDown, this.pointer.clicked, this.pointer.press);
+          this.pointer.clicked = false;
+          this.renderCanvas();
           requestAnimationFrame(loop);
           return;
         }

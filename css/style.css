@@ -3557,3 +3557,18 @@ button, .btn, .btn-sm, .ps-btn, .action-btn, .ps-layer-btn, .ps-mode-switch-btn 
   font-size: 11px;
   color: #71717a;
 }
+
+/* ==========================================================================
+   Live module preview (Ctrl+Space): editing panels are locked while the
+   module engine runs; the viewport gets an accent outline.
+   ========================================================================== */
+body.jspen-live-preview #leftToolbox,
+body.jspen-live-preview #toolOptionBar,
+body.jspen-live-preview #kritaDockRight,
+body.jspen-live-preview #kritaFloatingLayer {
+  pointer-events: none;
+  opacity: 0.5;
+}
+body.jspen-live-preview #viewportContainer {
+  box-shadow: inset 0 0 0 2px #e4e4e7;
+}
