@@ -6,6 +6,50 @@
 (function () {
 
   // ==========================================================================
+  // Security helpers: HTML escaping & URL scheme allowlist
+  // ==========================================================================
+  // Escape a value for safe insertion into HTML text or a quoted attribute.
+  function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // Return the URL if it is a relative link, an in-page anchor, or uses an
+  // allowed scheme (http, https, mailto, tel). Anything else (javascript:,
+  // data:, vbscript:, ...) yields ''. Pass allowImageData to also accept
+  // data:image/* URLs (for <img src>).
+  function safeUrl(url, allowImageData = false) {
+    if (url === null || url === undefined) return '';
+    const raw = String(url).trim();
+    if (!raw) return '';
+    // Browsers ignore control characters and whitespace when parsing the scheme.
+    const compact = raw.replace(/[\u0000-\u0020\u007F]+/g, '').toLowerCase();
+    const scheme = compact.match(/^([a-z][a-z0-9+.-]*):/);
+    if (!scheme) return raw;
+    if (['http', 'https', 'mailto', 'tel'].includes(scheme[1])) return raw;
+    if (allowImageData && /^data:image\/(png|jpe?g|gif|webp|bmp);/.test(compact)) return raw;
+    return '';
+  }
+
+  // Serialize data as a JS literal that is safe to embed inside <script>.
+  function jsonForScript(data, space) {
+    return JSON.stringify(data, null, space)
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
+  }
+
+  if (typeof window !== 'undefined') {
+    window.JSPenSecurity = { escapeHtml, safeUrl, jsonForScript };
+  }
+
+  // ==========================================================================
   // Studio Modal & Toast Engine (Replacing all native browser dialogs)
   // ==========================================================================
   class StudioModal {
@@ -16,11 +60,11 @@
         overlay.innerHTML = `
           <div class="studio-modal-box">
             <div class="studio-modal-header">
-              <span class="studio-modal-title">${title}</span>
+              <span class="studio-modal-title">${escapeHtml(title)}</span>
               <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
             </div>
             <div class="studio-modal-body">
-              <div class="studio-modal-msg">${msg}</div>
+              <div class="studio-modal-msg">${escapeHtml(msg)}</div>
             </div>
             <div class="studio-modal-footer">
               <button class="btn btn-primary btn-sm" id="btnStudioModalOk" style="min-width:70px;">확인</button>
@@ -51,11 +95,11 @@
         overlay.innerHTML = `
           <div class="studio-modal-box">
             <div class="studio-modal-header">
-              <span class="studio-modal-title">${title}</span>
+              <span class="studio-modal-title">${escapeHtml(title)}</span>
               <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
             </div>
             <div class="studio-modal-body">
-              <div class="studio-modal-msg">${msg}</div>
+              <div class="studio-modal-msg">${escapeHtml(msg)}</div>
             </div>
             <div class="studio-modal-footer">
               <button class="btn btn-secondary btn-sm" id="btnStudioModalCancel" style="min-width:65px;">취소</button>
@@ -86,12 +130,12 @@
         overlay.innerHTML = `
           <div class="studio-modal-box">
             <div class="studio-modal-header">
-              <span class="studio-modal-title">${title}</span>
+              <span class="studio-modal-title">${escapeHtml(title)}</span>
               <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
             </div>
             <div class="studio-modal-body">
-              <div class="studio-modal-msg">${msg}</div>
-              <input type="text" class="studio-modal-input" id="studioModalInput" value="${defaultVal || ''}" />
+              <div class="studio-modal-msg">${escapeHtml(msg)}</div>
+              <input type="text" class="studio-modal-input" id="studioModalInput" value="${escapeHtml(defaultVal || '')}" />
             </div>
             <div class="studio-modal-footer">
               <button class="btn btn-secondary btn-sm" id="btnStudioModalCancel" style="min-width:65px;">취소</button>
@@ -2885,7 +2929,8 @@
           window.jspenApp.renderCanvas();
         }
       } else {
-        window.open(href, target);
+        const safeHref = safeUrl(href);
+        if (safeHref) window.open(safeHref, target);
       }
     }
 
@@ -3475,7 +3520,7 @@
   // ==========================================================================
   class PhotoshopJSExporter {
     static generateJS(doc, activeModuleIds = null) {
-      const docData = JSON.stringify(doc.toJSON(), null, 2);
+      const docData = jsonForScript(doc.toJSON(), 2);
       return `/**
  * JSPen Studio - Zero-Discrepancy Vanilla Canvas 2D Engine
  * Exported pure JavaScript: 0 external dependencies!
@@ -3634,7 +3679,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>${doc.name || 'JSPen Output'}</title>
+  <title>${escapeHtml(doc.name || 'JSPen Output')}</title>
   <style>
     body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; }
     canvas { box-shadow: 0 10px 40px rgba(0,0,0,0.8); }
@@ -3683,8 +3728,8 @@
           <button class="ps-color-reset" id="btnResetCol" title="리셋 (D)">◲</button>
           <button class="ps-color-swap" id="btnSwapCol" title="스왑 (X)">⇄</button>
           <div class="ps-swatch-box">
-            <input type="color" class="ps-swatch ps-swatch-fg" id="colFg" value="${this.tools.doc.foregroundColor}">
-            <input type="color" class="ps-swatch ps-swatch-bg" id="colBg" value="${this.tools.doc.backgroundColorSecondary}">
+            <input type="color" class="ps-swatch ps-swatch-fg" id="colFg" value="${escapeHtml(this.tools.doc.foregroundColor)}">
+            <input type="color" class="ps-swatch ps-swatch-bg" id="colBg" value="${escapeHtml(this.tools.doc.backgroundColorSecondary)}">
           </div>
         </div>
       `;
@@ -3747,8 +3792,8 @@
         html += `
           <div class="ps-option-group">
             <label class="ps-option-label">두께:</label>
-            <input type="range" class="ps-slider" id="optBrushSize" min="1" max="40" value="${this.tools.brushSize}">
-            <span class="ps-val-tag" id="valBrushSize">${this.tools.brushSize}px</span>
+            <input type="range" class="ps-slider" id="optBrushSize" min="1" max="40" value="${escapeHtml(this.tools.brushSize)}">
+            <span class="ps-val-tag" id="valBrushSize">${escapeHtml(this.tools.brushSize)}px</span>
           </div>
           <div class="ps-stabilizer-group">
             <button class="ps-stabilizer-btn ${this.tools.brushStabilize ? 'active' : ''}" id="btnToggleStab">
@@ -3772,7 +3817,7 @@
       } else if (t === 'bucket') {
         html += `
           <div class="ps-option-group">
-            <span class="ps-option-label">클릭한 스프라이트에 전경색(${this.tools.doc.foregroundColor}) 채우기</span>
+            <span class="ps-option-label">클릭한 스프라이트에 전경색(${escapeHtml(this.tools.doc.foregroundColor)}) 채우기</span>
           </div>
         `;
       } else if (t === 'shape') {
@@ -3892,20 +3937,20 @@
 
         <div class="ps-layer-list">
           ${reversedLayers.length === 0 ? '<div class="ps-empty-layers">레이어가 없습니다. 상단 + 레이어를 클릭하세요.</div>' : reversedLayers.map(l => `
-            <div class="ps-layer-group ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-layer-id="${l.id}">
+            <div class="ps-layer-group ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-layer-id="${escapeHtml(l.id)}">
               <!-- Layer Container Row (Entire row clickable to select layer) -->
-              <div class="ps-layer-row ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-act="select-layer" data-layer-id="${l.id}" draggable="true">
+              <div class="ps-layer-row ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-act="select-layer" data-layer-id="${escapeHtml(l.id)}" draggable="true">
                 <button class="ps-layer-fold-btn" data-act="fold-layer" title="접기/펼치기">${l.expanded ? '▼' : '▶'}</button>
                 <button class="ps-layer-vis-btn ${l.visible ? '' : 'muted'}" data-act="vis-layer" title="레이어 가시성">${l.visible ? '●' : '○'}</button>
                 <div class="ps-layer-color-tag"></div>
 
                 ${this.renamingId === l.id ? `
-                  <input type="text" class="ps-layer-title-input" value="${l.name}" autofocus>
+                  <input type="text" class="ps-layer-title-input" value="${escapeHtml(l.name)}" autofocus>
                 ` : `
-                  <span class="ps-layer-title" data-act="select-layer" title="더블 클릭하여 이름 변경">${l.name}</span>
+                  <span class="ps-layer-title" data-act="select-layer" title="더블 클릭하여 이름 변경">${escapeHtml(l.name)}</span>
                 `}
 
-                <span class="ps-layer-count-badge">${l.sprites.length}개</span>
+                <span class="ps-layer-count-badge">${escapeHtml(l.sprites.length)}개</span>
                 <button class="ps-btn-layer-add-sp" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+스프라이트</button>
                 <button class="ps-btn-layer-add-sp" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#e4e4e7;color:#e4e4e7;">+트리거</button>
                 <button class="ps-btn-add-module ${(l.modules && l.modules.length > 0) ? 'has-modules' : ''}" data-act="add-layer-mod" title="레이어 모듈 추가">+fx</button>
@@ -3921,7 +3966,7 @@
                     const isFolded = s.collapsed === true;
                     return `
                     <div class="ps-sprite-item-wrap">
-                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : (this.doc.selectedSpriteIds && this.doc.selectedSpriteIds.has(s.id) ? 'multi-selected' : '')}" data-act="select-sprite" data-sprite-id="${s.id}" data-layer-id="${l.id}" draggable="true">
+                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : (this.doc.selectedSpriteIds && this.doc.selectedSpriteIds.has(s.id) ? 'multi-selected' : '')}" data-act="select-sprite" data-sprite-id="${escapeHtml(s.id)}" data-layer-id="${escapeHtml(l.id)}" draggable="true">
                         <button class="ps-sp-fold-btn" data-act="toggle-sprite-fold" title="모듈 접기/펼치기" style="${hasMods ? '' : 'visibility:hidden;'}">
                           ${isFolded ? '▶' : '▼'}
                         </button>
@@ -3930,17 +3975,17 @@
                         <span class="ps-sp-icon">${s.type === 'rect' ? '▭' : (s.type === 'circle' ? '○' : (s.type === 'text' ? 'T' : (s.type === 'path' ? '⟿' : '✎')))}</span>
                         
                         ${this.renamingId === s.id ? `
-                          <input type="text" class="ps-layer-title-input" value="${s.name}" autofocus>
+                          <input type="text" class="ps-layer-title-input" value="${escapeHtml(s.name)}" autofocus>
                         ` : `
-                          <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${s.name}</span>
+                          <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${escapeHtml(s.name)}</span>
                         `}
 
                         <button class="ps-sp-link-btn ${s.linkGroup ? 'active' : ''}" data-act="toggle-link" title="${s.linkGroup ? '스프라이트 링크 해제 (현재 그룹: ' + s.linkGroup + ')' : '다른 스프라이트와 링크하기'}">
-                          ${s.linkGroup ? `[LINK]${s.linkGroup}` : '[LINK]'}
+                          ${s.linkGroup ? `[LINK]${escapeHtml(s.linkGroup)}` : '[LINK]'}
                         </button>
 
                         <button class="ps-btn-add-module ${hasMods ? 'has-modules' : ''}" data-act="add-sprite-mod" title="모듈 추가">
-                          +fx ${hasMods ? `<span class="mod-count">${s.modules.length}</span>` : ''}
+                          +fx ${hasMods ? `<span class="mod-count">${escapeHtml(s.modules.length)}</span>` : ''}
                         </button>
                         <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
                         <button class="ps-btn-del-item" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
@@ -3950,10 +3995,10 @@
                       ${(hasMods && !isFolded) ? `
                         <div class="ps-layer-sub-modules">
                           ${s.modules.map((m, mIdx) => `
-                            <div class="ps-layer-module-row ${m.id === this.doc.selectedModuleId ? 'selected-mod' : ''}" data-mod-id="${m.id}" data-sprite-id="${s.id}" data-mod-idx="${mIdx}" draggable="true">
+                            <div class="ps-layer-module-row ${m.id === this.doc.selectedModuleId ? 'selected-mod' : ''}" data-mod-id="${escapeHtml(m.id)}" data-sprite-id="${escapeHtml(s.id)}" data-mod-idx="${mIdx}" draggable="true">
                               <span class="mod-indent">↳</span>
                               <span class="mod-badge">${MODULE_REGISTRY[m.type]?.icon || 'MOD'}</span>
-                              <span class="mod-name" data-act="select-mod" title="클릭하여 모듈 설정">${m.name}</span>
+                              <span class="mod-name" data-act="select-mod" title="클릭하여 모듈 설정">${escapeHtml(m.name)}</span>
                               <button class="mod-toggle ${m.enabled ? 'active' : ''}" data-act="toggle-mod" title="모듈 활성/비활성">${m.enabled ? 'ON' : 'OFF'}</button>
                               <button class="mod-del" data-act="del-mod" title="모듈 삭제">×</button>
                             </div>
@@ -4329,7 +4374,7 @@
       modal.innerHTML = `
         <div class="ps-module-modal">
           <div class="ps-modal-header">
-            <div class="ps-modal-title">${isLayer ? '레이어 모듈 장착' : '스프라이트 모듈 장착'} (${target.name})</div>
+            <div class="ps-modal-title">${isLayer ? '레이어 모듈 장착' : '스프라이트 모듈 장착'} (${escapeHtml(target.name)})</div>
             <button class="ps-modal-close" id="closeModal">✕</button>
           </div>
           <div class="mod-category-tabs">
@@ -4359,11 +4404,11 @@
         grid.innerHTML = keys.map(k => {
           const m = MODULE_REGISTRY[k];
           return `
-            <div class="ps-module-card" data-key="${k}">
+            <div class="ps-module-card" data-key="${escapeHtml(k)}">
               <div class="ps-mod-badge">${m.icon}</div>
               <div class="ps-mod-info">
-                <div class="ps-mod-name">${m.name}</div>
-                <div class="ps-mod-desc">${m.description}</div>
+                <div class="ps-mod-name">${escapeHtml(m.name)}</div>
+                <div class="ps-mod-desc">${escapeHtml(m.description)}</div>
               </div>
             </div>
           `;
@@ -4464,12 +4509,12 @@
       return `
         <div class="ps-prop-section">
           <div class="ps-prop-header" style="justify-content:space-between;">
-            <span style="font-weight:700;color:#e4e4e7;">레이어: ${layer.name}</span>
+            <span style="font-weight:700;color:#e4e4e7;">레이어: ${escapeHtml(layer.name)}</span>
             <span class="ps-val-tag">레이어</span>
           </div>
           <div class="ps-prop-row" style="margin-top:8px;">
             <label class="ps-prop-label">레이어 이름:</label>
-            <input type="text" class="ps-input" id="inpLayerName" value="${layer.name}">
+            <input type="text" class="ps-input" id="inpLayerName" value="${escapeHtml(layer.name)}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">투명도 (Opacity):</label>
@@ -4511,16 +4556,16 @@
         <!-- Sprite Header -->
         <div class="ps-prop-section">
           <div class="ps-prop-header" style="justify-content:space-between;">
-            <span style="font-weight:700;color:#e4e4e7;">스프라이트: ${sprite.name}</span>
-            <span class="ps-val-tag">${layerName ? layerName : sprite.type}</span>
+            <span style="font-weight:700;color:#e4e4e7;">스프라이트: ${escapeHtml(sprite.name)}</span>
+            <span class="ps-val-tag">${escapeHtml(layerName ? layerName : sprite.type)}</span>
           </div>
           <div class="ps-prop-row" style="margin-top:6px;">
             <label class="ps-prop-label">이름:</label>
-            <input type="text" class="ps-input" id="inpSpriteName" value="${sprite.name}">
+            <input type="text" class="ps-input" id="inpSpriteName" value="${escapeHtml(sprite.name)}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">유형 (Type):</label>
-            <span class="ps-val-tag" style="padding:2px 6px;">${sprite.type}</span>
+            <span class="ps-val-tag" style="padding:2px 6px;">${escapeHtml(sprite.type)}</span>
           </div>
         </div>
 
@@ -4550,7 +4595,7 @@
             </div>
             <div class="blender-scrub-group">
               <span class="blender-scrub-label">Opac</span>
-              <input type="number" class="blender-scrub-input" id="inpOpacity" step="0.05" min="0" max="1" value="${sprite.opacity}">
+              <input type="number" class="blender-scrub-input" id="inpOpacity" step="0.05" min="0" max="1" value="${escapeHtml(sprite.opacity)}">
             </div>
           </div>
         </div>
@@ -4601,7 +4646,7 @@
             <label class="ps-prop-label">채우기 색상:</label>
             <div class="ps-color-picker-wrap">
               <input type="color" class="ps-color-picker" id="inpFill" value="${sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#71717a'}">
-              <span class="ps-val-tag">${sprite.fill || '#71717a'}</span>
+              <span class="ps-val-tag">${escapeHtml(sprite.fill || '#71717a')}</span>
             </div>
           </div>
           `}
@@ -4609,25 +4654,25 @@
             <label class="ps-prop-label">테두리 색상:</label>
             <div class="ps-color-picker-wrap">
               <input type="color" class="ps-color-picker" id="inpStroke" value="${sprite.stroke && sprite.stroke.startsWith('#') ? sprite.stroke : '#0284c7'}">
-              <span class="ps-val-tag">${sprite.stroke || 'none'}</span>
+              <span class="ps-val-tag">${escapeHtml(sprite.stroke || 'none')}</span>
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">선 두께 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpStrokeWidth" min="0" max="100" value="${sprite.strokeWidth || 0}">
+              <input type="number" class="blender-scrub-input" id="inpStrokeWidth" min="0" max="100" value="${escapeHtml(sprite.strokeWidth || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">코너 라운딩 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpCornerRadius" min="0" max="500" value="${sprite.cornerRadius || 0}">
+              <input type="number" class="blender-scrub-input" id="inpCornerRadius" min="0" max="500" value="${escapeHtml(sprite.cornerRadius || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">베벨 수치:</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpBevelChamfer" min="0" max="500" value="${sprite.bevelChamfer || 0}">
+              <input type="number" class="blender-scrub-input" id="inpBevelChamfer" min="0" max="500" value="${escapeHtml(sprite.bevelChamfer || 0)}">
             </div>
           </div>
         </div>
@@ -4639,12 +4684,12 @@
 ${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">텍스트 내용:</label>
-            <input type="text" class="ps-input" id="inpText" value="${sprite.text || ''}">
+            <input type="text" class="ps-input" id="inpText" value="${escapeHtml(sprite.text || '')}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">글자 크기 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpFontSize" min="1" max="200" value="${sprite.fontSize || 32}">
+              <input type="number" class="blender-scrub-input" id="inpFontSize" min="1" max="200" value="${escapeHtml(sprite.fontSize || 32)}">
             </div>
           </div>` : `
           <div class="ps-prop-row" style="margin-top:6px;">
@@ -4680,7 +4725,7 @@ ${sprite.type === 'text' ? `
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">신호 이름:</label>
-            <input type="text" class="ps-input" id="inpTriggerSignalName" value="${sprite.signalName || 'signal_1'}">
+            <input type="text" class="ps-input" id="inpTriggerSignalName" value="${escapeHtml(sprite.signalName || 'signal_1')}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">발동 액션:</label>
@@ -4720,19 +4765,19 @@ ${sprite.type === 'text' ? `
         typeSpecificHtml = `
           <div class="ps-prop-row" style="align-items:flex-start;">
             <label class="ps-prop-label">텍스트 내용:</label>
-            <textarea class="ps-input" data-param-key="text" rows="3" style="resize:vertical;font-family:inherit;min-height:54px;">${params.text || ''}</textarea>
+            <textarea class="ps-input" data-param-key="text" rows="3" style="resize:vertical;font-family:inherit;min-height:54px;">${escapeHtml(params.text || '')}</textarea>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">글자 크기 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="fontSize" min="8" max="160" value="${params.fontSize || 16}">
+              <input type="number" class="blender-scrub-input" data-param-key="fontSize" min="8" max="160" value="${escapeHtml(params.fontSize || 16)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">글자 색상:</label>
             <div class="ps-color-picker-wrap">
               <input type="color" class="ps-color-picker" data-param-key="color" value="${params.color && params.color.startsWith('#') ? params.color : '#ffffff'}">
-              <span class="ps-val-tag">${params.color || '#ffffff'}</span>
+              <span class="ps-val-tag">${escapeHtml(params.color || '#ffffff')}</span>
             </div>
           </div>
           <div class="ps-prop-row">
@@ -4781,7 +4826,7 @@ ${sprite.type === 'text' ? `
             <label class="ps-prop-label">주행 경로 (Path):</label>
             <select class="ps-select" data-param-key="pathSpriteId">
               <option value="">-- 경로 스프라이트 선택 --</option>
-              ${pathSprites.map(p => `<option value="${p.id}" ${(params.pathSpriteId || params.pathLayerId) === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
+              ${pathSprites.map(p => `<option value="${escapeHtml(p.id)}" ${(params.pathSpriteId || params.pathLayerId) === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
             </select>
           </div>
           <div class="ps-prop-row">
@@ -4833,7 +4878,7 @@ ${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">페더 / 흐림 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="feather" min="0" max="50" value="${params.feather || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="feather" min="0" max="50" value="${escapeHtml(params.feather || 0)}">
             </div>
           </div>
           <div class="ps-prop-row" id="rowSubMaskTarget" style="${(params.maskType === 'clip' || params.maskType === 'invert') ? '' : 'display:none;'}">
@@ -4841,7 +4886,7 @@ ${sprite.type === 'text' ? `
             <select class="ps-select" data-param-key="targetSpriteId">
               <option value="">(바로 아래 스프라이트에 클리핑)</option>
               ${allSprites.map(s => `
-                <option value="${s.id}" ${params.targetSpriteId === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
+                <option value="${escapeHtml(s.id)}" ${params.targetSpriteId === s.id ? 'selected' : ''}>${escapeHtml(s.name)} [${escapeHtml(s.type)}]</option>
               `).join('')}
             </select>
           </div>
@@ -4859,7 +4904,7 @@ ${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">가우시안 블러 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="blur" min="0" max="60" value="${params.blur || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="blur" min="0" max="60" value="${escapeHtml(params.blur || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
@@ -4883,25 +4928,25 @@ ${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">흑백 (Grayscale %):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="grayscale" min="0" max="100" value="${params.grayscale || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="grayscale" min="0" max="100" value="${escapeHtml(params.grayscale || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">세피아 (Sepia %):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="sepia" min="0" max="100" value="${params.sepia || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="sepia" min="0" max="100" value="${escapeHtml(params.sepia || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">색조 회전 (Hue deg):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="hueRotate" min="0" max="360" value="${params.hueRotate || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="hueRotate" min="0" max="360" value="${escapeHtml(params.hueRotate || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">색상 반전 (Invert %):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="invert" min="0" max="100" value="${params.invert || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="invert" min="0" max="100" value="${escapeHtml(params.invert || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
@@ -4922,7 +4967,7 @@ ${sprite.type === 'text' ? `
         typeSpecificHtml = `
           <div class="ps-prop-row">
             <label class="ps-prop-label">이동 링크 URL:</label>
-            <input type="text" class="ps-input" data-param-key="url" placeholder="https://... 또는 #section" value="${params.url || ''}">
+            <input type="text" class="ps-input" data-param-key="url" placeholder="https://... 또는 #section" value="${escapeHtml(params.url || '')}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">열기 방식 (Target):</label>
@@ -4934,7 +4979,7 @@ ${sprite.type === 'text' ? `
           
           <div class="ps-prop-row">
             <label class="ps-prop-label">인페이지 앵커 ID:</label>
-            <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${params.anchorId || ''}">
+            <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${escapeHtml(params.anchorId || '')}">
           </div>
           <div class="ps-prop-row" style="margin-top:6px;">
             <button class="btn btn-secondary btn-sm" id="btnTestModDetailLink" style="width:100%;justify-content:center;color:#e4e4e7;border-color:#e4e4e7;gap:6px;" ${!params.url ? 'disabled' : ''}>
@@ -4956,13 +5001,13 @@ ${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">진폭 (Amplitude px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="amplitude" min="1" max="100" value="${params.amplitude || 10}">
+              <input type="number" class="blender-scrub-input" data-param-key="amplitude" min="1" max="100" value="${escapeHtml(params.amplitude || 10)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">주파수 (Hz):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="frequency" min="0.1" max="5" step="0.1" value="${params.frequency || 1}">
+              <input type="number" class="blender-scrub-input" data-param-key="frequency" min="0.1" max="5" step="0.1" value="${escapeHtml(params.frequency || 1)}">
             </div>
           </div>
         `;
@@ -4970,14 +5015,14 @@ ${sprite.type === 'text' ? `
         typeSpecificHtml = `
           ${Object.keys(params).filter(k => k !== 'condition' && k !== 'targetSpriteId' && k !== 'targetModuleId').map(key => `
             <div class="ps-prop-row">
-              <label class="ps-prop-label">${key}:</label>
+              <label class="ps-prop-label">${escapeHtml(key)}:</label>
               ${typeof params[key] === 'boolean' ? `
-                <select class="ps-select" data-param-key="${key}">
+                <select class="ps-select" data-param-key="${escapeHtml(key)}">
                   <option value="true" ${params[key] ? 'selected' : ''}>true</option>
                   <option value="false" ${!params[key] ? 'selected' : ''}>false</option>
                 </select>
               ` : `
-                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" class="ps-input" data-param-key="${key}" value="${params[key]}">
+                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" class="ps-input" data-param-key="${escapeHtml(key)}" value="${escapeHtml(params[key])}">
               `}
             </div>
           `).join('')}
@@ -4990,14 +5035,14 @@ ${sprite.type === 'text' ? `
           <div class="ps-prop-header" style="justify-content:space-between; align-items:center;">
             <div style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;">
               <span class="ps-val-tag" style="background:#0f172a;color:#e4e4e7;padding:2px 6px;font-weight:bold;">${def.icon || 'MOD'}</span>
-              <span style="font-weight:700;color:#f1f5f9;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${mod.name}</span>
+              <span style="font-weight:700;color:#f1f5f9;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(mod.name)}</span>
             </div>
             
           </div>
 
           <div class="ps-prop-row" style="margin-top:8px;">
             <label class="ps-prop-label">소속 스프라이트:</label>
-            <span class="ps-val-tag">${sprite ? sprite.name : '없음'}</span>
+            <span class="ps-val-tag">${escapeHtml(sprite ? sprite.name : '없음')}</span>
           </div>
 
           <div class="ps-prop-row">
@@ -5167,8 +5212,11 @@ ${sprite.type === 'text' ? `
 
         // Test Link button
         this.el.querySelector('#btnTestModDetailLink')?.addEventListener('click', () => {
-          if (mod.params?.url) {
-            window.open(mod.params.url, mod.params.target || '_blank');
+          const safeHref = safeUrl(mod.params?.url);
+          if (safeHref) {
+            window.open(safeHref, mod.params.target || '_blank');
+          } else if (mod.params?.url) {
+            StudioToast.show('허용되지 않는 링크 형식입니다 (http, https, mailto, tel, # 만 지원).');
           }
         });
 
@@ -5452,8 +5500,8 @@ ${sprite.type === 'text' ? `
 
           <div class="tl-controls-center">
             <div class="tl-frame-box">
-              <input type="number" id="tlCurFrame" class="tl-frame-num" value="${current}" min="0" max="${total}">
-              <span style="color:#71717a;font-size:11px;margin:0 2px;">/</span><input type="number" id="tlTotalFrames" class="tl-frame-num" value="${total}" min="10" max="9999" style="width:52px;" title="타임라인 총 프레임 길이">
+              <input type="number" id="tlCurFrame" class="tl-frame-num" value="${escapeHtml(current)}" min="0" max="${escapeHtml(total)}">
+              <span style="color:#71717a;font-size:11px;margin:0 2px;">/</span><input type="number" id="tlTotalFrames" class="tl-frame-num" value="${escapeHtml(total)}" min="10" max="9999" style="width:52px;" title="타임라인 총 프레임 길이">
             </div>
             <select class="tl-select" id="tlFps">
               <option value="24" ${this.doc.fps === 24 ? 'selected' : ''}>24 fps</option>
@@ -5573,12 +5621,12 @@ ${sprite.type === 'text' ? `
 
       tree.innerHTML = `
         <div class="tl-track-row tl-track-parent selected">
-          <span class="tl-track-name">${sprite.name}</span>
+          <span class="tl-track-name">${escapeHtml(sprite.name)}</span>
         </div>
         ${PROPS.map(p => `
           <div class="tl-track-row tl-track-sub">
             <span class="tl-track-sub-indent">└</span>
-            <span class="tl-track-name">${p.label}</span>
+            <span class="tl-track-name">${escapeHtml(p.label)}</span>
           </div>
         `).join('')}
       `;
@@ -5953,7 +6001,7 @@ ${sprite.type === 'text' ? `
 
         <!-- Draggable Native Window Title Bar Region -->
         <div class="ps-menubar-drag-region" id="titleDragRegion">
-          ${this.doc.name} - JSPen Studio
+          ${escapeHtml(this.doc.name)} - JSPen Studio
         </div>
 
         <!-- Native Window Controls -->
@@ -6428,8 +6476,8 @@ ${sprite.type === 'text' ? `
       for (const ly of this.doc.layers) {
         for (const sp of ly.sprites) {
           const isSelected = curSel && curSel.id === sp.id;
-          const linkStr = sp.linkGroup ? ` ([링크그룹${sp.linkGroup})` : '';
-          options += `<option value="${sp.id}" ${isSelected ? 'selected' : ''}>${sp.name}${linkStr}</option>`;
+          const linkStr = sp.linkGroup ? ` ([링크그룹${escapeHtml(sp.linkGroup)})` : '';
+          options += `<option value="${escapeHtml(sp.id)}" ${isSelected ? 'selected' : ''}>${escapeHtml(sp.name)}${linkStr}</option>`;
         }
       }
       selEl.innerHTML = options || '<option value="">스프라이트 없음</option>';
@@ -6512,15 +6560,15 @@ ${sprite.type === 'text' ? `
         const mainOutputs = n.outputs || [];
 
         return `
-          <div class="graph-node ${catClass} ${n.type === 'output_master' ? 'node-output' : ''} ${n.id === this.doc.selectedNodeId ? 'selected' : ''}" id="${n.id}" style="left:${n.x}px; top:${n.y}px;">
+          <div class="graph-node ${catClass} ${n.type === 'output_master' ? 'node-output' : ''} ${n.id === this.doc.selectedNodeId ? 'selected' : ''}" id="${escapeHtml(n.id)}" style="left:${escapeHtml(n.x)}px; top:${escapeHtml(n.y)}px;">
             <div class="graph-node-header">
               <span class="graph-node-title">
-                <span class="graph-node-badge">${n.badge}</span>
-                ${n.title}
+                <span class="graph-node-badge">${escapeHtml(n.badge)}</span>
+                ${escapeHtml(n.title)}
               </span>
               <div style="display:flex;align-items:center;gap:6px;">
                 <span style="font-size:9px;font-weight:700;color:${isActive ? '#e4e4e7' : '#52525b'};">${isActive ? '● ON' : '○ OFF'}</span>
-                ${n.type !== 'output_master' && n.type !== 'output_sprite' ? `<button class="graph-node-close" data-act="del-node" data-node-id="${n.id}">✕</button>` : ''}
+                ${n.type !== 'output_master' && n.type !== 'output_sprite' ? `<button class="graph-node-close" data-act="del-node" data-node-id="${escapeHtml(n.id)}">✕</button>` : ''}
               </div>
             </div>
             
@@ -6528,8 +6576,8 @@ ${sprite.type === 'text' ? `
               <div class="graph-ports-col graph-inputs">
                 ${mainInputs.map(p => `
                   <div class="graph-port-row">
-                    <div class="graph-port graph-port-input port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type || 'flow'})"></div>
-                    <span class="graph-port-label">${p.name}</span>
+                    <div class="graph-port graph-port-input port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}" title="${escapeHtml(p.name)} (${escapeHtml(p.type || 'flow')})"></div>
+                    <span class="graph-port-label">${escapeHtml(p.name)}</span>
                   </div>
                 `).join('')}
               </div>
@@ -6537,8 +6585,8 @@ ${sprite.type === 'text' ? `
               <div class="graph-ports-col graph-outputs">
                 ${mainOutputs.map(p => `
                   <div class="graph-port-row" style="justify-content:flex-end;">
-                    <span class="graph-port-label">${p.name}</span>
-                    <div class="graph-port graph-port-output port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type || 'flow'})"></div>
+                    <span class="graph-port-label">${escapeHtml(p.name)}</span>
+                    <div class="graph-port graph-port-output port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}" title="${escapeHtml(p.name)} (${escapeHtml(p.type || 'flow')})"></div>
                   </div>
                 `).join('')}
               </div>
@@ -6578,12 +6626,12 @@ ${sprite.type === 'text' ? `
             </select>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${aConnected?'port-connected':''}" data-node="${n.id}" data-port="param_inputA" data-type="float" title="값 A 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${aConnected?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_inputA" data-type="float" title="값 A 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">값 A:</span>
             <input type="number" class="node-inline-input" data-node-ctrl="inputA" value="${n.params.inputA !== undefined ? n.params.inputA : (n.params.valA || 0)}" ${aConnected?'disabled style="opacity:0.6;"':''}>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${bConnected?'port-connected':''}" data-node="${n.id}" data-port="param_inputB" data-type="float" title="값 B 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${bConnected?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_inputB" data-type="float" title="값 B 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">값 B:</span>
             <input type="number" class="node-inline-input" data-node-ctrl="inputB" value="${n.params.inputB !== undefined ? n.params.inputB : (n.params.valB !== undefined ? n.params.valB : 1)}" ${bConnected?'disabled style="opacity:0.6;"':''}>
           </div>
@@ -6595,12 +6643,12 @@ ${sprite.type === 'text' ? `
         const brightConn = isConnected('param_brightness');
         return `
           <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${blurConn?'port-connected':''}" data-node="${n.id}" data-port="param_blur" data-type="float" title="블러 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${blurConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_blur" data-type="float" title="블러 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">블러(px):</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="blur" step="1" min="0" value="${n.params.blur || 0}" ${blurConn?'disabled style="opacity:0.6;"':''}>
+            <input type="number" class="node-inline-input" data-node-ctrl="blur" step="1" min="0" value="${escapeHtml(n.params.blur || 0)}" ${blurConn?'disabled style="opacity:0.6;"':''}>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${brightConn?'port-connected':''}" data-node="${n.id}" data-port="param_brightness" data-type="float" title="밝기 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${brightConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_brightness" data-type="float" title="밝기 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">밝기(%):</span>
             <input type="number" class="node-inline-input" data-node-ctrl="brightness" step="5" min="0" value="${n.params.brightness !== undefined ? n.params.brightness : 100}" ${brightConn?'disabled style="opacity:0.6;"':''}>
           </div>
@@ -6623,12 +6671,12 @@ ${sprite.type === 'text' ? `
             </select>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${stConn?'port-connected':''}" data-node="${n.id}" data-port="param_stiffness" data-type="float" title="강도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${stConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_stiffness" data-type="float" title="강도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">강도 (Stiffness):</span>
             <input type="number" class="node-inline-input" data-node-ctrl="stiffness" step="0.05" value="${n.params.stiffness !== undefined ? n.params.stiffness : 0.1}" ${stConn?'disabled style="opacity:0.6;"':''}>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${dpConn?'port-connected':''}" data-node="${n.id}" data-port="param_damping" data-type="float" title="감쇠 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${dpConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_damping" data-type="float" title="감쇠 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">감쇠 (Damping):</span>
             <input type="number" class="node-inline-input" data-node-ctrl="damping" step="0.05" value="${n.params.damping !== undefined ? n.params.damping : 0.8}" ${dpConn?'disabled style="opacity:0.6;"':''}>
           </div>
@@ -6640,12 +6688,12 @@ ${sprite.type === 'text' ? `
         const smConn = isConnected('param_smooth');
         return `
           <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${spdConn?'port-connected':''}" data-node="${n.id}" data-port="param_speed" data-type="float" title="속도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${spdConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_speed" data-type="float" title="속도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">속도:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="speed" step="0.1" value="${n.params.speed || 1}" ${spdConn?'disabled style="opacity:0.6;"':''}>
+            <input type="number" class="node-inline-input" data-node-ctrl="speed" step="0.1" value="${escapeHtml(n.params.speed || 1)}" ${spdConn?'disabled style="opacity:0.6;"':''}>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${smConn?'port-connected':''}" data-node="${n.id}" data-port="param_smooth" data-type="float" title="스무딩 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${smConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_smooth" data-type="float" title="스무딩 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">스무딩:</span>
             <input type="number" class="node-inline-input" data-node-ctrl="smooth" step="0.05" min="0" max="1" value="${n.params.smooth || 0.15}" ${smConn?'disabled style="opacity:0.6;"':''}>
           </div>
@@ -6657,10 +6705,10 @@ ${sprite.type === 'text' ? `
         return `
           <div class="node-inline-control" style="margin-bottom:4px;">
             <span class="node-inline-label">색상:</span>
-            <input type="color" class="node-inline-color" data-node-ctrl="color" value="${n.params.color || '#d4d4d8'}">
+            <input type="color" class="node-inline-color" data-node-ctrl="color" value="${escapeHtml(n.params.color || '#d4d4d8')}">
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${alpConn?'port-connected':''}" data-node="${n.id}" data-port="param_alpha" data-type="float" title="투명도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${alpConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_alpha" data-type="float" title="투명도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">투명도:</span>
             <input type="number" class="node-inline-input" data-node-ctrl="alpha" step="0.1" min="0" max="1" value="${n.params.alpha !== undefined ? n.params.alpha : 1}" ${alpConn?'disabled style="opacity:0.6;"':''}>
           </div>
@@ -6691,7 +6739,7 @@ ${sprite.type === 'text' ? `
       const nodeEl = document.getElementById(nodeId);
       if (nodeEl) {
         // Exact port lookup by data-port
-        let portEl = nodeEl.querySelector(`.graph-port[data-port="${portName}"]`);
+        let portEl = nodeEl.querySelector(`.graph-port[data-port="${CSS.escape(String(portName))}"]`);
         if (!portEl) {
           portEl = nodeEl.querySelector(isOutput ? '.graph-port-output' : '.graph-port-input');
         }
@@ -6727,7 +6775,7 @@ ${sprite.type === 'text' ? `
         const d = this.calculateWirePath(p1.x, p1.y, p2.x, p2.y);
         const isAct = toN.id === 'output_master' || (toN.modId && activeMods.has(toN.modId)) || w.toPort?.startsWith('param_');
 
-        paths += `<path id="wire_${w.id}" d="${d}" class="graph-wire ${isAct ? 'wire-active' : ''}" data-wire-id="${w.id}" data-from="${w.fromNode}" data-to="${w.toNode}" title="클릭하여 연결 끊기" />`;
+        paths += `<path id="wire_${escapeHtml(w.id)}" d="${escapeHtml(d)}" class="graph-wire ${isAct ? 'wire-active' : ''}" data-wire-id="${escapeHtml(w.id)}" data-from="${escapeHtml(w.fromNode)}" data-to="${escapeHtml(w.toNode)}" title="클릭하여 연결 끊기" />`;
       }
 
       svg.innerHTML = paths;
@@ -6980,7 +7028,7 @@ ${sprite.type === 'text' ? `
             if (this.knifePath.length > 1) {
               const p1 = this.knifePath[0];
               const p2 = this.knifePath[this.knifePath.length - 1];
-              knifeSvg.innerHTML = `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" class="node-knife-line" />`;
+              knifeSvg.innerHTML = `<line x1="${escapeHtml(p1.x)}" y1="${escapeHtml(p1.y)}" x2="${escapeHtml(p2.x)}" y2="${escapeHtml(p2.y)}" class="node-knife-line" />`;
             }
           };
 
@@ -7173,13 +7221,13 @@ ${sprite.type === 'text' ? `
         Object.keys(cats).forEach(catKey => {
           const items = filtered.filter(p => p.cat === catKey);
           if (items.length > 0) {
-            html += `<div class="nsm-cat-title">${cats[catKey]}</div>`;
+            html += `<div class="nsm-cat-title">${escapeHtml(cats[catKey])}</div>`;
             items.forEach((item, idx) => {
               html += `
-                <div class="nsm-item ${idx === 0 && q ? 'highlighted' : ''}" data-type="${item.type}">
+                <div class="nsm-item ${idx === 0 && q ? 'highlighted' : ''}" data-type="${escapeHtml(item.type)}">
                   <div style="display:flex;flex-direction:column;gap:2px;">
-                    <div style="font-weight:700;color:#f4f4f5;font-size:11.5px;">${item.name}</div>
-                    <div style="font-size:10px;color:#71717a;">${item.desc}</div>
+                    <div style="font-weight:700;color:#f4f4f5;font-size:11.5px;">${escapeHtml(item.name)}</div>
+                    <div style="font-size:10px;color:#71717a;">${escapeHtml(item.desc)}</div>
                   </div>
                   <span class="nsm-badge">${item.icon}</span>
                 </div>
@@ -7412,14 +7460,14 @@ ${sprite.type === 'text' ? `
               const isRec = this.recordingId === s.id;
               return `
                 <tr style="border-bottom:1px solid #1f1f23;">
-                  <td style="padding:8px 10px;color:#e4e4e7;">${s.name}</td>
+                  <td style="padding:8px 10px;color:#e4e4e7;">${escapeHtml(s.name)}</td>
                   <td style="padding:8px 10px;">
                     <span class="shortcut-key-badge ${isRec ? 'recording' : ''}" style="${isRec ? 'background:#38bdf8;color:#000;font-weight:700;' : ''}">
-                      ${isRec ? '키 입력 대기 중 (ESC 취소)...' : s.key}
+                      ${isRec ? '키 입력 대기 중 (ESC 취소)...' : escapeHtml(s.key)}
                     </span>
                   </td>
                   <td style="padding:8px 10px;text-align:right;">
-                    <button class="btn btn-secondary btn-sm btn-edit-shortcut" data-id="${s.id}" style="font-size:10.5px;padding:2px 8px;">
+                    <button class="btn btn-secondary btn-sm btn-edit-shortcut" data-id="${escapeHtml(s.id)}" style="font-size:10.5px;padding:2px 8px;">
                       ${isRec ? '취소' : '수정'}
                     </button>
                   </td>
@@ -7503,8 +7551,8 @@ ${sprite.type === 'text' ? `
           ${this.pm.plugins.map(p => `
             <div class="plugin-card">
               <div class="plugin-info">
-                <span class="plugin-name">${p.name} <span style="font-size:10px;color:#71717a;">v${p.version||'1.0'}</span></span>
-                <span class="plugin-desc">${p.description||'커스텀 확장 플러그인'} (작성자: ${p.author||'Community'})</span>
+                <span class="plugin-name">${escapeHtml(p.name)} <span style="font-size:10px;color:#71717a;">v${escapeHtml(p.version||'1.0')}</span></span>
+                <span class="plugin-desc">${escapeHtml(p.description||'커스텀 확장 플러그인')} (작성자: ${escapeHtml(p.author||'Community')})</span>
               </div>
               <span style="font-size:11px;color:#22c55e;font-weight:700;">● 활성화됨</span>
             </div>
@@ -8500,16 +8548,16 @@ ${sprite.type === 'text' ? `
           <div style="padding:14px;overflow-y:auto;flex:1;">
             <div class="tpl-grid">
               ${templates.map(t => `
-                <div class="tpl-card" data-tpl-file="${t.file}">
+                <div class="tpl-card" data-tpl-file="${escapeHtml(t.file)}">
                   <div>
-                    <div class="tpl-card-title">${t.title || t.file}</div>
-                    <div class="tpl-card-desc">${t.description || 'JSPen 모던 v11 프로젝트 템플릿입니다.'}</div>
+                    <div class="tpl-card-title">${escapeHtml(t.title || t.file)}</div>
+                    <div class="tpl-card-desc">${escapeHtml(t.description || 'JSPen 모던 v11 프로젝트 템플릿입니다.')}</div>
                   </div>
                   <div class="tpl-card-footer">
-                    <span class="tpl-card-meta">${t.layersCount ? `레이어 ${t.layersCount}개` : t.file}</span>
+                    <span class="tpl-card-meta">${t.layersCount ? `레이어 ${escapeHtml(t.layersCount)}개` : t.file}</span>
                     <div style="display:flex;gap:4px;">
-                      <button class="btn btn-secondary btn-sm btn-insert-tpl" data-tpl-file="${t.file}" style="font-size:11px;padding:2px 8px;">레이어 삽입</button>
-                      <button class="btn btn-primary btn-sm btn-open-tpl" data-tpl-file="${t.file}" style="font-size:11px;padding:2px 8px;">전체 열기</button>
+                      <button class="btn btn-secondary btn-sm btn-insert-tpl" data-tpl-file="${escapeHtml(t.file)}" style="font-size:11px;padding:2px 8px;">레이어 삽입</button>
+                      <button class="btn btn-primary btn-sm btn-open-tpl" data-tpl-file="${escapeHtml(t.file)}" style="font-size:11px;padding:2px 8px;">전체 열기</button>
                     </div>
                   </div>
                 </div>
@@ -9007,10 +9055,11 @@ ${sprite.type === 'text' ? `
 
     generateWebsiteHTML(forExport = false) {
       const doc = this.doc;
-      const W = doc.width || 1440;
-      const H = doc.height || 900;
+      const W = Number(doc.width) || 1440;
+      const H = Number(doc.height) || 900;
       // Artboard background matches the Studio Document background exactly
-      const artboardBg = doc.backgroundColor || '#18181b';
+      // (characters that could break out of the <style> block are stripped)
+      const artboardBg = String(doc.backgroundColor || '#18181b').replace(/[<>{};]/g, '');
       // Empty surrounding space is clean white as requested ("빈 공간은 흰색으로 채우기")
       const pageBg = '#ffffff';
 
@@ -9049,13 +9098,16 @@ ${sprite.type === 'text' ? `
         const effectiveCustomClass = (linkMod ? linkMod.params?.customClass : sprite.cssClass) || '';
 
         // Tag: If link is present, default to <a> for true HTML hyperlink navigation
-        let tag = sprite.tag || 'div';
+        const ALLOWED_TAGS = ['div', 'a', 'button', 'span', 'p', 'section', 'header', 'footer', 'nav', 'main', 'article', 'aside', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+        let tag = String(sprite.tag || 'div').toLowerCase();
+        if (!ALLOWED_TAGS.includes(tag)) tag = 'div';
         if (effectiveLinkUrl && tag === 'div') tag = 'a';
+        const safeLinkUrl = safeUrl(effectiveLinkUrl);
 
         const isLink = !!effectiveLinkUrl || tag === 'a';
         const isBtn = tag === 'button';
-        const hrefAttr = effectiveLinkUrl ? `href="${effectiveLinkUrl}" target="${effectiveLinkTarget}" rel="noopener noreferrer"` : '';
-        const anchorAttr = effectiveAnchorId ? `id="${effectiveAnchorId}"` : `id="${sprite.id}"`;
+        const hrefAttr = safeLinkUrl ? `href="${escapeHtml(safeLinkUrl)}" target="${escapeHtml(effectiveLinkTarget)}" rel="noopener noreferrer"` : '';
+        const anchorAttr = effectiveAnchorId ? `id="${escapeHtml(effectiveAnchorId)}"` : `id="${escapeHtml(sprite.id)}"`;
         const classAttr = `web-sprite ${effectiveHoverEffect && effectiveHoverEffect !== 'none' ? 'hover-' + effectiveHoverEffect : ''} ${effectiveCustomClass}`.trim();
         const cursorStyle = (isBtn || isLink) ? 'cursor:pointer;' : '';
 
@@ -9066,16 +9118,16 @@ ${sprite.type === 'text' ? `
         // Check for text_label module
         const textMod = (sprite.modules || []).find(m => m.enabled !== false && m.type === 'text_label');
         if (textMod && textMod.params) {
-          innerContent = textMod.params.text || '';
+          innerContent = escapeHtml(textMod.params.text || '');
           textColor = textMod.params.color || '#ffffff';
         }
 
         if (sprite.type === 'text') {
-          innerContent = sprite.text || '';
+          innerContent = escapeHtml(sprite.text || '');
           bgStyle = 'transparent';
           textColor = sprite.fill || '#ffffff';
         } else if (sprite.type === 'image' && sprite.imageUrl) {
-          innerContent = `<img src="${sprite.imageUrl}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;" />`;
+          innerContent = `<img src="${escapeHtml(safeUrl(sprite.imageUrl, true))}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;" />`;
           bgStyle = 'transparent';
         } else if (sprite.type === 'brush') {
           const pts = sprite.brushStrokePoints || [];
@@ -9084,7 +9136,7 @@ ${sprite.type === 'text' ? `
             for (let i = 1; i < pts.length; i++) {
               pathD += ` L ${pts[i].x} ${pts[i].y}`;
             }
-            innerContent = `<svg viewBox="-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}" style="width:100%;height:100%;overflow:visible;"><path d="${pathD}" stroke="${sprite.stroke || '#ffffff'}" stroke-width="${sprite.brushSize || 6}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+            innerContent = `<svg viewBox="${escapeHtml(`-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}`)}" style="width:100%;height:100%;overflow:visible;"><path d="${escapeHtml(pathD)}" stroke="${escapeHtml(sprite.stroke || '#ffffff')}" stroke-width="${escapeHtml(sprite.brushSize || 6)}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
           }
           bgStyle = 'transparent';
         } else if (sprite.type === 'path') {
@@ -9100,7 +9152,7 @@ ${sprite.type === 'text' ? `
               d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${cur.x} ${cur.y}`;
             }
             if (sprite.isClosedPath || sprite.pathClosed) d += ' Z';
-            innerContent = `<svg viewBox="-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}" style="width:100%;height:100%;overflow:visible;"><path d="${d}" stroke="${sprite.stroke || '#ffffff'}" stroke-width="${sprite.strokeWidth || 2}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+            innerContent = `<svg viewBox="${escapeHtml(`-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}`)}" style="width:100%;height:100%;overflow:visible;"><path d="${escapeHtml(d)}" stroke="${escapeHtml(sprite.stroke || '#ffffff')}" stroke-width="${escapeHtml(sprite.strokeWidth || 2)}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
           }
         } else {
           // rect, circle, bevel_rect
@@ -9112,7 +9164,7 @@ ${sprite.type === 'text' ? `
             bgStyle = sprite.fill || '#38bdf8';
           }
           if (sprite.text) {
-            innerContent = sprite.text;
+            innerContent = escapeHtml(sprite.text);
           }
           textColor = sprite.textColor || (isLightColor(sprite.fill) ? '#09090b' : '#ffffff');
         }
@@ -9172,8 +9224,7 @@ ${sprite.type === 'text' ? `
         const justify = textAlign === 'left' ? 'flex-start' : (textAlign === 'right' ? 'flex-end' : 'center');
         const padding = sprite.type === 'text' ? '0' : '8px 16px';
 
-        elementsHtml += `
-          <${tag} class="${classAttr}" ${anchorAttr} ${hrefAttr} style="
+        const styleAttr = `
             position: absolute;
             left: ${leftPos}px;
             top: ${topPos}px;
@@ -9204,7 +9255,9 @@ ${sprite.type === 'text' ? `
             user-select: none;
             text-decoration: none;
             transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-          ">${innerContent}</${tag}>
+          `;
+        elementsHtml += `
+          <${tag} class="${escapeHtml(classAttr)}" ${anchorAttr} ${hrefAttr} style="${escapeHtml(styleAttr)}">${innerContent}</${tag}>
         `;
       });
 
@@ -9213,7 +9266,7 @@ ${sprite.type === 'text' ? `
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${doc.name} - JSPen Website</title>
+  <title>${escapeHtml(doc.name)} - JSPen Website</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
@@ -9361,8 +9414,7 @@ ${sprite.type === 'text' ? `
 
     function downloadHtml() {
       const clone = document.documentElement.cloneNode(true);
-      const htmlContent = '<!DOCTYPE html>
-' + clone.outerHTML;
+      const htmlContent = '<!DOCTYPE html>\\n' + clone.outerHTML;
       const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -9372,10 +9424,17 @@ ${sprite.type === 'text' ? `
 
     function copyCode() {
       const clone = document.documentElement.cloneNode(true);
-      navigator.clipboard.writeText('<!DOCTYPE html>
-' + clone.outerHTML).then(() => {
-        StudioToast.show('HTML 코드가 클립보드에 복사되었습니다!');
+      navigator.clipboard.writeText('<!DOCTYPE html>\\n' + clone.outerHTML).then(() => {
+        showNotice('HTML 코드가 클립보드에 복사되었습니다!');
       });
+    }
+
+    function showNotice(msg) {
+      const n = document.createElement('div');
+      n.textContent = msg;
+      n.style.cssText = 'position:fixed;left:50%;bottom:72px;transform:translateX(-50%);background:#27272a;color:#f4f4f5;padding:8px 14px;border-radius:4px;font:12px sans-serif;z-index:99999;';
+      document.body.appendChild(n);
+      setTimeout(() => n.remove(), 2000);
     }
   </script>
 </body>
@@ -9551,7 +9610,8 @@ ${sprite.type === 'text' ? `
                   this.renderCanvas();
                 }
               } else {
-                window.open(href, target);
+                const safeHref = safeUrl(href);
+                if (safeHref) window.open(safeHref, target);
               }
             }
           }
@@ -9903,6 +9963,7 @@ ${sprite.type === 'text' ? `
   window.DocumentModel = DocumentModel;
   window.Layer = Layer;
   window.Sprite = Sprite;
+  window.PhotoshopJSExporter = PhotoshopJSExporter;
   window.MODULE_REGISTRY = MODULE_REGISTRY;
 
   window.addEventListener('DOMContentLoaded', () => {
