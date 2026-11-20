@@ -1545,6 +1545,19 @@
       this.panY = Math.round((ph - this.doc.height * this.zoom) / 2);
     }
 
+    // Sample the rendered viewport pixel at screen coords (eyedropper loupe).
+    getPixelColor(sx, sy) {
+      const x = Math.floor(sx), y = Math.floor(sy);
+      if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) return null;
+      try {
+        const [r, g, b, a] = this.ctx.getImageData(x, y, 1, 1).data;
+        const hex = '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        return { r, g, b, a, hex };
+      } catch (_) {
+        return null;
+      }
+    }
+
     screenToWorld(sx, sy) {
       return {
         x: (sx - this.panX) / this.zoom,
@@ -6132,17 +6145,22 @@ ${sprite.type === 'text' ? `
         });
       });
 
-      window.addEventListener('mousedown', e => {
-        if (!e.target?.closest || !e.target.closest('#topMenuBar')) {
-          closeAllMenus();
-        }
-      });
-
-      window.addEventListener('keydown', e => {
-        if (e.key === 'Escape') {
-          closeAllMenus();
-        }
-      });
+      // Global listeners are bound only once; render() runs many times
+      // (mode switch, docker toggles) and must not stack window listeners.
+      this._closeAllMenus = closeAllMenus;
+      if (!this._globalMenuListenersBound) {
+        this._globalMenuListenersBound = true;
+        window.addEventListener('mousedown', e => {
+          if (!e.target?.closest || !e.target.closest('#topMenuBar')) {
+            this._closeAllMenus?.();
+          }
+        });
+        window.addEventListener('keydown', e => {
+          if (e.key === 'Escape') {
+            this._closeAllMenus?.();
+          }
+        });
+      }
 
       // Photoshop Filter Menu Actions
       this.el.querySelectorAll('[data-filter-act]').forEach(btn => {
