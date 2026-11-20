@@ -52,18 +52,36 @@
   // ==========================================================================
   // Native Bridge: desktop (PyQt6 QtWebEngine) vs. plain browser
   // ==========================================================================
-  // The desktop shell (main.py) listens to document.title changes of the form
-  // "cmd:<name>:<seq>". The sequence number makes repeated commands (e.g. two
-  // quick clicks on maximize) always produce a title change.
+  // In the desktop shell (main.py) a QWebChannel publishes `window.JSPenHost`
+  // (slots: command(name), saveProject(json, fileName)). The channel connects
+  // asynchronously, so calls made before it is ready are queued.
   const NativeBridge = {
-    seq: 0,
-    isDesktop: typeof navigator !== 'undefined' && /QtWebEngine/i.test(navigator.userAgent || ''),
+    isDesktop: typeof window !== 'undefined' && !!(window.qt && window.qt.webChannelTransport),
+    _queue: [],
 
-    send(cmd) {
+    _host() {
+      return (typeof window !== 'undefined' && window.JSPenHost) || null;
+    },
+
+    _flush() {
+      const host = this._host();
+      if (!host) return;
+      const pending = this._queue.splice(0);
+      for (const [method, args] of pending) {
+        if (typeof host[method] === 'function') host[method](...args);
+      }
+    },
+
+    call(method, ...args) {
       if (!this.isDesktop) return false;
-      this.seq = (this.seq + 1) % 100000;
-      document.title = `cmd:${cmd}:${this.seq}`;
+      this._queue.push([method, args]);
+      this._flush();
       return true;
+    },
+
+    // Window / file commands handled by the desktop shell.
+    send(cmd) {
+      return this.call('command', String(cmd));
     },
 
     // Load a JSON resource by relative URL. fetch() cannot read file:// URLs in
@@ -127,6 +145,10 @@
 
   if (typeof window !== 'undefined') {
     window.JSPenNative = NativeBridge;
+    if (NativeBridge.isDesktop) {
+      document.addEventListener('jspen-host-ready', () => NativeBridge._flush());
+      NativeBridge._flush();
+    }
   }
 
   // ==========================================================================
@@ -8838,8 +8860,9 @@ ${sprite.type === 'text' ? `
 
     saveProject() {
       // Desktop: native save dialog (main.py). Browser: download a .jspen file.
-      if (NativeBridge.send('save')) return;
-      NativeBridge.downloadText(this.getProjectFileName(), JSON.stringify(this.doc.toJSON(), null, 2));
+      const json = JSON.stringify(this.doc.toJSON(), null, 2);
+      if (NativeBridge.call('saveProject', json, this.getProjectFileName())) return;
+      NativeBridge.downloadText(this.getProjectFileName(), json);
       StudioToast.show('프로젝트 파일(.jspen)을 다운로드했습니다.');
     }
 

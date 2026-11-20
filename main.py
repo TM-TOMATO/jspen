@@ -6,21 +6,24 @@ window and provides native services the web page cannot do on its own:
 file dialogs for project save/open, file downloads, window controls and
 .jspen file association on Windows.
 
-JS -> Python commands are sent by setting document.title to
-"cmd:<name>:<seq>" (see NativeBridge in js/bundle.js).
+JS <-> Python communication uses QWebChannel: the page sees a
+`window.JSPenHost` object (see HostBridge below and NativeBridge in
+js/bundle.js).
 """
 
 import json
 import os
 import sys
 
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import QFile, QIODevice, QObject, Qt, QUrl, pyqtSlot
 from PyQt6.QtGui import QColor, QDesktopServices
+from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
 from PyQt6.QtWebEngineCore import (
     QWebEngineDownloadRequest,
     QWebEnginePage,
     QWebEngineProfile,
+    QWebEngineScript,
     QWebEngineSettings,
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -49,6 +52,49 @@ def configure_web_settings(settings):
     settings.setAttribute(attr.Accelerated2dCanvasEnabled, True)
     settings.setAttribute(attr.WebGLEnabled, True)
     settings.setAttribute(attr.ScrollAnimatorEnabled, False)
+
+
+def build_channel_bootstrap_script():
+    """Inject qwebchannel.js plus a tiny bootstrap that exposes the host
+    object as window.JSPenHost and fires a 'jspen-host-ready' event."""
+    f = QFile(":/qtwebchannel/qwebchannel.js")
+    if not f.open(QIODevice.OpenModeFlag.ReadOnly):
+        raise RuntimeError("qwebchannel.js resource is not available")
+    source = bytes(f.readAll()).decode("utf-8")
+    f.close()
+    source += """
+;(function () {
+  if (!window.qt || !qt.webChannelTransport) return;
+  new QWebChannel(qt.webChannelTransport, function (channel) {
+    window.JSPenHost = channel.objects.jspenHost;
+    document.dispatchEvent(new Event('jspen-host-ready'));
+  });
+})();
+"""
+    script = QWebEngineScript()
+    script.setName("jspen-webchannel")
+    script.setSourceCode(source)
+    script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+    script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+    script.setRunsOnSubFrames(False)
+    return script
+
+
+class HostBridge(QObject):
+    """Object published to the studio page as window.JSPenHost.
+    Only the main studio page gets the channel; preview windows do not."""
+
+    def __init__(self, window):
+        super().__init__(window)
+        self._window = window
+
+    @pyqtSlot(str)
+    def command(self, name):
+        self._window.handle_command(name)
+
+    @pyqtSlot(str, str)
+    def saveProject(self, json_text, file_name):
+        self._window.save_project_text(json_text, file_name)
 
 
 class PreviewWindow(QMainWindow):
@@ -127,6 +173,13 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.browser)
         configure_web_settings(self.browser.settings())
 
+        # QWebChannel bridge (window.JSPenHost)
+        self.host_bridge = HostBridge(self)
+        self.channel = QWebChannel(self.custom_page)
+        self.channel.registerObject("jspenHost", self.host_bridge)
+        self.custom_page.setWebChannel(self.channel)
+        self.custom_page.scripts().insert(build_channel_bootstrap_script())
+
         # Downloads triggered by <a download> (export modal, website export, ...)
         QWebEngineProfile.defaultProfile().downloadRequested.connect(self.on_download_requested)
 
@@ -137,7 +190,6 @@ class MainWindow(QMainWindow):
         html_path = os.path.join(resource_dir(), "index.html")
         self.browser.load(QUrl.fromLocalFile(html_path))
         self.browser.loadFinished.connect(self.on_load_finished)
-        self.browser.titleChanged.connect(self.handle_js_command)
 
         # Frameless window: the in-app menu bar acts as the title bar
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
@@ -145,11 +197,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # JS bridge
     # ------------------------------------------------------------------
-    def handle_js_command(self, title):
-        if not title.startswith("cmd:"):
-            return
-        parts = title.split(":")
-        cmd = parts[1] if len(parts) > 1 else ""
+    def handle_command(self, cmd):
         if cmd == "save":
             self.native_save_project()
         elif cmd == "open":
@@ -163,7 +211,8 @@ class MainWindow(QMainWindow):
         elif cmd == "window_drag_start":
             if self.windowHandle():
                 self.windowHandle().startSystemMove()
-        self.run_js(f"document.title = {json.dumps(APP_TITLE)};")
+        else:
+            print(f"[JSPen] unknown host command: {cmd!r}", flush=True)
 
     def run_js(self, script, callback=None):
         if callback:
@@ -184,27 +233,13 @@ class MainWindow(QMainWindow):
             self.initial_file = None
 
     def native_save_project(self):
+        """Ask the page for the document, then save it (used by the 'save' command)."""
         def on_json_ready(result):
             if not result:
                 QMessageBox.critical(self, "저장 오류", "프로젝트 데이터를 가져오지 못했습니다.")
                 return
             data = json.loads(result)
-            default_path = self.current_file or (data.get("fileName") or "project.jspen")
-            file_path, _ = QFileDialog.getSaveFileName(
-                self, "JSPen 프로젝트 저장", default_path,
-                "JSPen Project (*.jspen);;JSON Files (*.json)"
-            )
-            if not file_path:
-                return
-            if not file_path.lower().endswith(PROJECT_EXTENSIONS):
-                file_path += ".jspen"
-            try:
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(data["json"])
-                self.current_file = file_path
-                self.notify(f"프로젝트가 저장되었습니다: {os.path.basename(file_path)}")
-            except OSError as e:
-                QMessageBox.critical(self, "저장 오류", f"파일을 저장할 수 없습니다:\n{e}")
+            self.save_project_text(data["json"], data.get("fileName") or "project.jspen")
 
         self.run_js(
             "JSON.stringify({"
@@ -212,6 +247,25 @@ class MainWindow(QMainWindow):
             " fileName: window.jspenApp.getProjectFileName() })",
             on_json_ready,
         )
+
+    def save_project_text(self, json_text, file_name):
+        """Show a save dialog and write the project JSON."""
+        default_path = self.current_file or os.path.basename(file_name or "project.jspen")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "JSPen 프로젝트 저장", default_path,
+            "JSPen Project (*.jspen);;JSON Files (*.json)"
+        )
+        if not file_path:
+            return
+        if not file_path.lower().endswith(PROJECT_EXTENSIONS):
+            file_path += ".jspen"
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(json_text)
+            self.current_file = file_path
+            self.notify(f"프로젝트가 저장되었습니다: {os.path.basename(file_path)}")
+        except OSError as e:
+            QMessageBox.critical(self, "저장 오류", f"파일을 저장할 수 없습니다:\n{e}")
 
     def native_open_project(self):
         start_dir = os.path.dirname(self.current_file) if self.current_file else ""
