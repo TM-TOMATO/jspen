@@ -10,10 +10,22 @@
 
 폴더 안에 있는 **`start.bat`** 파일을 더블 클릭하시면 콘솔창 없이 **포토샵 형태의 프레임리스 다크 테마 네이티브 데스크톱 프로그램 창**이 즉시 실행됩니다.
 
+* 의존성 설치 (최초 1회):
+  ```bash
+  pip install -r requirements.txt
+  ```
+
 * 터미널 직접 실행:
   ```bash
   python main.py
   ```
+
+* 브라우저 모드 (Node.js 개발 서버, `http://localhost:3000`):
+  ```bash
+  npm start
+  ```
+  보안을 위해 기본적으로 `127.0.0.1`에만 바인딩됩니다 (`HOST`, `PORT` 환경 변수로 변경 가능).
+  브라우저 모드에서 `Ctrl+S`는 `.jspen` 파일 다운로드, `Ctrl+O`는 파일 선택 창으로 동작합니다.
 
 * 단독 실행 파일(.exe) 생성:
   `build_exe.bat`을 실행하면 파이썬이 없는 PC에서도 바로 실행되는 `dist\JSPenStudio.exe`가 생성됩니다.

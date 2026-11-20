@@ -50,6 +50,86 @@
   }
 
   // ==========================================================================
+  // Native Bridge: desktop (PyQt6 QtWebEngine) vs. plain browser
+  // ==========================================================================
+  // The desktop shell (main.py) listens to document.title changes of the form
+  // "cmd:<name>:<seq>". The sequence number makes repeated commands (e.g. two
+  // quick clicks on maximize) always produce a title change.
+  const NativeBridge = {
+    seq: 0,
+    isDesktop: typeof navigator !== 'undefined' && /QtWebEngine/i.test(navigator.userAgent || ''),
+
+    send(cmd) {
+      if (!this.isDesktop) return false;
+      this.seq = (this.seq + 1) % 100000;
+      document.title = `cmd:${cmd}:${this.seq}`;
+      return true;
+    },
+
+    // Load a JSON resource by relative URL. fetch() cannot read file:// URLs in
+    // Chromium, so fall back to XMLHttpRequest (allowed in the desktop shell).
+    loadJSON(url) {
+      if (location.protocol !== 'file:') {
+        return fetch(url).then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        });
+      }
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.overrideMimeType('application/json');
+        xhr.onload = () => {
+          // file:// responses report status 0 on success
+          if (xhr.status === 0 || (xhr.status >= 200 && xhr.status < 300)) {
+            try { resolve(JSON.parse(xhr.responseText)); } catch (e) { reject(e); }
+          } else {
+            reject(new Error(`HTTP ${xhr.status}`));
+          }
+        };
+        xhr.onerror = () => reject(new Error('load failed: ' + url));
+        xhr.send();
+      });
+    },
+
+    downloadText(filename, text, mime = 'application/json') {
+      const blob = new Blob([text], { type: mime + ';charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+
+    pickTextFile(accept) {
+      return new Promise(resolve => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = accept;
+        input.style.display = 'none';
+        input.addEventListener('change', () => {
+          const file = input.files && input.files[0];
+          input.remove();
+          if (!file) { resolve(null); return; }
+          const reader = new FileReader();
+          reader.onload = () => resolve({ name: file.name, text: String(reader.result) });
+          reader.onerror = () => resolve(null);
+          reader.readAsText(file);
+        });
+        document.body.appendChild(input);
+        input.click();
+      });
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.JSPenNative = NativeBridge;
+  }
+
+  // ==========================================================================
   // Studio Modal & Toast Engine (Replacing all native browser dialogs)
   // ==========================================================================
   class StudioModal {
@@ -6006,7 +6086,7 @@ ${sprite.type === 'text' ? `
 
         <!-- Native Window Controls -->
         <div class="ps-menubar-right">
-          <div class="ps-window-controls">
+          <div class="ps-window-controls"${NativeBridge.isDesktop ? '' : ' style="display:none;"'}>
             <button class="ps-win-btn win-min" id="winMin" title="최소화">─</button>
             <button class="ps-win-btn win-max" id="winMax" title="최대화 / 이전 크기">□</button>
             <button class="ps-win-btn win-close" id="winClose" title="닫기">✕</button>
@@ -6116,19 +6196,16 @@ ${sprite.type === 'text' ? `
       // Window drag start
       this.el.querySelector('#titleDragRegion')?.addEventListener('mousedown', e => {
         if (e.button === 0) {
-          document.title = 'cmd:window_drag_start';
-          setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+          NativeBridge.send('window_drag_start');
         }
       });
 
       // Window controls
       this.el.querySelector('#winMin')?.addEventListener('click', () => {
-        document.title = 'cmd:window_min';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+        NativeBridge.send('window_min');
       });
       this.el.querySelector('#winMax')?.addEventListener('click', () => {
-        document.title = 'cmd:window_max';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+        NativeBridge.send('window_max');
       });
       
       this.el.querySelector('#mWebPreview')?.addEventListener('click', () => {
@@ -6188,8 +6265,7 @@ ${sprite.type === 'text' ? `
       });
 
       this.el.querySelector('#winClose')?.addEventListener('click', () => {
-        document.title = 'cmd:window_close';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+        NativeBridge.send('window_close');
       });
 
       this.el.querySelector('#btnOpenTemplateGallery')?.addEventListener('click', () => {
@@ -6217,14 +6293,8 @@ ${sprite.type === 'text' ? `
           location.reload();
         }
       });
-      this.el.querySelector('#mSave')?.addEventListener('click', () => {
-        document.title = 'cmd:save';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
-      });
-      this.el.querySelector('#mOpen')?.addEventListener('click', () => {
-        document.title = 'cmd:open';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
-      });
+      this.el.querySelector('#mSave')?.addEventListener('click', () => window.jspenApp?.saveProject());
+      this.el.querySelector('#mOpen')?.addEventListener('click', () => window.jspenApp?.openProject());
 
       // Edit actions
       this.el.querySelector('#mUndo')?.addEventListener('click', () => {
@@ -8481,22 +8551,18 @@ ${sprite.type === 'text' ? `
     }
 
     async fetchTemplateList() {
-      // 1. Try server API
-      try {
-        const res = await fetch('/api/templates');
-        if (res.ok) {
-          const list = await res.json();
+      // 1. Try server API (only available when served by server.js)
+      if (location.protocol !== 'file:') {
+        try {
+          const list = await NativeBridge.loadJSON('api/templates');
           if (Array.isArray(list) && list.length > 0) return list;
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
 
-      // 2. Try manifest.json
+      // 2. Try manifest.json (works for both http:// and the desktop file:// shell)
       try {
-        const res = await fetch('/templates/manifest.json');
-        if (res.ok) {
-          const manifest = await res.json();
-          if (Array.isArray(manifest) && manifest.length > 0) return manifest;
-        }
+        const manifest = await NativeBridge.loadJSON('templates/manifest.json');
+        if (Array.isArray(manifest) && manifest.length > 0) return manifest;
       } catch (_) {}
 
       // 3. Fallback bundled template list
@@ -8512,17 +8578,17 @@ ${sprite.type === 'text' ? `
     }
 
     async loadTemplateFile(filename) {
-      try {
-        let res = await fetch('/templates/' + filename);
-        if (!res.ok && filename.endsWith('.json')) {
-          res = await fetch('/templates/' + filename.replace(/\.json$/, '.jspen'));
-        } else if (!res.ok && !filename.includes('.')) {
-          res = await fetch('/templates/' + filename + '.jspen');
-        }
-        if (res.ok) {
-          return await res.json();
-        }
-      } catch (_) {}
+      const name = String(filename || '');
+      // Only plain file names inside templates/ are allowed.
+      if (!name || /[\\/]|\.\./.test(name)) return null;
+      const candidates = [name];
+      if (name.endsWith('.json')) candidates.push(name.replace(/\.json$/, '.jspen'));
+      else if (!name.includes('.')) candidates.push(name + '.jspen');
+      for (const c of candidates) {
+        try {
+          return await NativeBridge.loadJSON('templates/' + encodeURIComponent(c));
+        } catch (_) {}
+      }
       return null;
     }
 
@@ -8748,8 +8814,23 @@ ${sprite.type === 'text' ? `
     }
 
     loadProjectFromJSON(jsonObjOrString) {
+      // Snapshot the current document so a broken file cannot leave it half-loaded.
+      const backup = this.doc.toJSON();
+      const backupHistory = this.doc.history.slice();
+      const backupHistoryIndex = this.doc.historyIndex;
       try {
         const data = typeof jsonObjOrString === 'string' ? JSON.parse(jsonObjOrString) : jsonObjOrString;
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+          throw new Error('프로젝트 데이터가 객체 형식이 아닙니다.');
+        }
+        if (data.layers !== undefined && !Array.isArray(data.layers)) {
+          throw new Error('layers 항목이 배열이 아닙니다.');
+        }
+        for (const l of (data.layers || [])) {
+          if (!l || typeof l !== 'object' || (l.sprites !== undefined && !Array.isArray(l.sprites))) {
+            throw new Error('레이어 데이터 형식이 올바르지 않습니다.');
+          }
+        }
         this.doc.loadFromData(data, true);
         this.refreshUI();
         if (this.isNodeMode) {
@@ -8758,8 +8839,35 @@ ${sprite.type === 'text' ? `
         }
         return true;
       } catch (err) {
-        console.error("Failed to load project:", err);
+        console.error('Failed to load project:', err);
+        try {
+          this.doc.loadFromData(backup, false);
+          this.doc.history = backupHistory;
+          this.doc.historyIndex = backupHistoryIndex;
+          this.refreshUI();
+        } catch (_) { /* keep whatever state we have */ }
+        StudioToast.show('프로젝트 파일을 불러오지 못했습니다: ' + (err && err.message ? err.message : err), 3500);
         return false;
+      }
+    }
+
+    getProjectFileName() {
+      const base = String(this.doc.name || 'project').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'project';
+      return base + '.jspen';
+    }
+
+    saveProject() {
+      // Desktop: native save dialog (main.py). Browser: download a .jspen file.
+      if (NativeBridge.send('save')) return;
+      NativeBridge.downloadText(this.getProjectFileName(), JSON.stringify(this.doc.toJSON(), null, 2));
+      StudioToast.show('프로젝트 파일(.jspen)을 다운로드했습니다.');
+    }
+
+    async openProject() {
+      if (NativeBridge.send('open')) return;
+      const file = await NativeBridge.pickTextFile('.jspen,.json');
+      if (file && this.loadProjectFromJSON(file.text)) {
+        StudioToast.show(`'${file.name}' 프로젝트를 불러왔습니다.`);
       }
     }
 
@@ -9902,8 +10010,8 @@ ${sprite.type === 'text' ? `
         }
         else if (k === 'h') this.tools.setTool('hand');
         else if (e.ctrlKey && k === 'e') { e.preventDefault(); this.exportModal.show(); }
-        else if (e.ctrlKey && k === 's') { e.preventDefault(); document.title = 'cmd:save'; setTimeout(() => { document.title = 'JSPen Studio'; }, 100); }
-        else if (e.ctrlKey && k === 'o') { e.preventDefault(); document.title = 'cmd:open'; setTimeout(() => { document.title = 'JSPen Studio'; }, 100); }
+        else if (e.ctrlKey && k === 's') { e.preventDefault(); this.saveProject(); }
+        else if (e.ctrlKey && k === 'o') { e.preventDefault(); this.openProject(); }
         else if (e.key === 'Enter' || e.key === 'Escape') {
           if (this.tools.activeTool === 'curve' && this.tools.activeCurvePoints.length > 1) {
             e.preventDefault();
