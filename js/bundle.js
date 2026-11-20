@@ -966,6 +966,7 @@
       this.history = [];
       this.historyIndex = -1;
       this.maxHistory = 40;
+      this.maxHistoryChars = 40 * 1024 * 1024; // ~80MB of UTF-16 strings at most
 
       this.totalFrames = 100;
       this.fps = 30;
@@ -1142,18 +1143,44 @@
     }
 
     saveState() {
+      const snapshot = JSON.stringify(this.historySnapshot());
+      // Clicking without changing anything must not add an undo step.
+      if (this.historyIndex >= 0 && this.history[this.historyIndex] === snapshot) return;
       if (this.historyIndex < this.history.length - 1) {
         this.history = this.history.slice(0, this.historyIndex + 1);
       }
-      this.history.push(JSON.stringify(this.toJSON()));
-      if (this.history.length > this.maxHistory) this.history.shift();
+      this.history.push(snapshot);
+      // Bound history by count and by total size (large brush documents).
+      let total = this.history.reduce((n, h) => n + h.length, 0);
+      while (this.history.length > 1 && (this.history.length > this.maxHistory || total > this.maxHistoryChars)) {
+        total -= this.history.shift().length;
+      }
       this.historyIndex = this.history.length - 1;
+    }
+
+    // Load an undo snapshot while keeping the current selection when it still exists.
+    restoreHistoryEntry(entry) {
+      const selLayerId = this.selectedLayerId, selSpriteId = this.selectedSpriteId;
+      const frame = this.currentFrame;
+      this.loadFromData(JSON.parse(entry), false);
+      if (selLayerId && this.getLayer(selLayerId)) this.selectedLayerId = selLayerId;
+      if (selSpriteId && this.findSpriteById(selSpriteId)) this.selectedSpriteId = selSpriteId;
+      this.currentFrame = frame;
+    }
+
+    // Undo snapshots exclude selection/playhead so selecting does not count as an edit.
+    historySnapshot() {
+      const data = this.toJSON();
+      delete data.selectedLayerId;
+      delete data.selectedSpriteId;
+      delete data.currentFrame;
+      return data;
     }
 
     undo() {
       if (this.historyIndex > 0) {
         this.historyIndex--;
-        this.loadFromData(JSON.parse(this.history[this.historyIndex]), false);
+        this.restoreHistoryEntry(this.history[this.historyIndex]);
         return true;
       }
       return false;
@@ -1162,7 +1189,7 @@
     redo() {
       if (this.historyIndex < this.history.length - 1) {
         this.historyIndex++;
-        this.loadFromData(JSON.parse(this.history[this.historyIndex]), false);
+        this.restoreHistoryEntry(this.history[this.historyIndex]);
         return true;
       }
       return false;
@@ -2720,8 +2747,9 @@
         });
         this.doc.selectedSpriteId = sp.id;
         this.doc.saveState();
-        if (typeof StudioToast !== 'undefined') StudioToast.show('텍스트 스프라이트가 추가되었습니다.');
         if (this.onCommit) this.onCommit();
+        // Start typing right away (inline editor provided by the app).
+        if (typeof this.onTextCreated === 'function') this.onTextCreated(sp, true);
         return;
       }
     }
@@ -3031,6 +3059,28 @@
       this.onNavigateAnchor = null;
     }
 
+    // Finish a drag at the exact release position (called from the pointer-up
+    // handler, so a pointer move right after release cannot shift the drop).
+    endDrag(wx, wy) {
+      if (!this.draggedSprite) return;
+      this.applyDragPosition(wx, wy);
+      this.bus.emitSignal('drag_end', this.draggedSprite.id);
+      this.draggedSprite = null;
+    }
+
+    applyDragPosition(wx, wy) {
+      const dp = this.dragParams || {};
+      let nx = wx - this.dragOffset.x;
+      let ny = wy - this.dragOffset.y;
+      if (dp.snapToGrid) {
+        const g = Math.max(1, parseFloat(dp.gridSize) || 20);
+        nx = Math.round(nx / g) * g;
+        ny = Math.round(ny / g) * g;
+      }
+      if (dp.constrainAxis !== 'y') this.draggedSprite.runtime.x = nx;
+      if (dp.constrainAxis !== 'x') this.draggedSprite.runtime.y = ny;
+    }
+
     // Topmost visible sprite under (wx, wy) using runtime (animated) transforms.
     pickSprite(wx, wy) {
       for (let li = this.doc.layers.length - 1; li >= 0; li--) {
@@ -3150,23 +3200,8 @@
 
       // Free dragging
       if (this.draggedSprite) {
-        // Also apply the final pointer position on the frame the button is released.
-        {
-          const dp = this.dragParams || {};
-          let nx = this.bus.mouse.x - this.dragOffset.x;
-          let ny = this.bus.mouse.y - this.dragOffset.y;
-          if (dp.snapToGrid) {
-            const g = Math.max(1, parseFloat(dp.gridSize) || 20);
-            nx = Math.round(nx / g) * g;
-            ny = Math.round(ny / g) * g;
-          }
-          if (dp.constrainAxis !== 'y') this.draggedSprite.runtime.x = nx;
-          if (dp.constrainAxis !== 'x') this.draggedSprite.runtime.y = ny;
-        }
-        if (!this.bus.mouse.isDown) {
-          this.bus.emitSignal('drag_end', this.draggedSprite.id);
-          this.draggedSprite = null;
-        }
+        if (this.bus.mouse.isDown) this.applyDragPosition(this.bus.mouse.x, this.bus.mouse.y);
+        else this.endDrag(this.bus.mouse.x, this.bus.mouse.y);
       }
 
       // Update particles
@@ -3883,6 +3918,8 @@ ${this.getRuntimeSource()}
       release();
       // Treat as a click only when the pointer did not travel (not a drag).
       const p = toDoc(e);
+      pointer.mw = { x: p.x, y: p.y };
+      engine.endDrag(p.x, p.y);
       const d = pointer.downAt;
       pointer.downAt = null;
       if (!d || Math.hypot(p.x - d.x, p.y - d.y) > 6) return;
@@ -8982,6 +9019,7 @@ ${sprite.type === 'text' ? `
         () => this.requestRender(),
         () => this.refreshUI()
       );
+      this.tools.onTextCreated = (sp, isNew) => this.editTextSprite(sp, isNew);
 
       // Setup UI Panels
       this.toolbox = new ToolboxUI(document.getElementById('leftToolbox'), this.tools, () => this.refreshUI());
@@ -9354,6 +9392,63 @@ ${sprite.type === 'text' ? `
       this.doc.saveState();
       this.refreshUI();
       this.renderCanvas();
+    }
+
+    // Inline text editor over the canvas for text sprites.
+    // Enter commits (Shift+Enter = new line), Escape cancels, blur commits.
+    editTextSprite(sprite, isNew = false) {
+      if (!sprite || this._textEditor) return;
+      const container = this.canvas.parentElement;
+      const r = this.renderer;
+      const pos = r.worldToScreen(sprite.x, sprite.y);
+      const fontSize = Math.max(8, (sprite.fontSize || 24) * r.zoom);
+      const ta = document.createElement('textarea');
+      ta.className = 'jspen-inline-text-editor';
+      ta.value = sprite.text || '';
+      ta.spellcheck = false;
+      ta.style.cssText = `position:absolute;left:${pos.x}px;top:${pos.y}px;transform:translate(-50%,-50%);` +
+        `min-width:${Math.max(80, (sprite.width || 120) * r.zoom)}px;font-size:${fontSize}px;` +
+        `font-weight:${sprite.fontWeight || 'normal'};line-height:1.35;color:${sprite.fill || '#ffffff'};` +
+        'background:rgba(24,24,27,0.92);border:1px solid #e4e4e7;border-radius:2px;outline:none;' +
+        'padding:2px 6px;resize:none;overflow:hidden;z-index:50;text-align:center;font-family:inherit;';
+      const autosize = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+      ta.rows = 1;
+      container.appendChild(ta);
+      this._textEditor = ta;
+      const prevText = sprite.text;
+      let done = false;
+      const finish = (commit) => {
+        if (done) return;
+        done = true;
+        const val = ta.value;
+        ta.remove();
+        this._textEditor = null;
+        if (commit && val.trim() && val !== prevText) {
+          sprite.text = val;
+          if (!sprite.name || sprite.name.startsWith('텍스트')) {
+            sprite.name = '텍스트: ' + val.replace(/\s+/g, ' ').slice(0, 24);
+          }
+          sprite._wrapCache = null;
+          if (isNew && this.doc.history.length > 0) {
+            // Fold the edit into the "text created" undo step.
+            this.doc.history[this.doc.historyIndex] = JSON.stringify(this.doc.historySnapshot());
+          } else {
+            this.doc.saveState();
+          }
+        }
+        this.refreshUI();
+        this.renderCanvas();
+      };
+      ta.addEventListener('input', autosize);
+      ta.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finish(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+      });
+      ta.addEventListener('blur', () => finish(true));
+      ta.addEventListener('mousedown', e => e.stopPropagation());
+      autosize();
+      setTimeout(() => { ta.focus(); ta.select(); }, 0);
     }
 
     // Live module preview (Ctrl+Space): runs the module engine on the studio
@@ -9991,6 +10086,15 @@ ${sprite.type === 'text' ? `
         this.pointer.isDown = false;
       });
 
+      // Double-click a text sprite to edit its text inline.
+      this.canvas.addEventListener('dblclick', e => {
+        if (this.moduleEngine.active) return;
+        const r = this.canvas.getBoundingClientRect();
+        const mw = this.renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top);
+        const sp = this.doc.hitTestSprite(mw.x, mw.y);
+        if (sp && sp.type === 'text') this.editTextSprite(sp, false);
+      });
+
       // Hyperlink Click Navigation (Preview Mode & Ctrl+Click in Edit Mode)
       this.canvas.addEventListener('click', e => {
         const r = this.canvas.getBoundingClientRect();
@@ -10151,11 +10255,17 @@ ${sprite.type === 'text' ? `
         this.tools.handleMouseMove(mw.x, mw.y);
       });
 
-      window.addEventListener('mouseup', () => {
+      window.addEventListener('mouseup', e => {
         isDown = false;
         this.pointer.isDown = false;
         if (isPanning) isPanning = false;
-        if (this.moduleEngine.active) return;
+        if (this.moduleEngine.active) {
+          const r = getCanvasRect();
+          const up = this.renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top);
+          this.pointer.mw = up;
+          this.moduleEngine.endDrag(up.x, up.y);
+          return;
+        }
         if (this.transformBox.mode) {
           this.transformBox.endDrag();
           this.refreshUI();
