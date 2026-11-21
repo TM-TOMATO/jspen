@@ -112,3 +112,36 @@ test('the preview toolbar is only in the preview, not in the exported website', 
   const r = await s.page.evaluate(() => ({ preview: /id="previewToolbar"/.test(jspenApp.generateWebsiteHTML(false)), exported: /id="previewToolbar"/.test(jspenApp.generateWebsiteHTML(true)) }));
   assert.deepEqual(r, { preview: true, exported: false });
 });
+
+test('canvas size is freely adjustable: inspector W/H and artboard edge drag', async () => {
+  const { page } = s;
+  await page.evaluate((DOC) => { jspenApp.loadProjectFromJSON(DOC); jspenApp.doc.selectedSpriteId = null; jspenApp.doc.selectedSpriteIds = new Set(); jspenApp.refreshUI(); }, DOC);
+  // inspector fields (no dialog; content kept by default)
+  await page.fill('#inpCanvasW', '1000');
+  await page.press('#inpCanvasW', 'Enter');
+  let r = await page.evaluate(() => ({ W: jspenApp.doc.width, H: jspenApp.doc.height, boxX: jspenApp.doc.findSpriteById('box').x, modal: !!document.querySelector('.studio-modal-overlay') }));
+  assert.deepEqual(r, { W: 1000, H: 800, boxX: 300, modal: false });
+  await page.selectOption('#inpCanvasMode', 'fit');
+  await page.fill('#inpCanvasH', '400');
+  await page.press('#inpCanvasH', 'Enter');
+  r = await page.evaluate(() => ({ W: jspenApp.doc.width, H: jspenApp.doc.height, boxW: Math.round(jspenApp.doc.findSpriteById('box').width) }));
+  assert.deepEqual(r, { W: 1000, H: 400, boxW: 200 }, 'fit mode scales the content');
+  // drag the bottom-right grip by (+100, +50) screen px at zoom 0.5
+  await page.evaluate(() => { const rd = jspenApp.renderer; rd.zoom = 0.5; rd.panX = 40; rd.panY = 40; jspenApp.tools.setTool ? jspenApp.tools.setTool('move') : (jspenApp.tools.activeTool = 'move'); jspenApp.renderCanvas(); });
+  const bb = await (await page.$('#viewportCanvas')).boundingBox();
+  const gx = bb.x + 40 + 1000 * 0.5 + 2, gy = bb.y + 40 + 400 * 0.5 + 2;
+  await page.mouse.move(gx, gy);
+  assert.equal(await page.evaluate(() => document.getElementById('viewportCanvas').style.cursor), 'nwse-resize');
+  await page.mouse.down();
+  await page.mouse.move(gx + 50, gy + 25, { steps: 4 });
+  await page.mouse.move(gx + 100, gy + 50, { steps: 4 });
+  await page.mouse.up();
+  r = await page.evaluate(() => ({ W: jspenApp.doc.width, H: jspenApp.doc.height, sel: jspenApp.doc.selectedSpriteId }));
+  assert.deepEqual(r, { W: 1200, H: 500, sel: null });
+  // right edge only changes the width; undo restores
+  const rx = bb.x + 40 + 1200 * 0.5 + 3, ry = bb.y + 40 + 100;
+  await page.mouse.move(rx, ry); await page.mouse.down(); await page.mouse.move(rx - 100, ry + 80, { steps: 5 }); await page.mouse.up();
+  assert.deepEqual(await page.evaluate(() => [jspenApp.doc.width, jspenApp.doc.height]), [1000, 500]);
+  await page.evaluate(() => { document.activeElement?.blur(); jspenApp.doc.undo(); });
+  assert.deepEqual(await page.evaluate(() => [jspenApp.doc.width, jspenApp.doc.height]), [1200, 500]);
+});

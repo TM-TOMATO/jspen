@@ -222,3 +222,49 @@ test('user scripts from an opened file ask before running; own scripts run; expo
   await q.close();
   assert.ok(px > 0, 'sprite drawn at x=400 by the script');
 });
+
+test('trigger conditions are explained in the inspector, shown in the layers panel and in the preview status panel', async () => {
+  const { page } = s;
+  await page.evaluate(() => {
+    jspenApp.loadProjectFromJSON({ name: 'cond', width: 800, height: 600, transparentBackground: false, backgroundColor: '#111111', layers: [{ name: 'L', sprites: [
+      { id: 'btn', name: '버튼', type: 'rect', x: 400, y: 300, width: 120, height: 60, fill: '#ffffff',
+        modules: [{ id: 'm1', type: 'orbit_spin', name: '회전', enabled: true, params: { condition: 'on_click', speedDegPerSec: 90 } }] }] }] });
+    jspenApp.doc.selectedSpriteId = 'btn'; jspenApp.doc.selectedModuleId = 'm1'; jspenApp.refreshUI();
+    const r = jspenApp.renderer; r.zoom = 1; r.panX = 0; r.panY = 0; jspenApp.renderCanvas();
+  });
+  const summary = () => page.textContent('#modCondSummary');
+  assert.match(await summary(), /클릭하면 작동을 시작해 계속 유지합니다/);
+  assert.match(await page.textContent('#modCondMode option[value="auto"]'), /자동: 한 번 발동하면 계속/);
+  assert.match(await page.textContent('.ps-layer-module-row .mod-cond'), /클릭→계속/);
+  // key condition: capture a key by pressing it in the field
+  await page.selectOption('#modCond', 'key_press');
+  await page.click('#modCondKey');
+  await page.keyboard.press('KeyA');
+  assert.equal(await page.evaluate(() => jspenApp.doc.findSpriteById('btn').modules[0].params.condKey), 'KeyA');
+  assert.match(await summary(), /'KeyA' 키를 누르면 누르고 있는 동안만 작동합니다/);
+  // signal condition offers the known signal names
+  await page.selectOption('#modCond', 'on_signal');
+  assert.ok((await page.$$eval('#modCondSignalList option', o => o.map(x => x.value))).includes('drag_end'));
+  await page.fill('#modCondSignal', 'go'); await page.press('#modCondSignal', 'Enter');
+  assert.match(await summary(), /'go' 신호를 받으면 작동을 시작해 계속 유지합니다/);
+  await page.selectOption('#modCondMode', 'duration');
+  await page.fill('#modCondDuration', '2'); await page.press('#modCondDuration', 'Enter');
+  assert.match(await summary(), /2초 동안 작동합니다/);
+  // back to click; the preview status panel shows waiting -> running
+  await page.selectOption('#modCond', 'on_click');
+  await page.selectOption('#modCondMode', 'auto');
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('Control+Space');
+  await page.waitForSelector('.jspen-module-hud .hud-row');
+  await page.waitForTimeout(250);
+  assert.match(await page.textContent('.jspen-module-hud .hud-row'), /○ 대기.*버튼 › 회전.*클릭→계속/);
+  const bb = await (await page.$('#viewportCanvas')).boundingBox();
+  await page.mouse.click(bb.x + 400, bb.y + 300);
+  await page.mouse.move(bb.x + 50, bb.y + 50);
+  await page.waitForTimeout(400);
+  assert.match(await page.textContent('.jspen-module-hud .hud-row'), /● 작동 중/);
+  // the panel never blocks clicks on the canvas
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.jspen-module-hud')).pointerEvents), 'none');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.$('.jspen-module-hud'), null, 'removed with the preview');
+});

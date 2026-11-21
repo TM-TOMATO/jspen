@@ -108,9 +108,9 @@ class HostBridge(QObject):
 
     @pyqtSlot(str)
     def projectOpened(self, path):
-        """The page accepted a project opened from disk (after any confirmation)."""
-        if is_project_file(path):
-            self._window.current_file = os.path.abspath(path)
+        """The page loaded a project. `path` is its file on disk, or "" when it
+        has none (template, browser file picker, HTML5 drop): Ctrl+S then asks."""
+        self._window.current_file = os.path.abspath(path) if path and is_project_file(path) else None
 
 
 class PreviewWindow(QMainWindow):
@@ -240,8 +240,10 @@ class MainWindow(QMainWindow):
         QWebEngineProfile.defaultProfile().downloadRequested.connect(self.on_download_requested)
 
         # Drag & drop of .jspen files onto the window
+        # Qt6 delivers drops to an internal child widget of the web view, so
+        # filter at the application level and keep only events for the view.
         self.setAcceptDrops(True)
-        self.browser.installEventFilter(self)
+        QApplication.instance().installEventFilter(self)
 
         html_path = os.path.join(resource_dir(), "index.html")
         self.browser.load(QUrl.fromLocalFile(html_path))
@@ -284,6 +286,9 @@ class MainWindow(QMainWindow):
     # Project files
     # ------------------------------------------------------------------
     def on_load_finished(self, ok):
+        # A (re)load is a fresh document ("새 도큐먼트" reloads the page):
+        # never keep saving into the previous file.
+        self.current_file = None
         if ok and self.initial_file:
             self.open_project_file(self.initial_file, confirm=False)
             self.initial_file = None
@@ -367,9 +372,8 @@ class MainWindow(QMainWindow):
             return
         self.run_js(
             "window.jspenApp && Promise.resolve(window.jspenApp.openProjectText("
-            f"{json.dumps(content)}, {json.dumps(os.path.basename(file_path))}, {json.dumps(bool(confirm))}"
-            ")).then(ok => { if (ok && window.JSPenHost) JSPenHost.projectOpened("
-            f"{json.dumps(os.path.abspath(file_path))}); }});"
+            f"{json.dumps(content)}, {json.dumps(os.path.basename(file_path))}, {json.dumps(bool(confirm))}, "
+            f"{json.dumps(os.path.abspath(file_path))}));"
         )
 
     def closeEvent(self, event):
@@ -450,12 +454,23 @@ class MainWindow(QMainWindow):
             self.open_project_file(path)
             event.acceptProposedAction()
 
+    def _is_view_widget(self, obj):
+        try:
+            while obj is not None:
+                if obj is self.browser:
+                    return True
+                obj = obj.parent()
+        except (AttributeError, RuntimeError):  # non-widget objects, teardown
+            pass
+        return False
+
     def eventFilter(self, watched, event):
-        if watched == self.browser:
-            if event.type() == event.Type.DragEnter and self._dropped_project(event.mimeData()):
+        kind = event.type()
+        if kind in (event.Type.DragEnter, event.Type.DragMove, event.Type.Drop) and self._is_view_widget(watched):
+            if kind in (event.Type.DragEnter, event.Type.DragMove) and self._dropped_project(event.mimeData()):
                 event.acceptProposedAction()
                 return True
-            if event.type() == event.Type.Drop:
+            if kind == event.Type.Drop:
                 path = self._dropped_project(event.mimeData())
                 if path:
                     self.open_project_file(path)

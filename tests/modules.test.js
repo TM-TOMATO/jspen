@@ -356,3 +356,53 @@ test('custom_script: api.self / find / vars / emit / state, run on start, errors
   assert.equal(sigCount(r, 'three'), 1);
   assert.ok(v.bad.rot > 0, 'a failing script does not stop the other modules');
 });
+
+// ---------------- Trigger conditions (condition + conditionMode) ----------------
+
+const spinOnClick = (extra) => ({ sprites: [{ name: 'a', x: 100, y: 100, mods: [['orbit_spin', Object.assign({ condition: 'on_click', speedDegPerSec: 60 }, extra)]] }],
+  frames: [{ mouse: [100, 100], click: true, n: 1 }, { mouse: [600, 500], n: 10, snap: 'a' }, { n: 30, snap: 'b' }, { mouse: [100, 100], click: true, n: 1 }, { mouse: [600, 500], n: 10, snap: 'c' }, { n: 30, snap: 'd' }] });
+
+test('conditions: a click starts an animation and keeps it running (auto = latch)', async () => {
+  const r = await run(spinOnClick({}));
+  assert.ok(snap(r, 'b').a.rot > snap(r, 'a').a.rot, 'still spinning after the click');
+  assert.ok(snap(r, 'd').a.rot > snap(r, 'c').a.rot);
+});
+
+test('conditions: "while" runs only for the click instant', async () => {
+  const r = await run(spinOnClick({ conditionMode: 'while' }));
+  assert.equal(snap(r, 'b').a.rot, snap(r, 'a').a.rot);
+});
+
+test('conditions: toggle switches on and off on every click', async () => {
+  const r = await run(spinOnClick({ conditionMode: 'toggle' }));
+  assert.ok(snap(r, 'b').a.rot > snap(r, 'a').a.rot, 'first click: on');
+  assert.equal(snap(r, 'd').a.rot, snap(r, 'c').a.rot, 'second click: off');
+});
+
+test('conditions: duration runs for N seconds after the event', async () => {
+  const r = await run({ sprites: [{ name: 'a', x: 100, y: 100, mods: [['orbit_spin', { condition: 'on_click', conditionMode: 'duration', conditionDuration: 0.5, speedDegPerSec: 60 }]] }],
+    frames: [{ mouse: [100, 100], click: true, n: 1 }, { mouse: [600, 500], n: 10, snap: 'a' }, { n: 10, snap: 'b' }, { n: 30, snap: 'c' }, { n: 30, snap: 'd' }] });
+  assert.ok(snap(r, 'b').a.rot > snap(r, 'a').a.rot, 'running inside the window');
+  assert.equal(snap(r, 'd').a.rot, snap(r, 'c').a.rot, 'stopped after 0.5 s');
+});
+
+test('conditions: every new signal counts (toggle on a repeating timer); "*" needs a fresh signal', async () => {
+  const r = await run({ sprites: [
+    { name: 't', x: 700, y: 500, mods: [['timer_interval', { intervalSec: 1 }]] },
+    { name: 'a', x: 100, y: 100, mods: [['orbit_spin', { condition: 'on_signal', condSignal: 'timer_tick', conditionMode: 'toggle', speedDegPerSec: 60 }]] },
+    { name: 'b', x: 300, y: 100, mods: [['orbit_spin', { condition: 'on_signal', condSignal: 'nobody_sends_this', speedDegPerSec: 60 }]] }],
+    frames: [{ n: 70, snap: 'p1' }, { n: 20, snap: 'p2' }, { n: 40, snap: 'p3' }, { n: 20, snap: 'p4' }] });
+  assert.ok(snap(r, 'p2').a.rot > snap(r, 'p1').a.rot, 'after the 1st tick: on');
+  assert.equal(snap(r, 'p4').a.rot, snap(r, 'p3').a.rot, 'after the 2nd tick: off');
+  assert.equal(snap(r, 'p4').b.rot, 0, 'never triggered');
+});
+
+test('conditions: older projects (targetKey / listenSignal) keep working', async () => {
+  const r = await s.page.evaluate(() => {
+    const E = jspenApp.moduleEngine.constructor;
+    return [E.conditionSignal({ params: { listenSignal: 'x' } }), E.conditionSignal({ params: { condSignal: 'y', listenSignal: 'x' } }), E.conditionSignal({ params: {} }),
+      E.resolveConditionMode({ type: 'synth_sfx', params: { condition: 'on_click' } }), E.resolveConditionMode({ type: 'motion_wave', params: { condition: 'on_click' } }),
+      E.resolveConditionMode({ type: 'motion_wave', params: { condition: 'on_hover' } })];
+  });
+  assert.deepEqual(r, ['x', 'y', '*', 'while', 'latch', 'while']);
+});

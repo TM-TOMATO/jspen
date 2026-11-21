@@ -19,6 +19,13 @@ import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 NAME = "JSPenStudio"
+# Korean messages must never crash on a legacy (cp949) console or a pipe.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 DATA = [("index.html", "."), ("css", "css"), ("js", "js"), ("templates", "templates")]
 
 

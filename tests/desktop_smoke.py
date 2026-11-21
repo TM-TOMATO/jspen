@@ -66,6 +66,13 @@ STEPS = [
     ("after_save", "String(jspenApp.isDirty())"),
     # save as: always asks
     ("save_as", "jspenApp.saveProject(true); 'ok'"),
+    # after "save as", Ctrl+S keeps writing to that new file without asking
+    ("resave", "jspenApp.doc.layers[0].sprites[0].name = 'resaved'; jspenApp.doc.saveState(); jspenApp.saveProject(); 'ok'"),
+    ("resave_file", "PY:current_file"),
+    # a project opened without a path (browser picker / HTML5 drop) must not
+    # be saved over the previous file: Ctrl+S asks again
+    ("js_open", "jspenApp.openProjectText(JSON.stringify(jspenApp.doc.toJSON()), 'x.jspen', false).then(() => {}); 'ok'"),
+    ("js_open_file", "PY:current_file"),
     ("window", "['winMax','winMax','winMin','winClose'].forEach(id => document.getElementById(id).click()); 'ok'"),
     ("download", "(() => { jspenApp.exportModal.show(); document.querySelector('#btnDl').click(); return 'ok'; })()"),
     ("web_gen", "String(jspenApp.generateWebsiteHTML(true).length)"),
@@ -102,6 +109,11 @@ def main():
             return
         key, code = STEPS[state["i"]]
         state["busy"] = True
+        if code.startswith("PY:"):
+            results[key] = getattr(win, code[3:])
+            state["i"] += 1
+            state["busy"] = False
+            return
         if code == "OPEN_DROPPED":
             win.open_project_file(other, confirm=True)  # same path as a drag & drop
             code = "'ok'"
@@ -142,6 +154,11 @@ def main():
     check(results.get("after_save") == "false", f"still dirty after save: {results.get('after_save')}")
     saved_as = [p for p in dialog_calls if p.endswith(".jspen")]
     check(len(saved_as) == 1 and os.path.exists(saved_as[0]), f"save-as did not ask exactly once: {dialog_calls}")
+    if saved_as:
+        check(results.get("resave_file") == os.path.abspath(saved_as[0]), f"Ctrl+S after save-as: {results.get('resave_file')}")
+        resaved = json.load(open(saved_as[0], encoding="utf-8"))
+        check(resaved["layers"][0]["sprites"][0]["name"] == "resaved", "Ctrl+S after save-as did not write in place")
+    check(results.get("js_open_file") is None, f"pathless open kept the old file: {results.get('js_open_file')}")
     exports = [p for p in dialog_calls if p.endswith(".html")]
     check(len(exports) == 2 and all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in exports),
           f"exports not saved: {dialog_calls}")

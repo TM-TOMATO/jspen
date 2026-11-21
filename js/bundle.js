@@ -910,6 +910,7 @@
     }
 
     resetRuntime() {
+      this.runtime._cond = null;
       this.runtime.x = this.x;
       this.runtime.y = this.y;
       this.runtime.rotation = this.rotation;
@@ -1316,13 +1317,16 @@
       return this.layers.length > 0 ? this.layers[0] : null;
     }
 
-    getSelectedSprite() {
+    // fallback=false: only an explicitly selected sprite (the inspector then
+    // shows the layer / canvas settings instead of the layer's first sprite).
+    getSelectedSprite(fallback = true) {
       if (this.selectedSpriteId) {
         for (const l of this.layers) {
           const s = l.getSprite(this.selectedSpriteId);
           if (s) return s;
         }
       }
+      if (!fallback) return null;
       const l = this.getSelectedLayer();
       return l && l.sprites.length > 0 ? l.sprites[0] : null;
     }
@@ -1627,7 +1631,7 @@
     }
 
     getTarget() {
-      return this.doc.getSelectedSprite() || this.doc.getSelectedLayer();
+      return this.doc.getSelectedSprite(false);
     }
 
     getHandles(target) {
@@ -1960,6 +1964,56 @@
       this.centerArtboard();
     }
 
+    // Artboard resize grips (screen-sized) on the right edge, bottom edge
+    // and bottom-right corner, in world coordinates of the current transform.
+    artboardHandles() {
+      const W = this.doc.width, H = this.doc.height;
+      return [['r', W, H / 2], ['b', W / 2, H], ['rb', W, H]];
+    }
+
+    // Which grip / edge band (just outside the artboard) is under a screen point.
+    hitArtboardHandle(sx, sy) {
+      const W = this.doc.width * this.zoom, H = this.doc.height * this.zoom;
+      const x = sx - this.panX, y = sy - this.panY;
+      const near = (v, t) => v >= t - 4 && v <= t + 10;
+      if (near(x, W) && near(y, H)) return 'rb';
+      if (near(x, W) && y >= 0 && y <= H) return 'r';
+      if (near(y, H) && x >= 0 && x <= W) return 'b';
+      return null;
+    }
+
+    drawArtboardHandles(ctx) {
+      const app = typeof window !== 'undefined' ? window.jspenApp : null;
+      const drag = app && app.artboardDrag;
+      const z = this.zoom;
+      ctx.save();
+      for (const [edge, x, y] of this.artboardHandles()) {
+        const active = drag && drag.edge === edge;
+        const w = (edge === 'b' ? 18 : 6) / z, h = (edge === 'r' ? 18 : 6) / z;
+        ctx.fillStyle = active ? '#38bdf8' : 'rgba(228,228,231,0.85)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.lineWidth = 1 / z;
+        ctx.fillRect(x - w / 2, y - h / 2, w, h);
+        ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+      }
+      if (drag) {
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1.5 / z;
+        ctx.setLineDash([6 / z, 4 / z]);
+        ctx.strokeRect(0, 0, this.doc.width, this.doc.height);
+        ctx.setLineDash([]);
+        const label = `${this.doc.width} × ${this.doc.height}`;
+        ctx.font = `bold ${12 / z}px sans-serif`;
+        const tw = ctx.measureText(label).width;
+        const lx = this.doc.width + 10 / z, ly = this.doc.height + 10 / z;
+        ctx.fillStyle = 'rgba(24,24,27,0.92)';
+        ctx.fillRect(lx, ly, tw + 14 / z, 20 / z);
+        ctx.fillStyle = '#f4f4f5';
+        ctx.fillText(label, lx + 7 / z, ly + 14 / z);
+      }
+      ctx.restore();
+    }
+
     centerArtboard() {
       const parent = this.canvas.parentElement;
       if (!parent) return;
@@ -2060,7 +2114,8 @@
 
       // Edit Mode Overlays
       if (this.mode === 'edit') {
-        const selSprite = this.doc.getSelectedSprite();
+        this.drawArtboardHandles(ctx);
+        const selSprite = this.doc.getSelectedSprite(false);
         if (selSprite && transformBox && (activeTool === 'move' || activeTool === 'direct')) {
           this.drawTransformGizmo(ctx, selSprite, transformBox);
         }
@@ -3654,11 +3709,14 @@
         if (!signalName) return;
         this.bus.signals.set(signalName, { time: this.bus.time, sourceId, payload });
       };
-      this.bus.hasSignal = (signalName, maxAgeSec = 0.35) => {
-        if (!signalName || signalName === '*') return this.bus.signals.size > 0;
-        const s = this.bus.signals.get(signalName);
-        if (!s) return false;
-        return (this.bus.time - s.time) <= maxAgeSec;
+      this.bus.hasSignal = (signalName, maxAgeSec = 0.35) => this.bus.signalTime(signalName, maxAgeSec) !== null;
+      // Time of the latest matching signal still fresh ('*' = any signal), or null.
+      this.bus.signalTime = (signalName, maxAgeSec = 0.35) => {
+        let best = null;
+        const consider = s => { if (s && (this.bus.time - s.time) <= maxAgeSec && (best === null || s.time > best)) best = s.time; };
+        if (!signalName || signalName === '*') for (const s of this.bus.signals.values()) consider(s);
+        else consider(this.bus.signals.get(signalName));
+        return best;
       };
       this.active = false;
       this.draggedSprite = null;
@@ -4223,18 +4281,78 @@
       }
     }
 
+    // ---- Trigger conditions -------------------------------------------------
+    // condition  : what starts the module (click, hover, key, signal, ...).
+    // conditionMode: how long it then runs
+    //   while    - only while the condition is true (a click / signal is a
+    //              single instant, a hover or held key lasts)
+    //   latch    - starts on the event and keeps running
+    //   toggle   - each event switches it on / off
+    //   duration - runs for conditionDuration seconds after each event
+    //   auto     - latch for animations started by an instant event
+    //              (click / signal), otherwise while (a trigger already
+    //              lasts for its own active window)
+    static instantCondition(cond) { return cond === 'on_click' || cond === 'on_signal'; }
+
+    // Modules that animate over time (vs. one-shot actions such as sounds,
+    // signals or counters). Kept as a list: exports do not ship the registry.
+    static continuousModule(type) {
+      return ['photoshop_filter', 'substance_mask', 'tween_interpolator', 'path_follower', 'mouse_tilt_3d', 'particle_emitter',
+        'motion_wave', 'pulse_scale', 'shake_vibrate', 'orbit_spin', 'wall_bounce', 'rainbow_shift', 'timeline_keyframes',
+        'duration_delay', 'step_sequencer', 'stagger_domino', 'scroll_progress', 'entrance_animation', 'typewriter',
+        'count_up', 'magnetic', 'cursor_fx', 'physics_body', 'audio_reactive', 'follow_target', 'look_at'].includes(type);
+    }
+
+    static conditionSignal(mod) {
+      const p = mod.params || {};
+      return p.condSignal || p.listenSignal || p.inputSignal || '*';
+    }
+
+    static resolveConditionMode(mod) {
+      const p = mod.params || {};
+      const m = p.conditionMode || 'auto';
+      if (m !== 'auto') return m;
+      return ModuleEngine.instantCondition(p.condition) && ModuleEngine.continuousModule(mod.type) ? 'latch' : 'while';
+    }
+
     evaluateCondition(mod, sprite, bus) {
       const cond = mod.params?.condition || 'always';
       if (cond === 'always') return true;
+      const raw = this.rawCondition(mod, sprite, bus, cond);
+      const mode = ModuleEngine.resolveConditionMode(mod);
+      const rt = sprite.runtime;
+      rt._cond = rt._cond || {};
+      const st = rt._cond[mod.id] || (rt._cond[mod.id] = { on: false, prev: false, until: -1, sig: null });
+      // Rising edge; for signals a new emission counts even while still fresh.
+      let fired = raw && !st.prev;
+      if (cond === 'on_signal') {
+        const t = bus.signalTime ? bus.signalTime(ModuleEngine.conditionSignal(mod)) : null;
+        fired = t !== null && t !== st.sig;
+        if (t !== null) st.sig = t;
+      }
+      st.prev = raw;
+      let out;
+      if (mode === 'latch') { if (fired) st.on = true; out = st.on; }
+      else if (mode === 'toggle') { if (fired) st.on = !st.on; out = st.on; }
+      else if (mode === 'duration') {
+        if (fired) st.until = bus.time + Math.max(0.05, Number(mod.params?.conditionDuration) || 1);
+        out = bus.time < st.until;
+      } else out = raw;
+      st.active = out;
+      st.lastFired = fired ? bus.time : st.lastFired;
+      return out;
+    }
+
+    rawCondition(mod, sprite, bus, cond) {
       if (cond === 'on_click') return bus.mouse.clicked && sprite.runtime.isHovered;
       if (cond === 'on_hover') return sprite.runtime.isHovered;
       if (cond === 'key_press') {
-        const targetK = mod.params?.targetKey || 'Space';
+        const targetK = mod.params?.condKey || mod.params?.targetKey || 'Space';
         return !!bus.keyState[targetK];
       }
       if (cond === 'timeline_active') {
-        const sf = mod.params?.startFrame || 0;
-        const ef = mod.params?.endFrame || this.doc.totalFrames;
+        const sf = Number(mod.params?.condStartFrame ?? mod.params?.startFrame) || 0;
+        const ef = Number(mod.params?.condEndFrame ?? mod.params?.endFrame) || this.doc.totalFrames;
         return this.doc.currentFrame >= sf && this.doc.currentFrame <= ef;
       }
       if (cond === 'on_trigger') {
@@ -4243,10 +4361,7 @@
         if (mod.params?.triggerId && bus.activeTriggers && bus.activeTriggers.has(mod.params.triggerId)) return true;
         return false;
       }
-      if (cond === 'on_signal') {
-        const sName = mod.params?.listenSignal || mod.params?.inputSignal || '*';
-        return bus.hasSignal(sName);
-      }
+      if (cond === 'on_signal') return bus.hasSignal(ModuleEngine.conditionSignal(mod));
       if (cond === 'on_toggle') {
         return sprite.runtime && sprite.runtime.toggleState !== false;
       }
@@ -6382,6 +6497,7 @@ ${this.getRuntimeSource(withEngine)}
                               <span class="mod-indent">↳</span>
                               <span class="mod-badge">${MODULE_REGISTRY[m.type]?.icon || 'MOD'}</span>
                               <span class="mod-name" data-act="select-mod" title="클릭하여 모듈 설정">${escapeHtml(m.name)}</span>
+                              <span class="mod-cond mod-cond-${escapeHtml((m.params && m.params.condition) || 'always')}" title="${escapeHtml(InspectorPanelUI.conditionSummary(m))}">${escapeHtml(InspectorPanelUI.conditionShort(m))}</span>
                               <button class="mod-toggle ${m.enabled ? 'active' : ''}" data-act="toggle-mod" title="모듈 활성/비활성">${m.enabled ? 'ON' : 'OFF'}</button>
                               <button class="mod-del" data-act="del-mod" title="모듈 삭제">×</button>
                             </div>
@@ -6872,9 +6988,9 @@ ${this.getRuntimeSource(withEngine)}
       } else if (selectedSprite) {
         contentHtml = this.renderSpriteInspector(selectedSprite);
       } else if (selectedLayer) {
-        contentHtml = this.renderLayerInspector(selectedLayer);
+        contentHtml = this.renderCanvasSection() + this.renderLayerInspector(selectedLayer);
       } else {
-        contentHtml = '<div class="ps-empty-layers">선택된 레이어나 스프라이트가 없습니다.</div>';
+        contentHtml = this.renderCanvasSection() + '<div class="ps-empty-layers">선택된 레이어나 스프라이트가 없습니다.</div>';
       }
 
       this.el.innerHTML = `
@@ -6892,12 +7008,55 @@ ${this.getRuntimeSource(withEngine)}
       `;
 
       this.bindScrubbing();
+      this.bindCanvasSection();
       this.bindInputs(selectedSprite, selectedMod, selectedLayer);
     }
 
     getSelectedModule(sprite) {
       if (!this.doc.selectedModuleId || !sprite || !sprite.modules) return null;
       return sprite.modules.find(m => m.id === this.doc.selectedModuleId) || null;
+    }
+
+    // Canvas (artboard) size: free W/H inputs. The artboard edges can also be
+    // dragged on the canvas (handles on the right / bottom / corner).
+    renderCanvasSection() {
+      const mode = this.canvasMode || 'keep';
+      const view = this.doc.activeView && this.doc.activeView !== 'desktop' ? ` (${this.doc.activeView === 'mobile' ? '모바일' : '태블릿'} 화면)` : '';
+      return `
+        <div class="ps-prop-section" id="canvasSizeSection">
+          <div class="ps-prop-header" style="justify-content:space-between;">
+            <span style="font-weight:700;color:#e4e4e7;">캔버스 크기${view}</span>
+            <span class="ps-val-tag">${this.doc.width}×${this.doc.height}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:auto 1fr auto 1fr;gap:6px;align-items:center;margin:8px 0 6px;">
+            <label for="inpCanvasW" style="font-size:11px;color:#a1a1aa;">가로 W</label>
+            <input type="number" class="ps-input" id="inpCanvasW" min="50" max="10000" step="1" value="${this.doc.width}" style="width:100%;min-width:0;">
+            <label for="inpCanvasH" style="font-size:11px;color:#a1a1aa;">세로 H</label>
+            <input type="number" class="ps-input" id="inpCanvasH" min="50" max="20000" step="1" value="${this.doc.height}" style="width:100%;min-width:0;">
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">작업물 처리:</label>
+            <select class="ps-select" id="inpCanvasMode">
+              <option value="keep" ${mode === 'keep' ? 'selected' : ''}>그대로 두기</option>
+              <option value="fit" ${mode === 'fit' ? 'selected' : ''}>비율 유지하며 맞추기</option>
+              <option value="stretch" ${mode === 'stretch' ? 'selected' : ''}>캔버스에 맞춰 늘리기</option>
+            </select>
+          </div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;line-height:1.5;margin-top:4px;">값을 입력하고 Enter. 캔버스 오른쪽·아래 가장자리의 손잡이를 끌어도 바뀝니다 (Shift: 10px 단위).</div>
+        </div>`;
+    }
+
+    bindCanvasSection() {
+      const wEl = this.el.querySelector('#inpCanvasW'), hEl = this.el.querySelector('#inpCanvasH');
+      if (!wEl || !hEl) return;
+      this.el.querySelector('#inpCanvasMode')?.addEventListener('change', e => { this.canvasMode = e.target.value; });
+      const apply = () => {
+        const w = Math.round(parseFloat(wEl.value)), h = Math.round(parseFloat(hEl.value));
+        if (!(w >= 50 && h >= 50)) { wEl.value = this.doc.width; hEl.value = this.doc.height; return; }
+        window.jspenApp?.setCanvasSize(Math.min(10000, w), Math.min(20000, h), this.canvasMode || 'keep');
+      };
+      wEl.addEventListener('change', apply);
+      hEl.addEventListener('change', apply);
     }
 
     // 1. Layer Inspector (Pure layer properties only - No sprite or module properties)
@@ -7472,7 +7631,7 @@ ${sprite.type === 'text' ? `
         `;
       } else {
         typeSpecificHtml = `
-          ${Object.keys(params).filter(k => k !== 'condition' && k !== 'targetModuleId' && k !== 'outputResult').map(key => {
+          ${Object.keys(params).filter(k => !['condition', 'conditionMode', 'conditionDuration', 'condKey', 'condSignal', 'condStartFrame', 'condEndFrame', 'targetModuleId', 'outputResult'].includes(k)).map(key => {
             const opts = def.paramOptions && def.paramOptions[key];
             const label = (def.paramLabels && def.paramLabels[key]) || key;
             if (key === 'targetSpriteId' || key === 'messageSpriteId') {
@@ -7542,18 +7701,9 @@ ${sprite.type === 'text' ? `
             </select>
           </div>
 
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">발동 조건 (Trigger):</label>
-            <select class="ps-select" id="modCond">
-              <option value="always" ${params.condition === 'always' ? 'selected' : ''}>항상 작동 (Always)</option>
-              <option value="on_click" ${params.condition === 'on_click' ? 'selected' : ''}>클릭 시 (Click)</option>
-              <option value="on_hover" ${params.condition === 'on_hover' ? 'selected' : ''}>호버 시 (Hover)</option>
-              <option value="on_trigger" ${params.condition === 'on_trigger' ? 'selected' : ''}>화면 트리거 감지 시 (On Trigger)</option>
-              <option value="on_signal" ${params.condition === 'on_signal' ? 'selected' : ''}>신호 수신 시 (On Signal)</option>
-              <option value="key_press" ${params.condition === 'key_press' ? 'selected' : ''}>키보드 입력 시 (Key Press)</option>
-            </select>
-          </div>
         </div>
+
+        ${this.renderConditionSection(mod)}
 
         <!-- Parameter Section -->
         <div class="ps-prop-section">
@@ -7572,6 +7722,168 @@ ${sprite.type === 'text' ? `
           </div>
         </div>
       `;
+    }
+
+    // "언제 작동하나요?" - the module's trigger condition, the fields that
+    // condition needs, how long it then runs, and a plain-language summary.
+    static conditionInfo() {
+      return {
+        always: ['항상', '미리보기(Ctrl+Space)를 시작하면 바로 작동합니다.'],
+        on_hover: ['마우스를 올렸을 때', '마우스 포인터가 이 스프라이트 위에 있을 때 작동합니다.'],
+        on_click: ['클릭했을 때', '이 스프라이트를 클릭하면 작동합니다.'],
+        key_press: ['키를 눌렀을 때', '지정한 키보드 키를 누르면 작동합니다.'],
+        on_signal: ['신호를 받았을 때', '다른 모듈이나 화면 트리거가 보낸 신호를 받으면 작동합니다.'],
+        on_trigger: ['화면 트리거가 가리킬 때', '화면 트리거 스프라이트의 "연결 모듈 실행" 대상이 이 스프라이트일 때 작동합니다.'],
+        on_toggle: ['토글이 켜져 있을 때', '이 스프라이트의 토글 스위치 모듈이 켜짐 상태일 때 작동합니다.'],
+        timeline_active: ['타임라인 구간 안에서', '타임라인 재생 위치가 지정한 프레임 구간 안에 있을 때 작동합니다.']
+      };
+    }
+
+    // Compact badge text for the layers panel.
+    static conditionShort(mod) {
+      const p = mod.params || {};
+      const c = p.condition || 'always';
+      const base = { always: '항상', on_hover: '호버', on_click: '클릭', key_press: `키 ${String(p.condKey || p.targetKey || 'Space').replace(/^Key/, '')}`,
+        on_signal: `신호 ${ModuleEngine.conditionSignal(mod) === '*' ? '*' : ModuleEngine.conditionSignal(mod)}`, on_trigger: '트리거', on_toggle: '토글', timeline_active: '구간' }[c] || c;
+      if (c === 'always') return base;
+      const mode = ModuleEngine.resolveConditionMode(mod);
+      return base + ({ while: '', latch: '→계속', toggle: '→켜기/끄기', duration: `→${Math.max(0.05, Number(p.conditionDuration) || 1)}초` }[mode] || '');
+    }
+
+    static conditionModes() {
+      return {
+        auto: '자동 (권장)',
+        while: '조건이 맞는 동안만',
+        latch: '한 번 발동하면 계속',
+        toggle: '발동할 때마다 켜기/끄기',
+        duration: '발동 후 정해진 시간 동안'
+      };
+    }
+
+    // Plain-language summary: "클릭하면 → 계속 작동" etc.
+    static conditionSummary(mod) {
+      const p = mod.params || {};
+      const cond = p.condition || 'always';
+      if (cond === 'always') return '미리보기를 시작하면 바로, 계속 작동합니다.';
+      const mode = ModuleEngine.resolveConditionMode(mod);
+      const instant = ModuleEngine.instantCondition(cond);
+      const what = {
+        on_hover: '마우스를 올리면', on_click: '클릭하면', key_press: `'${p.condKey || p.targetKey || 'Space'}' 키를 누르면`,
+        on_signal: ModuleEngine.conditionSignal(mod) === '*' ? '아무 신호나 받으면' : `'${ModuleEngine.conditionSignal(mod)}' 신호를 받으면`,
+        on_trigger: '화면 트리거가 발동하면', on_toggle: '토글이 켜지면', timeline_active: '타임라인이 구간에 들어오면'
+      }[cond] || '조건이 맞으면';
+      const how = {
+        while: instant ? '그 순간(한 프레임)만 작동합니다. 한 번 실행되는 동작(소리, 신호, 링크 등)에 알맞습니다.'
+          : (cond === 'on_hover' ? '올려 둔 동안만 작동합니다.' : cond === 'key_press' ? '누르고 있는 동안만 작동합니다.' : '그동안만 작동합니다.'),
+        latch: '작동을 시작해 계속 유지합니다.',
+        toggle: '켜지고, 다시 발동하면 꺼집니다.',
+        duration: `${Math.max(0.05, Number(p.conditionDuration) || 1)}초 동안 작동합니다.`
+      }[mode];
+      return `${what} ${how}`;
+    }
+
+    knownSignals() {
+      const out = new Set(['drag_start', 'drag_end', 'hover_enter', 'hover_exit', 'form_success', 'form_error']);
+      for (const l of this.doc.layers) {
+        for (const sp of l.sprites) {
+          if (sp.signalName) out.add(sp.signalName);
+          for (const m of [...(sp.modules || []), ...(l.modules || [])]) {
+            for (const [k, v] of Object.entries(m.params || {})) {
+              if (typeof v === 'string' && v && /signal/i.test(k) && !/^(condSignal|listenSignal|inputSignal)$/.test(k)) out.add(v);
+            }
+          }
+        }
+      }
+      return [...out].filter(Boolean).slice(0, 60);
+    }
+
+    renderConditionSection(mod) {
+      const p = mod.params || {};
+      const cond = p.condition || 'always';
+      const info = InspectorPanelUI.conditionInfo();
+      const modes = InspectorPanelUI.conditionModes();
+      const mode = p.conditionMode || 'auto';
+      const resolved = ModuleEngine.resolveConditionMode(mod);
+      let extra = '';
+      if (cond === 'key_press') {
+        extra = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">키:</label>
+            <input type="text" class="ps-input" id="modCondKey" readonly title="클릭한 뒤 원하는 키를 누르세요" value="${escapeHtml(p.condKey || p.targetKey || 'Space')}" style="cursor:pointer;">
+          </div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;margin:-2px 0 4px;">칸을 클릭한 뒤 원하는 키를 누르면 등록됩니다.</div>`;
+      } else if (cond === 'on_signal') {
+        const sig = p.condSignal || p.listenSignal || p.inputSignal || '';
+        extra = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">받을 신호 이름:</label>
+            <input type="text" class="ps-input" id="modCondSignal" list="modCondSignalList" placeholder="비우면 아무 신호나" value="${escapeHtml(sig === '*' ? '' : sig)}">
+            <datalist id="modCondSignalList">${this.knownSignals().map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
+          </div>`;
+      } else if (cond === 'timeline_active') {
+        extra = `
+          <div class="ps-prop-row" style="gap:6px;">
+            <label class="ps-prop-label">프레임 구간:</label>
+            <input type="number" class="ps-input" id="modCondStart" min="0" step="1" value="${escapeHtml(p.condStartFrame ?? p.startFrame ?? 0)}" style="width:64px;">
+            <span style="color:#71717a;">~</span>
+            <input type="number" class="ps-input" id="modCondEnd" min="0" step="1" value="${escapeHtml(p.condEndFrame ?? p.endFrame ?? (this.doc.totalFrames || 0))}" style="width:64px;">
+          </div>`;
+      }
+      const modeRow = cond === 'always' ? '' : `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">작동 방식:</label>
+            <select class="ps-select" id="modCondMode">
+              ${Object.entries(modes).map(([k, label]) => `<option value="${k}" ${mode === k ? 'selected' : ''}>${escapeHtml(k === 'auto' ? `자동: ${modes[resolved]}` : label)}</option>`).join('')}
+            </select>
+          </div>
+          ${resolved === 'duration' ? `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">작동 시간 (초):</label>
+            <input type="number" class="ps-input" id="modCondDuration" min="0.05" step="0.1" value="${escapeHtml(p.conditionDuration || 1)}">
+          </div>` : ''}`;
+      return `
+        <div class="ps-prop-section" id="modCondSection" style="border-left:3px solid #a78bfa;">
+          <div class="ps-prop-header">언제 작동하나요? (발동 조건)</div>
+          <div class="ps-prop-row" style="margin-top:6px;">
+            <label class="ps-prop-label">발동 조건:</label>
+            <select class="ps-select" id="modCond">
+              ${Object.entries(info).map(([k, [label]]) => `<option value="${k}" ${cond === k ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#a1a1aa;margin:-2px 0 6px;line-height:1.5;">${escapeHtml((info[cond] || info.always)[1])}</div>
+          ${extra}
+          ${modeRow}
+          <div class="jspen-cond-summary" id="modCondSummary" style="margin-top:6px;padding:7px 9px;border-radius:6px;background:#1e1b4b;color:#e0e7ff;font-size:11px;line-height:1.5;">
+            ▶ ${escapeHtml(InspectorPanelUI.conditionSummary(mod))}
+          </div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;margin-top:6px;line-height:1.5;">Ctrl+Space로 미리보기를 켜면 왼쪽 아래 상태창에서 각 모듈이 작동 중인지 볼 수 있습니다.</div>
+        </div>`;
+    }
+
+    bindConditionSection(mod) {
+      const q = sel => this.el.querySelector(sel);
+      const set = (patch, rerender = true) => {
+        mod.params = Object.assign(mod.params || {}, patch);
+        this.doc.saveState();
+        if (rerender) this.render();
+        if (this.cb.onUpdate) this.cb.onUpdate();
+      };
+      q('#modCond')?.addEventListener('change', e => set({ condition: e.target.value }));
+      q('#modCondMode')?.addEventListener('change', e => set({ conditionMode: e.target.value }));
+      q('#modCondDuration')?.addEventListener('change', e => set({ conditionDuration: Math.max(0.05, parseFloat(e.target.value) || 1) }));
+      q('#modCondSignal')?.addEventListener('change', e => set({ condSignal: e.target.value.trim() || '*' }));
+      q('#modCondStart')?.addEventListener('change', e => set({ condStartFrame: Math.max(0, parseInt(e.target.value, 10) || 0) }));
+      q('#modCondEnd')?.addEventListener('change', e => set({ condEndFrame: Math.max(0, parseInt(e.target.value, 10) || 0) }));
+      const keyEl = q('#modCondKey');
+      if (keyEl) {
+        keyEl.addEventListener('focus', () => { keyEl.value = '키를 누르세요…'; });
+        keyEl.addEventListener('blur', () => { keyEl.value = mod.params.condKey || mod.params.targetKey || 'Space'; });
+        keyEl.addEventListener('keydown', e => {
+          e.preventDefault(); e.stopPropagation();
+          if (e.key === 'Tab') return;
+          set({ condKey: e.code || e.key });
+        });
+      }
     }
 
     bindScrubbing() {
@@ -7640,13 +7952,8 @@ ${sprite.type === 'text' ? `
           if (this.cb.onUpdate) this.cb.onUpdate();
         });
 
-        // Condition
-        this.el.querySelector('#modCond')?.addEventListener('change', e => {
-          if (!mod.params) mod.params = {};
-          mod.params.condition = e.target.value;
-          this.doc.saveState();
-          if (this.cb.onUpdate) this.cb.onUpdate();
-        });
+        // Condition ("언제 작동하나요?")
+        this.bindConditionSection(mod);
 
         // Move Up
         this.el.querySelector('#modDetailMoveUp')?.addEventListener('click', () => {
@@ -11227,8 +11534,9 @@ ${sprite.type === 'text' ? `
         this.app.doc.saveState();
         this.app.refreshUI();
       } else {
-        // Load entire document
+        // Load entire document (a new, unsaved project)
         this.app.loadProjectFromJSON(docData);
+        this.app.setProjectPath('');
       }
     }
 
@@ -11238,6 +11546,88 @@ ${sprite.type === 'text' ? `
         this.overlay = null;
       }
     }
+  }
+
+  // ==========================================================================
+  // Live-preview status panel (studio only): which modules run right now,
+  // recent signals, the hovered sprite and held keys - so trigger conditions
+  // can be tested without guessing.
+  // ==========================================================================
+  class ModuleHud {
+    constructor(app) {
+      this.app = app;
+      this.last = 0;
+      let collapsed = false;
+      try { collapsed = localStorage.getItem('jspen.moduleHud') === 'collapsed'; } catch (e) { /* storage blocked */ }
+      const el = document.createElement('div');
+      el.className = 'jspen-module-hud' + (collapsed ? ' collapsed' : '');
+      el.innerHTML = '<div class="hud-head"><span>모듈 상태 · 미리보기</span><button type="button" class="hud-fold" title="접기/펼치기">' + (collapsed ? '▸' : '▾') + '</button></div><div class="hud-body"></div>';
+      el.querySelector('.hud-fold').addEventListener('mousedown', e => e.stopPropagation());
+      el.querySelector('.hud-fold').addEventListener('click', () => {
+        const c = el.classList.toggle('collapsed');
+        el.querySelector('.hud-fold').textContent = c ? '▸' : '▾';
+        try { localStorage.setItem('jspen.moduleHud', c ? 'collapsed' : 'open'); } catch (e) { /* storage blocked */ }
+      });
+      (app.canvas.parentElement || document.body).appendChild(el);
+      this.el = el;
+      this.body = el.querySelector('.hud-body');
+    }
+
+    rows() {
+      const eng = this.app.moduleEngine, doc = this.app.doc;
+      const selected = doc.selectedSpriteId;
+      const out = [];
+      for (const layer of doc.layers) {
+        for (const sp of layer.sprites) {
+          const stack = [...(layer.modules || []), ...(sp.modules || [])];
+          for (const mod of stack) {
+            const p = mod.params || {};
+            const cond = p.condition || 'always';
+            let state;
+            if (!layer.visible || sp.visible === false) state = 'hidden';
+            else if (!mod.enabled) state = 'off';
+            else if (eng.disabledModuleIds && eng.disabledModuleIds.has(mod.id)) state = 'graph';
+            else if (cond === 'always') state = 'on';
+            else {
+              const st = sp.runtime && sp.runtime._cond && sp.runtime._cond[mod.id];
+              state = st && st.active ? 'on' : 'wait';
+            }
+            const fired = sp.runtime && sp.runtime._cond && sp.runtime._cond[mod.id] && sp.runtime._cond[mod.id].lastFired;
+            out.push({ sp, mod, state, cond, recent: fired !== undefined && fired !== null && eng.bus.time - fired < 0.6,
+              rank: (sp.id === selected ? 0 : 2) + (cond === 'always' ? 1 : 0) });
+          }
+        }
+      }
+      return out.sort((a, b) => a.rank - b.rank);
+    }
+
+    update(force = false) {
+      const now = performance.now();
+      if (!force && now - this.last < 150) return;
+      this.last = now;
+      if (this.el.classList.contains('collapsed')) return;
+      const eng = this.app.moduleEngine;
+      const rows = this.rows();
+      const label = { on: '● 작동 중', wait: '○ 대기', off: 'OFF', graph: '노드 연결 끊김', hidden: '숨김' };
+      const shown = rows.slice(0, 12);
+      let html = shown.length ? '' : '<div class="hud-empty">모듈이 없습니다. 스프라이트의 +fx로 모듈을 추가하세요.</div>';
+      for (const r of shown) {
+        html += '<div class="hud-row hud-' + r.state + (r.recent ? ' hud-fired' : '') + '">' +
+          '<span class="hud-state">' + label[r.state] + '</span>' +
+          '<span class="hud-name">' + escapeHtml(r.sp.name) + ' › ' + escapeHtml(r.mod.name) + '</span>' +
+          '<span class="hud-cond">' + escapeHtml(InspectorPanelUI.conditionShort(r.mod)) + '</span></div>';
+      }
+      if (rows.length > shown.length) html += '<div class="hud-more">외 ' + (rows.length - shown.length) + '개 (선택한 스프라이트가 먼저 표시됩니다)</div>';
+      const t = eng.bus.time;
+      const sigs = [...eng.bus.signals.entries()].filter(([, v]) => t - v.time < 3).sort((a, b) => b[1].time - a[1].time).slice(0, 4);
+      html += '<div class="hud-sec">최근 신호: ' + (sigs.length ? sigs.map(([n, v]) => '<b>' + escapeHtml(n) + '</b> ' + (t - v.time).toFixed(1) + '초 전').join(', ') : '없음') + '</div>';
+      const hov = this.app.doc.layers.flatMap(l => l.sprites).find(sp => sp.runtime && sp.runtime.isHovered);
+      const keys = Object.keys(eng.bus.keyState || {}).filter(k => eng.bus.keyState[k] && /^(Key|Digit|Arrow|Space|Enter|Shift|Escape)/.test(k));
+      html += '<div class="hud-sec">마우스 위: ' + (hov ? '<b>' + escapeHtml(hov.name) + '</b>' : '없음') + ' · 누른 키: ' + (keys.length ? escapeHtml(keys.join(' ')) : '없음') + '</div>';
+      this.body.innerHTML = html;
+    }
+
+    destroy() { this.el.remove(); }
   }
 
   class App {
@@ -11459,6 +11849,19 @@ ${sprite.type === 'text' ? `
       StudioToast.show(`캔버스 크기: ${w}×${h}px`);
     }
 
+    // Resize without asking (inspector fields, artboard handles).
+    setCanvasSize(w, h, mode = 'keep', { quiet = false } = {}) {
+      w = Math.round(w); h = Math.round(h);
+      if (!(w > 0 && h > 0) || (w === this.doc.width && h === this.doc.height)) return false;
+      this.endLivePreview();
+      this.doc.resizeCanvas(w, h, mode);
+      this.doc.saveState();
+      this.fitToScreen();
+      this.refreshUI();
+      if (!quiet) StudioToast.show(`캔버스 크기: ${w}×${h}px`);
+      return true;
+    }
+
     // Zoom so the whole artboard fits the viewport, then centre it.
     fitToScreen() {
       const p = this.canvas.parentElement;
@@ -11605,12 +12008,21 @@ ${sprite.type === 'text' ? `
     }
 
     // Open project text (file picker, drag & drop, desktop shell).
-    async openProjectText(text, name = '', confirm = true) {
+    // `path` is the file on disk (desktop shell only); opens without one
+    // (browser file picker, HTML5 drop) make the next Ctrl+S ask for a path,
+    // so a different file can never be overwritten by mistake.
+    async openProjectText(text, name = '', confirm = true, path = '') {
       this.endLivePreview();
       if (confirm && !(await this.confirmDiscard())) return false;
       const ok = this.loadProjectFromJSON(text);
+      if (ok) this.setProjectPath(path);
       if (ok && name) StudioToast.show(`'${name}' 프로젝트를 불러왔습니다.`);
       return ok;
+    }
+
+    // Tell the desktop shell which file Ctrl+S writes to ('' = none yet).
+    setProjectPath(path = '') {
+      NativeBridge.call('projectOpened', String(path || ''));
     }
 
     async insertWebsiteTemplate(type) {
@@ -12001,10 +12413,13 @@ ${sprite.type === 'text' ? `
           }
         });
         document.body.classList.add('jspen-live-preview');
+        this.moduleHud = new ModuleHud(this);
+        this.moduleHud.update(true);
         StudioToast.show('실시간 모듈 미리보기: Esc 또는 Ctrl+Space로 편집 모드 복귀');
       } else {
         this.moduleEngine.stop();
         if (this.moduleEngine.forms) { this.moduleEngine.forms.destroy(); this.moduleEngine.forms = null; }
+        if (this.moduleHud) { this.moduleHud.destroy(); this.moduleHud = null; }
         this._panAnim = null;
         this.renderer.mode = 'edit';
         document.body.classList.remove('jspen-live-preview');
@@ -12822,6 +13237,16 @@ ${sprite.type === 'text' ? `
           return;
         }
 
+        // Artboard edge grips: drag to resize the canvas freely.
+        if (e.button === 0 && ['move', 'direct'].includes(this.tools.activeTool) && this.renderer.mode === 'edit') {
+          const edge = this.renderer.hitArtboardHandle(ms.x, ms.y);
+          if (edge) {
+            this.artboardDrag = { edge, start: { x: mw.x, y: mw.y }, w: this.doc.width, h: this.doc.height };
+            this.requestRender();
+            return;
+          }
+        }
+
         if (this.tools.activeTool === 'move' || this.tools.activeTool === 'direct') {
           const curTarget = this.transformBox.getTarget();
           const hit = curTarget ? this.transformBox.hitTest(mw.x, mw.y, curTarget) : null;
@@ -12879,7 +13304,28 @@ ${sprite.type === 'text' ? `
           loupe.classList.add('hidden');
         }
 
-        if (!isDown) return;
+        if (!isDown) {
+          // resize cursor over the artboard grips
+          if (!this.moduleEngine.active && ['move', 'direct'].includes(this.tools.activeTool)) {
+            const edge = this.renderer.mode === 'edit' && e.target === this.canvas ? this.renderer.hitArtboardHandle(ms.x, ms.y) : null;
+            const cur = edge ? { r: 'ew-resize', b: 'ns-resize', rb: 'nwse-resize' }[edge] : '';
+            if (cur || this._artboardCursor) { this.canvas.style.cursor = cur; this._artboardCursor = !!cur; }
+          }
+          return;
+        }
+
+        if (this.artboardDrag) {
+          const d = this.artboardDrag;
+          const snap = v => e.shiftKey ? Math.round(v / 10) * 10 : Math.round(v);
+          const w = d.edge === 'b' ? d.w : Math.max(50, Math.min(10000, snap(d.w + mw.x - d.start.x)));
+          const h = d.edge === 'r' ? d.h : Math.max(50, Math.min(20000, snap(d.h + mw.y - d.start.y)));
+          if (w !== this.doc.width || h !== this.doc.height) {
+            this.doc.resizeCanvas(w, h, 'keep');
+            this.handleResize();
+            this.requestRender();
+          }
+          return;
+        }
 
         if (isPanning) {
           const dx = e.clientX - panStart.x;
@@ -12905,6 +13351,16 @@ ${sprite.type === 'text' ? `
         isDown = false;
         this.pointer.isDown = false;
         if (isPanning) isPanning = false;
+        if (this.artboardDrag) {
+          const d = this.artboardDrag;
+          this.artboardDrag = null;
+          if (this.doc.width !== d.w || this.doc.height !== d.h) {
+            this.doc.saveState();
+            StudioToast.show(`캔버스 크기: ${this.doc.width}×${this.doc.height}px`);
+          }
+          this.refreshUI();
+          return;
+        }
         if (this.moduleEngine.active) {
           const r = getCanvasRect();
           const up = this.renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top);
@@ -13182,6 +13638,7 @@ ${sprite.type === 'text' ? `
           this.moduleEngine.update(dt, this.pointer.mw, this.pointer.ms, this.pointer.isDown, this.pointer.clicked, this.pointer.press);
           this.pointer.clicked = false;
           if (this.moduleEngine.forms) this.moduleEngine.forms.sync(this.doc);
+          if (this.moduleHud) this.moduleHud.update();
           if (this.moduleEngine.bus.hideCursor) this.canvas.style.cursor = 'none';
           this.renderCanvas();
           requestAnimationFrame(loop);
