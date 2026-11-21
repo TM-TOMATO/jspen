@@ -481,13 +481,13 @@
     value_remapper: {
       category: 'logic', name: '값 매핑기', icon: 'MAP',
       description: '입력 수치를 원하는 출력 범위로 비례 환산하여 속성이나 필터에 연결합니다.',
-      defaultParams: { condition: 'always', inputSource: 'mouse_x', inMin: 0, inMax: 800, outMin: 0, outMax: 360, outputProperty: 'rotation', outputMode: 'absolute', clamp: true },
+      defaultParams: { condition: 'always', inputSource: 'mouse_x', varName: '', inMin: 0, inMax: 800, outMin: 0, outMax: 360, outputProperty: 'rotation', outputMode: 'absolute', clamp: true },
       paramOptions: {
-        inputSource: [['mouse_x', '마우스 X'], ['mouse_y', '마우스 Y'], ['mouse_distance', '마우스와의 거리'], ['mouse_speed', '마우스 속도'], ['time', '경과 시간 (초)'], ['scroll', '스크롤 위치'], ['stack', '이전 모듈 값']],
+        inputSource: [['mouse_x', '마우스 X'], ['mouse_y', '마우스 Y'], ['mouse_distance', '마우스와의 거리'], ['mouse_speed', '마우스 속도'], ['time', '경과 시간 (초)'], ['scroll', '스크롤 위치'], ['scroll_progress', '스크롤 진행률 (0~1)'], ['variable', '전역 변수'], ['audio_level', '소리 크기 (0~1)'], ['stack', '이전 모듈 값']],
         outputProperty: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'], ['filter_blur', '필터: 흐림'], ['filter_brightness', '필터: 밝기'], ['filter_hueRotate', '필터: 색조 회전'], ['filter_grayscale', '필터: 흑백'], ['none', '출력 없음 (값만 전달)']],
         outputMode: [['absolute', '절댓값으로 설정'], ['offset', '원래 값에 더하기']]
       },
-      paramLabels: { inputSource: '입력 소스', inMin: '입력 최소', inMax: '입력 최대', outMin: '출력 최소', outMax: '출력 최대', outputProperty: '출력 속성', outputMode: '출력 방식', clamp: '범위 제한' }
+      paramLabels: { inputSource: '입력 소스', varName: '변수 이름 (전역 변수 입력 시)', inMin: '입력 최소', inMax: '입력 최대', outMin: '출력 최소', outMax: '출력 최대', outputProperty: '출력 속성', outputMode: '출력 방식', clamp: '범위 제한' }
     },
     signal_relay: {
       category: 'logic', name: '신호 전달기 (Signal Relay)', icon: 'RLY',
@@ -638,6 +638,98 @@
       defaultParams: { condition: 'always', audioUrl: '', volume: 0.8, trigger: 'click', listenSignal: '', loop: false },
       paramOptions: { trigger: [['click','클릭 시'],['hover','마우스 진입 시'],['trigger','트리거 발동 시'],['signal','신호 수신 시']] },
       paramLabels: { audioUrl: '오디오 URL', volume: '볼륨 (0~1)', trigger: '재생 시점', listenSignal: '수신 신호 (신호 수신 시)', loop: '반복 재생' }
+    },
+    // ---------------- Web interaction modules ----------------
+    scroll_progress: {
+      category: 'motion', name: '스크롤 진행 연동', icon: 'SCRL',
+      description: '페이지(또는 이 요소가 화면을 지나가는) 스크롤 진행률 0~1에 따라 속성을 시작값에서 끝값으로 바꿉니다. 패럴랙스에 사용합니다.',
+      defaultParams: { condition: 'always', range: 'page', property: 'y', fromValue: 0, toValue: -200, outputMode: 'offset', easing: 'linear' },
+      paramOptions: { range: [['page', '페이지 전체'], ['element', '요소가 화면을 지나는 동안']], property: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'],['filter_blur','필터: 흐림'],['filter_brightness','필터: 밝기'],['filter_hueRotate','필터: 색조 회전'],['filter_grayscale','필터: 흑백']], outputMode: [['offset', '원래 값에 더하기'], ['absolute', '절댓값으로 설정']], easing: [['linear','선형'],['easeOutQuad','감속 (Quad)'],['easeInOutQuad','가감속 (Quad)'],['easeOutCubic','감속 (Cubic)'],['easeInOutCubic','가감속 (Cubic)'],['easeOutBack','반동 (Back)'],['elasticOut','탄성'],['bounceOut','바운스'],['expoOut','지수 감속']] },
+      paramLabels: { range: '진행 기준', property: '속성', fromValue: '시작값', toValue: '끝값', outputMode: '출력 방식', easing: '이징' }
+    },
+    entrance_animation: {
+      category: 'web', name: '등장 애니메이션', icon: 'IN',
+      description: '화면에 들어오면 페이드업, 슬라이드, 줌 등으로 등장합니다. 들어오기 전에는 숨겨져 있습니다.',
+      defaultParams: { condition: 'always', effect: 'fade_up', distance: 40, duration: 0.7, delay: 0, easing: 'easeOutCubic', startOn: 'visible', once: true },
+      paramOptions: {
+        effect: [['fade_up', '페이드 업'], ['fade_down', '페이드 다운'], ['fade_in', '페이드 인'], ['slide_left', '왼쪽에서 슬라이드'], ['slide_right', '오른쪽에서 슬라이드'], ['zoom_in', '줌 인'], ['zoom_out', '줌 아웃'], ['rotate_in', '회전하며 등장']],
+        easing: [['linear','선형'],['easeOutQuad','감속 (Quad)'],['easeInOutQuad','가감속 (Quad)'],['easeOutCubic','감속 (Cubic)'],['easeInOutCubic','가감속 (Cubic)'],['easeOutBack','반동 (Back)'],['elasticOut','탄성'],['bounceOut','바운스'],['expoOut','지수 감속']], startOn: [['visible', '화면에 보일 때'], ['load', '시작하자마자']]
+      },
+      paramLabels: { effect: '효과', distance: '이동 거리 (px)', duration: '시간 (초)', delay: '지연 (초)', easing: '이징', startOn: '시작 시점', once: '한 번만 재생' }
+    },
+    state_style: {
+      category: 'web', name: '상태 전환 스타일', icon: 'STAT',
+      description: '마우스를 올리거나 누를 때 채우기·테두리·글자색·크기를 부드럽게 바꿉니다. 버튼 호버 효과에 사용합니다. (빈 칸은 바꾸지 않음)',
+      defaultParams: { condition: 'always', hoverFill: '#3f3f46', pressFill: '#52525b', hoverStroke: '', hoverTextColor: '', hoverScale: 1.04, pressScale: 0.97, transition: 0.15 },
+      paramLabels: { hoverFill: '호버 채우기 색', pressFill: '눌림 채우기 색', hoverStroke: '호버 테두리 색', hoverTextColor: '호버 글자 색', hoverScale: '호버 크기', pressScale: '눌림 크기', transition: '전환 시간 (초)' }
+    },
+    count_up: {
+      category: 'web', name: '숫자 카운트업', icon: '123',
+      description: '화면에 들어오면 텍스트를 시작값에서 목표 숫자까지 올립니다. (예: 1,200+ 고객)',
+      defaultParams: { condition: 'always', from: 0, to: 1200, duration: 1.6, decimals: 0, prefix: '', suffix: '+', separator: true, startOn: 'visible', easing: 'easeOutCubic' },
+      paramOptions: { startOn: [['visible', '화면에 보일 때'], ['load', '시작하자마자']], easing: [['linear','선형'],['easeOutQuad','감속 (Quad)'],['easeInOutQuad','가감속 (Quad)'],['easeOutCubic','감속 (Cubic)'],['easeInOutCubic','가감속 (Cubic)'],['easeOutBack','반동 (Back)'],['elasticOut','탄성'],['bounceOut','바운스'],['expoOut','지수 감속']] },
+      paramLabels: { from: '시작값', to: '목표값', duration: '시간 (초)', decimals: '소수 자릿수', prefix: '앞 글자', suffix: '뒤 글자', separator: '천 단위 쉼표', startOn: '시작 시점', easing: '이징' }
+    },
+    typewriter: {
+      category: 'web', name: '타자기 텍스트', icon: 'TYPE',
+      description: '텍스트를 한 글자씩 타이핑하듯 보여 주고 커서를 깜빡입니다. 반복 시 지웠다가 다시 씁니다.',
+      defaultParams: { condition: 'always', charsPerSec: 14, startDelay: 0.3, cursor: '|', loop: false, holdSec: 1.5, startOn: 'visible' },
+      paramOptions: { startOn: [['visible', '화면에 보일 때'], ['load', '시작하자마자']] },
+      paramLabels: { charsPerSec: '초당 글자 수', startDelay: '시작 지연 (초)', cursor: '커서 문자 (비우면 없음)', loop: '반복 (지우고 다시 쓰기)', holdSec: '완성 후 유지 (초)', startOn: '시작 시점' }
+    },
+    magnetic: {
+      category: 'motion', name: '마그네틱 끌림', icon: 'MAG',
+      description: '커서가 가까이 오면 스프라이트가 커서 쪽으로 살짝 끌려옵니다.',
+      defaultParams: { condition: 'always', radius: 120, strength: 0.35, smoothing: 0.18 },
+      paramLabels: { radius: '감지 반경 (px)', strength: '끌림 세기 (0~1)', smoothing: '부드러움 (0~1)' }
+    },
+    cursor_fx: {
+      category: 'motion', name: '커서 트레일 / 커스텀 커서', icon: 'CUR',
+      description: '트레일: 커서를 따라 잔상 입자를 남깁니다. 커스텀 커서: 이 스프라이트가 시스템 커서를 대신합니다.',
+      defaultParams: { condition: 'always', mode: 'trail', color: '#e4e4e7', size: 5, lifetime: 0.5, lag: 0 },
+      paramOptions: { mode: [['trail', '커서 트레일'], ['cursor', '커스텀 커서 (이 스프라이트)']] },
+      paramLabels: { mode: '방식', color: '트레일 색', size: '트레일 크기', lifetime: '잔상 시간 (초)', lag: '따라오는 지연 (0~0.95)' }
+    },
+    property_binding: {
+      category: 'logic', name: '속성 바인딩', icon: 'BIND',
+      description: '다른 스프라이트의 속성 값을 (값 × 계수 + 오프셋)으로 따라 합니다.',
+      defaultParams: { condition: 'always', targetSpriteId: '', sourceProperty: 'x', targetProperty: 'x', factor: 1, offset: 0 },
+      paramOptions: { sourceProperty: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)']], targetProperty: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'],['filter_blur','필터: 흐림'],['filter_brightness','필터: 밝기'],['filter_hueRotate','필터: 색조 회전'],['filter_grayscale','필터: 흑백']] },
+      paramLabels: { targetSpriteId: '원본 스프라이트', sourceProperty: '원본 속성', targetProperty: '적용할 속성', factor: '계수', offset: '오프셋' }
+    },
+    condition_branch: {
+      category: 'logic', name: '조건 분기 (If)', icon: 'IF',
+      description: '입력 값을 기준값과 비교해 참/거짓이 바뀔 때 신호를 보냅니다. 거짓이면 아래 모듈을 멈출 수 있습니다.',
+      defaultParams: { condition: 'always', inputSource: 'stack', varName: 'score', compare: '>=', threshold: 10, signalTrue: 'if_true', signalFalse: 'if_false', gateBelow: true },
+      paramOptions: { inputSource: [['mouse_x','마우스 X'],['mouse_y','마우스 Y'],['mouse_distance','마우스와의 거리'],['mouse_speed','마우스 속도'],['time','경과 시간 (초)'],['scroll','스크롤 위치'],['scroll_progress','스크롤 진행률 (0~1)'],['variable','전역 변수'],['audio_level','소리 크기 (0~1)'],['stack','이전 모듈 값']], compare: [['>', '>'], ['>=', '≥'], ['<', '<'], ['<=', '≤'], ['==', '='], ['!=', '≠']] },
+      paramLabels: { inputSource: '입력 소스', varName: '변수 이름 (전역 변수 입력 시)', compare: '비교', threshold: '기준값', signalTrue: '참이 될 때 신호', signalFalse: '거짓이 될 때 신호', gateBelow: '거짓이면 아래 모듈 정지' }
+    },
+    global_variable: {
+      category: 'logic', name: '전역 변수', icon: 'VAR',
+      description: '문서 전체가 공유하는 변수를 설정·증감·토글하거나 읽습니다. 텍스트 스프라이트에 값을 표시할 수 있습니다.',
+      defaultParams: { condition: 'always', varName: 'score', action: 'add', value: 1, fireOn: 'click', listenSignal: '', initialValue: 0, displayTemplate: '' },
+      paramOptions: { action: [['read', '읽기 (값 전달만)'], ['set', '값으로 설정'], ['add', '값만큼 더하기'], ['toggle', '0/1 토글']], fireOn: [['click','클릭 시'],['hover','마우스 진입 시'],['trigger','트리거 발동 시'],['signal','신호 수신 시'],['always','항상 (매 프레임)']] },
+      paramLabels: { varName: '변수 이름', action: '동작', value: '값', fireOn: '실행 시점', listenSignal: '수신 신호 (신호 수신 시)', initialValue: '초기값', displayTemplate: '텍스트 표시 (예: 점수: {value})' }
+    },
+    physics_body: {
+      category: 'motion', name: '중력 및 물리 바디', icon: 'PHYS',
+      description: '중력으로 떨어지고 캔버스 가장자리에 튕깁니다. 드래그 모듈과 함께 쓰면 던질 수 있습니다.',
+      defaultParams: { condition: 'always', gravity: 900, bounce: 0.6, friction: 0.12, collideEdges: true },
+      paramLabels: { gravity: '중력 (px/s²)', bounce: '반발 (0~1)', friction: '바닥 마찰 (0~1)', collideEdges: '가장자리 충돌' }
+    },
+    audio_reactive: {
+      category: 'audio', name: '소리 반응', icon: 'MIC',
+      description: '마이크 또는 문서의 효과음·오디오 크기(0~1)에 따라 속성을 바꿉니다. 마이크는 처음 사용할 때 권한을 요청합니다.',
+      defaultParams: { condition: 'always', source: 'microphone', sensitivity: 1.5, smoothing: 0.25, property: 'scale', minValue: 1, maxValue: 1.4 },
+      paramOptions: { source: [['microphone', '마이크'], ['document', '문서 효과음·오디오']], property: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'],['filter_blur','필터: 흐림'],['filter_brightness','필터: 밝기'],['filter_hueRotate','필터: 색조 회전'],['filter_grayscale','필터: 흑백']] },
+      paramLabels: { source: '소리 입력', sensitivity: '감도', smoothing: '부드러움 (0~1)', property: '속성', minValue: '조용할 때 값', maxValue: '최대 소리일 때 값' }
+    },
+    scene_transition: {
+      category: 'web', name: '씬 전환 / 섹션 이동', icon: 'SCN',
+      description: '클릭·신호 등에 반응해 다른 섹션(스프라이트)으로 부드럽게 이동하거나 페이지를 엽니다. 페이드 전환을 지원합니다.',
+      defaultParams: { condition: 'always', fireOn: 'click', listenSignal: '', action: 'section', targetSpriteId: '', url: '', transition: 'smooth', duration: 0.6 },
+      paramOptions: { fireOn: [['click','클릭 시'],['hover','마우스 진입 시'],['trigger','트리거 발동 시'],['signal','신호 수신 시']], action: [['section', '섹션(스프라이트)으로 이동'], ['url', 'URL 열기']], transition: [['smooth', '부드러운 스크롤'], ['fade', '페이드 전환'], ['instant', '즉시']] },
+      paramLabels: { fireOn: '실행 시점', listenSignal: '수신 신호 (신호 수신 시)', action: '동작', targetSpriteId: '이동할 섹션', url: 'URL', transition: '전환 효과', duration: '전환 시간 (초)' }
     }
   };
 
@@ -1691,7 +1783,7 @@
       }
 
       // Draw particles if emitter active
-      if (this.mode === 'preview') this.drawParticles(ctx);
+      if (this.mode === 'preview') { this.drawParticles(ctx); this.drawScreenFade(ctx); }
 
       ctx.restore(); // end clip
 
@@ -1992,6 +2084,21 @@
         ctx.fill();
         ctx.restore();
       }
+    }
+
+    // scene_transition fade: black overlay rising to full and back (triangle).
+    drawScreenFade(ctx) {
+      const engine = this.moduleEngine || (typeof window !== 'undefined' && window.jspenApp ? window.jspenApp.moduleEngine : null);
+      const f = engine && engine.active && engine.bus ? engine.bus.fade : null;
+      if (!f) return;
+      const t = Math.max(0, Math.min(1, (engine.bus.time - f.start) / f.duration));
+      const a = 1 - Math.abs(2 * t - 1);
+      if (a <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, this.doc.width, this.doc.height);
+      ctx.restore();
     }
 
     drawSprite(ctx, sprite) {
@@ -3069,8 +3176,12 @@
         keyState: {},
         signals: new Map(),
         activeTriggers: new Set(),
-        activeTriggerTargets: new Set()
+        activeTriggerTargets: new Set(),
+        vars: new Map(),      // global_variable store shared by the document
+        fade: null,           // scene_transition fade overlay { start, duration }
+        hideCursor: false     // cursor_fx custom cursor active this frame
       };
+      this._pendingNavs = [];
       this.bus.emitSignal = (signalName, sourceId = '', payload = null) => {
         if (!signalName) return;
         this.bus.signals.set(signalName, { time: this.bus.time, sourceId, payload });
@@ -3131,7 +3242,7 @@
         for (let si = layer.sprites.length - 1; si >= 0; si--) {
           const sp = layer.sprites[si];
           if (!sp.visible || sp.type === 'screen_trigger') continue;
-          if (sp.runtime && sp.runtime.visible === false) continue;
+          if (sp.runtime && (sp.runtime.visible === false || sp.runtime._isCursor)) continue;
           if (this.isPointInside(wx, wy, sp)) return sp;
         }
       }
@@ -3156,6 +3267,10 @@
       this.bus.time = 0;
       this.bus.signals.clear();
       this.bus.scroll.deltaY = 0;
+      this.bus.vars = new Map();
+      this.bus.fade = null;
+      this.bus.hideCursor = false;
+      this._pendingNavs = [];
       this._frame = 0;
       for (const l of this.doc.layers) {
         l.resetRuntime();
@@ -3234,17 +3349,212 @@
       }
     }
 
+    // ---------------- Shared helpers for interaction modules ----------------
+
+    // Numeric inputs shared by value_remapper / condition_branch.
+    readInput(source, p, sprite, ctx, clock) {
+      const rt = sprite.runtime, m = this.bus.mouse;
+      switch (source) {
+        case 'mouse_x': return m.x;
+        case 'mouse_y': return m.y;
+        case 'mouse_distance': return Math.hypot(m.x - rt.x, m.y - rt.y);
+        case 'mouse_speed': return Math.hypot(m.vx, m.vy);
+        case 'time': return clock;
+        case 'scroll': return this.bus.scroll?.scrollY || 0;
+        case 'scroll_progress': return this.scrollProgress();
+        case 'variable': return Number(this.bus.vars.get(p.varName || '')) || 0;
+        case 'audio_level': return Math.max(ModuleEngine.audioLevel('microphone'), ModuleEngine.audioLevel('document'));
+        case 'stack': return ctx.value;
+        default: return m.x;
+      }
+    }
+
+    viewportHeight() {
+      return this.doc.viewportHeight || this.doc.height || 900;
+    }
+
+    // Page scroll progress 0..1 (top .. bottom of the document).
+    scrollProgress() {
+      const range = Math.max(1, (this.doc.height || 0) - this.viewportHeight());
+      return Math.max(0, Math.min(1, (this.bus.scroll?.scrollY || 0) / range));
+    }
+
+    // 0 when the sprite's top enters the bottom of the viewport, 1 when its
+    // bottom leaves the top.
+    elementProgress(sprite) {
+      const top = this.bus.scroll?.scrollY || 0, vh = this.viewportHeight();
+      const hh = Math.abs(sprite.height * (sprite.scaleY || 1)) / 2;
+      const span = vh + 2 * hh;
+      return Math.max(0, Math.min(1, (top + vh - (sprite.y - hh)) / span));
+    }
+
+    // Is at least `ratio` of the sprite's height inside the viewport?
+    isInView(sprite, ratio = 0.15) {
+      const top = this.bus.scroll?.scrollY || 0, vh = this.viewportHeight();
+      const h = Math.abs(sprite.height * (sprite.scaleY || 1));
+      const y0 = sprite.y - h / 2, y1 = sprite.y + h / 2;
+      const visible = Math.min(y1, top + vh) - Math.max(y0, top);
+      return visible >= Math.min(h, vh) * ratio;
+    }
+
+    // Start time for "startOn: visible | load" modules; null while waiting.
+    startTime(sprite, mod, p, resetWhenHidden = false) {
+      const rt = sprite.runtime, key = '_start_' + mod.id;
+      const ready = p.startOn === 'load' || this.isInView(sprite);
+      if (ready && rt[key] === undefined) rt[key] = this.bus.time;
+      if (!ready && resetWhenHidden && !this.isInView(sprite, 0)) delete rt[key];
+      return rt[key] === undefined ? null : rt[key];
+    }
+
+    static parseColor(c) {
+      if (!c || typeof c !== 'string') return null;
+      c = c.trim();
+      let m = c.match(/^#([0-9a-f]{3,8})$/i);
+      if (m) {
+        let h = m[1];
+        if (h.length === 3 || h.length === 4) h = h.split('').map(x => x + x).join('');
+        const n = parseInt(h.slice(0, 6), 16);
+        const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255, a];
+      }
+      m = c.match(/^rgba?\(([^)]+)\)$/i);
+      if (m) {
+        const v = m[1].split(',').map(x => parseFloat(x));
+        if (v.length >= 3 && v.slice(0, 3).every(isFinite)) return [v[0], v[1], v[2], isFinite(v[3]) ? v[3] : 1];
+      }
+      return null;
+    }
+
+    // Blend colour a -> b by t; non-parsable colours switch at t >= 0.5.
+    static mixColor(a, b, t) {
+      if (!b || t <= 0) return a;
+      if (t >= 1 || !a) return b;
+      const ca = ModuleEngine.parseColor(a), cb = ModuleEngine.parseColor(b);
+      if (!ca || !cb) return t < 0.5 ? a : b;
+      const r = ca.map((v, i) => v + (cb[i] - v) * t);
+      return `rgba(${Math.round(r[0])},${Math.round(r[1])},${Math.round(r[2])},${+r[3].toFixed(3)})`;
+    }
+
+    // Text shown by a sprite: a text sprite's text, else its text_label module.
+    static getText(sprite) {
+      if (sprite.type !== 'text') {
+        const lbl = (sprite.modules || []).find(m => m.type === 'text_label' && m.enabled !== false);
+        if (lbl) return String(lbl.params?.text ?? '');
+      }
+      return String(sprite.text ?? '');
+    }
+
+    static setText(sprite, text) {
+      text = String(text);
+      if (ModuleEngine.getText(sprite) === text) return;
+      const lbl = sprite.type !== 'text' && (sprite.modules || []).find(m => m.type === 'text_label' && m.enabled !== false);
+      if (lbl) { lbl.params = lbl.params || {}; lbl.params.text = text; }
+      else sprite.text = text;
+      sprite._wrapCache = null;
+    }
+
+    static formatNumber(v, decimals, separator) {
+      const d = Math.max(0, Math.min(6, Math.round(decimals) || 0));
+      let str = Math.abs(v).toFixed(d);
+      if (separator) {
+        const [i, f] = str.split('.');
+        str = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f !== undefined ? '.' + f : '');
+      }
+      return (v < 0 ? '-' : '') + str;
+    }
+
+    // Apply an additive offset from `mod` to a runtime property. Runtime
+    // position/rotation/opacity persist between frames (drag, physics, ...), so
+    // the offset applied on the previous frame is replaced instead of added
+    // again. Scale is reset every frame, so it is simply added.
+    offsetProp(sprite, mod, prop, offset) {
+      if (!isFinite(offset)) return;
+      const rt = sprite.runtime;
+      if (prop.startsWith('filter_')) { ModuleEngine.setProp(sprite, prop, offset); return; }
+      if (prop === 'scale' || prop === 'scaleX' || prop === 'scaleY') {
+        if (prop !== 'scaleY') rt.scaleX += offset;
+        if (prop !== 'scaleX') rt.scaleY += offset;
+        return;
+      }
+      rt._offs = rt._offs || {};
+      const key = mod.id + ':' + prop;
+      const prev = rt._offs[key] || 0;
+      rt[prop] = (rt[prop] || 0) + offset - prev; // opacity is clamped by the renderer
+      rt._offs[key] = offset;
+    }
+
+    // Queue a navigation (used to switch sections in the middle of a fade).
+    queueNavigation(at, sprite, opts) {
+      this._pendingNavs.push({ at, sprite, opts });
+    }
+
+    // ---------------- Audio ----------------
+    static audioContext() {
+      const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
+      if (!AC) return null;
+      if (!ModuleEngine._audioCtx) {
+        const ac = new AC();
+        // Everything the document plays goes through one master node with an
+        // analyser so audio_reactive can listen to it.
+        const master = ac.createGain();
+        const analyser = ac.createAnalyser();
+        analyser.fftSize = 1024;
+        master.connect(analyser);
+        analyser.connect(ac.destination);
+        ModuleEngine._audioCtx = ac;
+        ModuleEngine._master = master;
+        ModuleEngine._docAnalyser = analyser;
+      }
+      return ModuleEngine._audioCtx;
+    }
+
+    // Call from a user gesture (pointer down / key) so browsers allow audio.
+    static resumeAudio() {
+      try {
+        const ac = ModuleEngine._audioCtx;
+        if (ac && ac.state === 'suspended') ac.resume();
+      } catch (_) {}
+    }
+
+    static requestMicrophone() {
+      if (ModuleEngine._micState) return;
+      ModuleEngine._micState = 'pending';
+      try {
+        const ac = ModuleEngine.audioContext();
+        if (!ac || !navigator.mediaDevices?.getUserMedia) { ModuleEngine._micState = 'unavailable'; return; }
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+          const src = ac.createMediaStreamSource(stream);
+          const an = ac.createAnalyser();
+          an.fftSize = 1024;
+          src.connect(an); // not connected to the speakers (no feedback)
+          ModuleEngine._micAnalyser = an;
+          ModuleEngine._micState = 'on';
+        }).catch(() => { ModuleEngine._micState = 'denied'; });
+      } catch (_) { ModuleEngine._micState = 'unavailable'; }
+    }
+
+    // RMS level 0..1 of the microphone or of the document's own audio.
+    static audioLevel(source) {
+      const an = source === 'microphone' ? ModuleEngine._micAnalyser : ModuleEngine._docAnalyser;
+      if (!an) return 0;
+      const buf = ModuleEngine._levelBuf && ModuleEngine._levelBuf.length === an.fftSize
+        ? ModuleEngine._levelBuf : (ModuleEngine._levelBuf = new Float32Array(an.fftSize));
+      an.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      return Math.min(1, Math.sqrt(sum / buf.length) * 3);
+    }
+
     // Built-in synthesizer for synth_sfx (Web Audio, no files).
     static playSynth(sound, volume = 0.6) {
       try {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return;
-        const ac = ModuleEngine._audioCtx || (ModuleEngine._audioCtx = new AC());
+        const ac = ModuleEngine.audioContext();
+        if (!ac) return;
         if (ac.state === 'suspended') ac.resume();
         const now = ac.currentTime;
         const out = ac.createGain();
         out.gain.value = Math.max(0, Math.min(1, volume));
-        out.connect(ac.destination);
+        out.connect(ModuleEngine._master);
         const tone = (type, f0, f1, t0, dur, peak = 0.6) => {
           const o = ac.createOscillator(), g = ac.createGain();
           o.type = type;
@@ -3274,11 +3584,13 @@
     }
 
     // Shared "when to play" logic for synth_sfx / audio_clip.
-    shouldFireSound(sprite, mod, p) {
+    shouldFire(sprite, mod, p, key = 'trigger') {
       const rt = sprite.runtime;
-      const trig = p.trigger || 'click';
+      const trig = p[key] || 'click';
       let fire = false;
-      if (trig === 'click') {
+      if (trig === 'always') {
+        fire = true;
+      } else if (trig === 'click') {
         fire = this.bus.mouse.clicked && this.isPointInside(this.bus.mouse.pressX, this.bus.mouse.pressY, sprite);
       } else if (trig === 'hover') {
         const key = '_sndHover_' + mod.id;
@@ -3362,6 +3674,14 @@
           sp.runtime.isTriggered = false;
         }
       }
+      this.bus.hideCursor = false;
+      if (this.bus.fade && this.bus.time + dt - this.bus.fade.start > this.bus.fade.duration) this.bus.fade = null;
+      if (this._pendingNavs.length) {
+        const due = this._pendingNavs.filter(n => n.at <= this.bus.time);
+        this._pendingNavs = this._pendingNavs.filter(n => n.at > this.bus.time);
+        for (const n of due) if (typeof this.onNavigateAnchor === 'function') this.onNavigateAnchor(n.sprite, n.opts);
+      }
+
       // Wheel delta accumulated by the host since the last frame.
       this.bus.scroll.deltaY = this._pendingWheel || 0;
       this._pendingWheel = 0;
@@ -3983,6 +4303,293 @@
                 break;
               }
 
+              // ---------------- Web interaction modules ----------------
+              case 'scroll_progress': {
+                const prog = p.range === 'element' ? this.elementProgress(sprite) : this.scrollProgress();
+                const e = ModuleEngine.ease(p.easing || 'linear', prog);
+                const from = parseFloat(p.fromValue) || 0;
+                const to = parseFloat(p.toValue);
+                const val = from + ((isFinite(to) ? to : from) - from) * e;
+                const prop = p.property || 'y';
+                if (p.outputMode === 'absolute') ModuleEngine.setProp(sprite, prop, val);
+                else this.offsetProp(sprite, mod, prop, val);
+                ctx.value = prog;
+                break;
+              }
+
+              case 'entrance_animation': {
+                const rt = sprite.runtime;
+                const start = this.startTime(sprite, mod, p, p.once === false);
+                const dur = Math.max(0.01, parseFloat(p.duration) || 0.7);
+                const t = start === null ? -1 : this.bus.time - start - (parseFloat(p.delay) || 0);
+                const prog = t < 0 ? 0 : ModuleEngine.ease(p.easing || 'easeOutCubic', Math.min(1, t / dur));
+                const inv = 1 - prog;
+                const dist = parseFloat(p.distance);
+                const d = isFinite(dist) ? dist : 40;
+                let ox = 0, oy = 0, orot = 0;
+                switch (p.effect) {
+                  case 'fade_down': oy = -d * inv; break;
+                  case 'fade_in': break;
+                  case 'slide_left': ox = -d * inv; break;
+                  case 'slide_right': ox = d * inv; break;
+                  case 'zoom_in': rt.scaleX *= 0.6 + 0.4 * prog; rt.scaleY *= 0.6 + 0.4 * prog; break;
+                  case 'zoom_out': rt.scaleX *= 1.4 - 0.4 * prog; rt.scaleY *= 1.4 - 0.4 * prog; break;
+                  case 'rotate_in': orot = -15 * inv; oy = d * 0.5 * inv; break;
+                  default: oy = d * inv; // fade_up
+                }
+                this.offsetProp(sprite, mod, 'x', ox);
+                this.offsetProp(sprite, mod, 'y', oy);
+                this.offsetProp(sprite, mod, 'rotation', orot);
+                this.offsetProp(sprite, mod, 'opacity', -(sprite.opacity ?? 1) * inv);
+                ctx.value = prog;
+                break;
+              }
+
+              case 'state_style': {
+                const rt = sprite.runtime, m = this.bus.mouse;
+                if (!rt._ssBase) {
+                  const lbl = (sprite.modules || []).find(x => x.type === 'text_label' && x.enabled !== false);
+                  rt._ssBase = { fill: sprite.fill, stroke: sprite.stroke, textColor: sprite.textColor, label: lbl ? lbl.params?.color : undefined };
+                }
+                const hovered = !!rt.isHovered && !this.draggedSprite;
+                const pressed = hovered && m.isDown && this.isPointInside(m.pressX, m.pressY, sprite);
+                const k = Math.min(1, dt / Math.max(0.01, parseFloat(p.transition) || 0.15));
+                rt._ssH = (rt._ssH || 0) + ((hovered ? 1 : 0) - (rt._ssH || 0)) * k;
+                rt._ssP = (rt._ssP || 0) + ((pressed ? 1 : 0) - (rt._ssP || 0)) * k;
+                const h = rt._ssH, pr = rt._ssP, base = rt._ssBase;
+                const mix = ModuleEngine.mixColor;
+                if (p.hoverFill || p.pressFill) sprite.fill = mix(mix(base.fill, p.hoverFill, p.hoverFill ? h : 0), p.pressFill, p.pressFill ? pr : 0);
+                if (p.hoverStroke) sprite.stroke = mix(base.stroke, p.hoverStroke, h);
+                if (p.hoverTextColor) {
+                  const lbl = (sprite.modules || []).find(x => x.type === 'text_label' && x.enabled !== false);
+                  if (lbl) lbl.params.color = mix(base.label || '#ffffff', p.hoverTextColor, h);
+                  else if (sprite.type === 'text') sprite.fill = mix(base.fill, p.hoverTextColor, h);
+                  else sprite.textColor = mix(base.textColor || '#ffffff', p.hoverTextColor, h);
+                }
+                const hs = parseFloat(p.hoverScale), ps = parseFloat(p.pressScale);
+                let sc = 1 + ((isFinite(hs) ? hs : 1) - 1) * h;
+                sc += ((isFinite(ps) ? ps : sc) - sc) * pr;
+                rt.scaleX *= sc; rt.scaleY *= sc;
+                ctx.value = h;
+                break;
+              }
+
+              case 'count_up': {
+                const start = this.startTime(sprite, mod, p);
+                const from = parseFloat(p.from) || 0, to = parseFloat(p.to);
+                const dur = Math.max(0.01, parseFloat(p.duration) || 1.6);
+                const prog = start === null ? 0 : Math.min(1, (this.bus.time - start) / dur);
+                const v = from + ((isFinite(to) ? to : from) - from) * ModuleEngine.ease(p.easing || 'easeOutCubic', prog);
+                const shown = prog >= 1 ? (isFinite(to) ? to : from) : v;
+                ModuleEngine.setText(sprite, (p.prefix || '') + ModuleEngine.formatNumber(shown, p.decimals, p.separator !== false) + (p.suffix || ''));
+                ctx.value = shown;
+                break;
+              }
+
+              case 'typewriter': {
+                const rt = sprite.runtime;
+                if (rt._twFull === undefined) rt._twFull = ModuleEngine.getText(sprite);
+                const chars = Array.from(rt._twFull);
+                const start = this.startTime(sprite, mod, p);
+                const cps = Math.max(1, parseFloat(p.charsPerSec) || 14);
+                const t = start === null ? -1 : this.bus.time - start - (parseFloat(p.startDelay) || 0);
+                let n = 0, typing = false;
+                if (t >= 0) {
+                  const typeT = chars.length / cps, hold = Math.max(0, parseFloat(p.holdSec) || 0), delT = typeT / 2;
+                  if (p.loop) {
+                    const cyc = typeT + hold + delT + 0.4;
+                    const u = t % cyc;
+                    if (u < typeT) { n = Math.floor(u * cps); typing = true; }
+                    else if (u < typeT + hold) n = chars.length;
+                    else if (u < typeT + hold + delT) { n = Math.max(0, chars.length - Math.floor((u - typeT - hold) * cps * 2)); typing = true; }
+                    else n = 0;
+                  } else {
+                    n = Math.min(chars.length, Math.floor(t * cps));
+                    typing = n < chars.length;
+                  }
+                }
+                const blinkOn = typing || Math.floor(this.bus.time * 2) % 2 === 0;
+                const cursor = p.cursor && blinkOn ? p.cursor : '';
+                ModuleEngine.setText(sprite, chars.slice(0, n).join('') + cursor);
+                ctx.value = n;
+                break;
+              }
+
+              case 'magnetic': {
+                const rt = sprite.runtime, m = this.bus.mouse;
+                const radius = Math.max(1, parseFloat(p.radius) || 120);
+                // Measure from the position without this module's own pull.
+                const offs = rt._offs || {};
+                const dx = m.x - (rt.x - (offs[mod.id + ':x'] || 0)), dy = m.y - (rt.y - (offs[mod.id + ':y'] || 0));
+                const d = Math.hypot(dx, dy);
+                const str = Math.max(0, Math.min(1, parseFloat(p.strength) || 0));
+                const tx = d < radius ? dx * str : 0, ty = d < radius ? dy * str : 0;
+                const k = Math.max(0.01, Math.min(1, parseFloat(p.smoothing) || 0.18));
+                rt._magX = (rt._magX || 0) + (tx - (rt._magX || 0)) * k;
+                rt._magY = (rt._magY || 0) + (ty - (rt._magY || 0)) * k;
+                this.offsetProp(sprite, mod, 'x', rt._magX);
+                this.offsetProp(sprite, mod, 'y', rt._magY);
+                ctx.value = d < radius ? 1 - d / radius : 0;
+                break;
+              }
+
+              case 'cursor_fx': {
+                const rt = sprite.runtime, m = this.bus.mouse;
+                const inside = m.x > -1e8 && m.y > -1e8;
+                if (p.mode === 'cursor') {
+                  rt._isCursor = true;
+                  if (inside) {
+                    const lag = Math.max(0, Math.min(0.95, parseFloat(p.lag) || 0));
+                    if (rt._cx === undefined) { rt._cx = m.x; rt._cy = m.y; }
+                    rt._cx += (m.x - rt._cx) * (1 - lag);
+                    rt._cy += (m.y - rt._cy) * (1 - lag);
+                    rt.x = rt._cx; rt.y = rt._cy;
+                    this.bus.hideCursor = true;
+                  }
+                  // Hidden while the pointer is outside the canvas.
+                  this.offsetProp(sprite, mod, 'opacity', inside ? 0 : -(sprite.opacity ?? 1));
+                } else if (inside && Math.hypot(m.vx, m.vy) > 5 && this.bus.particles.length < 600) {
+                  this.bus.particles.push({
+                    x: m.x, y: m.y, vx: 0, vy: 0, color: p.color || '#e4e4e7',
+                    size: Math.max(0.5, parseFloat(p.size) || 5), life: 1, maxLife: Math.max(0.05, parseFloat(p.lifetime) || 0.5)
+                  });
+                }
+                break;
+              }
+
+              case 'property_binding': {
+                const src = p.targetSpriteId ? this.doc.findSpriteById(p.targetSpriteId) : null;
+                if (!src || src === sprite) break;
+                const v = ModuleEngine.getProp(src, p.sourceProperty || 'x');
+                if (!isFinite(v)) break;
+                const f = parseFloat(p.factor);
+                const out = v * (isFinite(f) ? f : 1) + (parseFloat(p.offset) || 0);
+                ModuleEngine.setProp(sprite, p.targetProperty || 'x', out);
+                ctx.value = out;
+                break;
+              }
+
+              case 'condition_branch': {
+                const rt = sprite.runtime;
+                const v = this.readInput(p.inputSource || 'stack', p, sprite, ctx, clock);
+                const th = parseFloat(p.threshold) || 0;
+                let ok;
+                switch (p.compare) {
+                  case '>': ok = v > th; break;
+                  case '<': ok = v < th; break;
+                  case '<=': ok = v <= th; break;
+                  case '==': ok = Math.abs(v - th) < 1e-9; break;
+                  case '!=': ok = Math.abs(v - th) >= 1e-9; break;
+                  default: ok = v >= th;
+                }
+                const key = '_if_' + mod.id;
+                if (rt[key] !== ok) {
+                  if (ok && p.signalTrue) this.bus.emitSignal(p.signalTrue, sprite.id, v);
+                  if (!ok && rt[key] !== undefined && p.signalFalse) this.bus.emitSignal(p.signalFalse, sprite.id, v);
+                  rt[key] = ok;
+                }
+                if (ok) { rt.isTriggered = true; }
+                if (!ok && p.gateBelow !== false) ctx.gateOpen = false;
+                ctx.value = ok ? 1 : 0;
+                break;
+              }
+
+              case 'global_variable': {
+                const vars = this.bus.vars, name = String(p.varName || 'var');
+                if (!vars.has(name)) {
+                  const iv = parseFloat(p.initialValue);
+                  vars.set(name, isFinite(iv) ? iv : 0);
+                }
+                if (p.action && p.action !== 'read' && this.shouldFire(sprite, mod, p, 'fireOn')) {
+                  const cur = Number(vars.get(name)) || 0;
+                  const val = parseFloat(p.value);
+                  const k = isFinite(val) ? val : 0;
+                  if (p.action === 'set') vars.set(name, k);
+                  else if (p.action === 'toggle') vars.set(name, cur ? 0 : 1);
+                  else vars.set(name, cur + k);
+                  this.bus.emitSignal('var_' + name, sprite.id, vars.get(name));
+                }
+                const value = Number(vars.get(name)) || 0;
+                if (p.displayTemplate) {
+                  const shown = Number.isInteger(value) ? String(value) : value.toFixed(2);
+                  ModuleEngine.setText(sprite, String(p.displayTemplate).split('{value}').join(shown));
+                }
+                ctx.value = value;
+                break;
+              }
+
+              case 'physics_body': {
+                const rt = sprite.runtime;
+                if (this.draggedSprite === sprite) {
+                  // Held by a draggable module: remember the throw velocity.
+                  const cap = 3000;
+                  rt.vx = Math.max(-cap, Math.min(cap, this.bus.mouse.vx));
+                  rt.vy = Math.max(-cap, Math.min(cap, this.bus.mouse.vy));
+                  rt._px = rt.x; rt._py = rt.y;
+                  break;
+                }
+                if (rt._px === undefined) { rt._px = rt.x; rt._py = rt.y; rt.vx = rt.vx || 0; rt.vy = rt.vy || 0; }
+                const g = parseFloat(p.gravity);
+                rt.vy += (isFinite(g) ? g : 900) * dt;
+                rt._px += rt.vx * dt;
+                rt._py += rt.vy * dt;
+                if (p.collideEdges !== false) {
+                  const hw = Math.abs(sprite.width * rt.scaleX) / 2, hh = Math.abs(sprite.height * rt.scaleY) / 2;
+                  const W = this.doc.width || 800, H = this.doc.height || 600;
+                  const bounce = Math.max(0, Math.min(1, parseFloat(p.bounce) || 0));
+                  if (rt._py + hh > H) {
+                    rt._py = H - hh;
+                    rt.vy = Math.abs(rt.vy) < 40 ? 0 : -Math.abs(rt.vy) * bounce;
+                    const fr = Math.max(0, Math.min(1, parseFloat(p.friction) || 0));
+                    rt.vx *= Math.pow(1 - fr, dt * 60);
+                    if (Math.abs(rt.vx) < 2) rt.vx = 0;
+                  }
+                  if (rt._py - hh < 0) { rt._py = hh; rt.vy = Math.abs(rt.vy) * bounce; }
+                  if (rt._px - hw < 0) { rt._px = hw; rt.vx = Math.abs(rt.vx) * bounce; }
+                  if (rt._px + hw > W) { rt._px = W - hw; rt.vx = -Math.abs(rt.vx) * bounce; }
+                }
+                rt.x = rt._px; rt.y = rt._py;
+                ctx.value = Math.hypot(rt.vx, rt.vy);
+                break;
+              }
+
+              case 'audio_reactive': {
+                const rt = sprite.runtime;
+                const src = p.source === 'document' ? 'document' : 'microphone';
+                if (src === 'microphone') ModuleEngine.requestMicrophone();
+                else ModuleEngine.audioContext();
+                const raw = Math.min(1, ModuleEngine.audioLevel(src) * (parseFloat(p.sensitivity) || 1));
+                const k = 1 - Math.max(0, Math.min(0.98, parseFloat(p.smoothing) || 0));
+                rt._lvl = (rt._lvl || 0) + (raw - (rt._lvl || 0)) * k;
+                const lo = parseFloat(p.minValue) || 0, hi = parseFloat(p.maxValue);
+                const val = lo + ((isFinite(hi) ? hi : 1) - lo) * rt._lvl;
+                const prop = p.property || 'scale';
+                // Position properties move relative to the sprite's place.
+                if (prop === 'x' || prop === 'y') this.offsetProp(sprite, mod, prop, val);
+                else ModuleEngine.setProp(sprite, prop, val);
+                ctx.value = rt._lvl;
+                break;
+              }
+
+              case 'scene_transition': {
+                if (!this.shouldFire(sprite, mod, p, 'fireOn')) break;
+                const dur = Math.max(0.05, parseFloat(p.duration) || 0.6);
+                if (p.action === 'url') {
+                  this.navigateHyperlink(String(p.url || ''), '_blank');
+                  break;
+                }
+                const tgt = p.targetSpriteId ? this.doc.findSpriteById(p.targetSpriteId) : null;
+                if (!tgt) break;
+                if (p.transition === 'fade') {
+                  this.bus.fade = { start: this.bus.time, duration: dur };
+                  this.queueNavigation(this.bus.time + dur / 2, tgt, { smooth: false });
+                } else {
+                  if (typeof this.onNavigateAnchor === 'function') this.onNavigateAnchor(tgt, { smooth: p.transition !== 'instant', duration: dur });
+                }
+                this.bus.emitSignal('scene_change', sprite.id, tgt.id);
+                break;
+              }
+
               case 'mouse_tilt_3d': {
                 // 2D approximation of a card tilt: rotate toward the pointer and
                 // squash the axis facing away (perspective foreshortening).
@@ -4126,16 +4733,7 @@
 
               case 'value_remapper': {
                 const rt = sprite.runtime;
-                let v;
-                switch (p.inputSource) {
-                  case 'mouse_y': v = this.bus.mouse.y; break;
-                  case 'mouse_distance': v = Math.hypot(this.bus.mouse.x - rt.x, this.bus.mouse.y - rt.y); break;
-                  case 'mouse_speed': v = Math.hypot(this.bus.mouse.vx, this.bus.mouse.vy); break;
-                  case 'time': v = clock; break;
-                  case 'scroll': v = this.bus.scroll?.scrollY || 0; break;
-                  case 'stack': v = ctx.value; break;
-                  default: v = this.bus.mouse.x;
-                }
+                let v = this.readInput(p.inputSource, p, sprite, ctx, clock);
                 if (!isFinite(v)) v = 0;
                 const inMin = parseFloat(p.inMin) || 0, inMax = parseFloat(p.inMax);
                 const outMin = parseFloat(p.outMin) || 0, outMax = parseFloat(p.outMax);
@@ -4146,8 +4744,8 @@
                 ctx.value = out;
                 const prop = p.outputProperty || 'none';
                 if (prop !== 'none') {
-                  const base = prop.startsWith('filter_') ? 0 : (ModuleEngine.getProp(sprite, prop) || 0);
-                  ModuleEngine.setProp(sprite, prop, p.outputMode === 'offset' ? base + out : out);
+                  if (p.outputMode === 'offset') this.offsetProp(sprite, mod, prop, out);
+                  else ModuleEngine.setProp(sprite, prop, out);
                 }
                 break;
               }
@@ -4244,16 +4842,27 @@
 
               // ---------------- Audio ----------------
               case 'synth_sfx':
-                if (this.shouldFireSound(sprite, mod, p)) ModuleEngine.playSynth(p.sound || 'pop', p.volume !== undefined ? parseFloat(p.volume) : 0.6);
+                if (this.shouldFire(sprite, mod, p)) ModuleEngine.playSynth(p.sound || 'pop', p.volume !== undefined ? parseFloat(p.volume) : 0.6);
                 break;
 
               case 'audio_clip': {
-                if (!this.shouldFireSound(sprite, mod, p)) break;
+                if (!this.shouldFire(sprite, mod, p)) break;
                 const url = String(p.audioUrl || '').trim();
                 const ok = safeUrl(url) || /^data:audio\//i.test(url);
                 if (!url || !ok || typeof Audio === 'undefined') break;
                 const rt = sprite.runtime;
-                if (!rt._audio || rt._audioSrc !== url) { rt._audio = new Audio(url); rt._audioSrc = url; }
+                if (!rt._audio || rt._audioSrc !== url) {
+                  rt._audio = new Audio(url);
+                  rt._audioSrc = url;
+                  // Same-origin / data: audio is routed through the analyser so
+                  // audio_reactive can follow it (cross-origin audio would be muted).
+                  try {
+                    const sameOrigin = /^data:/i.test(url) || new URL(url, location.href).origin === location.origin;
+                    const ac = sameOrigin ? ModuleEngine.audioContext() : null;
+                    if (ac) ac.createMediaElementSource(rt._audio).connect(ModuleEngine._master);
+                  } catch (_) {}
+                }
+                ModuleEngine.resumeAudio();
                 rt._audio.volume = Math.max(0, Math.min(1, p.volume !== undefined ? parseFloat(p.volume) : 0.8));
                 rt._audio.loop = !!p.loop;
                 try { rt._audio.currentTime = 0; } catch (_) {}
@@ -4379,10 +4988,10 @@ ${this.getRuntimeSource()}
   const pointer = { mw: { x: -1e9, y: -1e9 }, ms: { x: 0, y: 0 }, isDown: false, clicked: false, downAt: null };
 
   // #anchor links scroll the page to the target sprite.
-  engine.onNavigateAnchor = (sp) => {
+  engine.onNavigateAnchor = (sp, opts = { smooth: true }) => {
     const r = canvas.getBoundingClientRect();
     const scale = r.height / model.height;
-    window.scrollTo({ top: window.scrollY + r.top + (sp.y - sp.height / 2) * scale, behavior: 'smooth' });
+    window.scrollTo({ top: window.scrollY + r.top + (sp.y - sp.height / 2) * scale, behavior: opts.smooth === false ? 'auto' : 'smooth' });
   };
 
   if (interactive) {
@@ -4391,10 +5000,11 @@ ${this.getRuntimeSource()}
       const p = toDoc(e);
       pointer.mw = { x: p.x, y: p.y }; pointer.ms = { x: p.sx, y: p.sy };
       const link = engine.getClickLink(engine.pickSprite(p.x, p.y));
-      canvas.style.cursor = link ? 'pointer' : (engine.draggedSprite ? 'grabbing' : 'default');
+      canvas.style.cursor = engine.bus.hideCursor ? 'none' : (link ? 'pointer' : (engine.draggedSprite ? 'grabbing' : 'default'));
     });
     canvas.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
+      ModuleEngine.resumeAudio();
       const p = toDoc(e);
       pointer.mw = { x: p.x, y: p.y }; pointer.ms = { x: p.sx, y: p.sy };
       pointer.isDown = true; pointer.clicked = true; pointer.downAt = { x: p.x, y: p.y }; pointer.press = { x: p.x, y: p.y };
@@ -4452,6 +5062,7 @@ ${this.getRuntimeSource()}
         if (layer.visible) renderer.drawLayer(ctx, layer);
       }
       renderer.drawParticles(ctx);
+      renderer.drawScreenFade(ctx);
       ctx.restore();
       this.dirty = false;
     }
@@ -4486,6 +5097,7 @@ ${this.getRuntimeSource()}
       model.viewportHeight = window.innerHeight * scale;
       engine.update(dt, pointer.mw, pointer.ms, pointer.isDown, pointer.clicked, pointer.press);
       pointer.clicked = false;
+      if (engine.bus.hideCursor) canvas.style.cursor = 'none';
       player.dirty = true;
     }
     if (player.dirty) player.draw();
@@ -5211,6 +5823,7 @@ ${this.getRuntimeSource()}
             <button class="mod-category-tab ${this.activeCategory==='sensor'?'active':''}" data-cat="sensor">감지 & 제스처</button>
             <button class="mod-category-tab ${this.activeCategory==='logic'?'active':''}" data-cat="logic">연결 & 로직</button>
             <button class="mod-category-tab ${this.activeCategory==='timing'?'active':''}" data-cat="timing">타이밍</button>
+            <button class="mod-category-tab ${this.activeCategory==='audio'?'active':''}" data-cat="audio">오디오</button>
           </div>
           <div class="ps-module-grid" id="modalModGrid"></div>
         </div>
@@ -9979,8 +10592,14 @@ ${sprite.type === 'text' ? `
           selectedSpriteIds: new Set(this.doc.selectedSpriteIds || [])
         };
         this.moduleEngine.disabledModuleIds = this.nodeEditor ? this.nodeEditor.getDisabledModuleIds() : null;
-        this.moduleEngine.onNavigateAnchor = sp => {
-          this.renderer.panY = -(sp.y - sp.height / 2) * this.renderer.zoom + 24;
+        this.moduleEngine.onNavigateAnchor = (sp, opts = {}) => {
+          const to = -(sp.y - sp.height / 2) * this.renderer.zoom + 24;
+          if (opts.smooth) {
+            this._panAnim = { from: this.renderer.panY, to, start: performance.now(), dur: Math.max(0.05, opts.duration || 0.6) * 1000 };
+          } else {
+            this._panAnim = null;
+            this.renderer.panY = to;
+          }
         };
         this.pointer.clicked = false;
         this.pointer.isDown = false;
@@ -9990,6 +10609,7 @@ ${sprite.type === 'text' ? `
         StudioToast.show('실시간 모듈 미리보기: Esc 또는 Ctrl+Space로 편집 모드 복귀');
       } else {
         this.moduleEngine.stop();
+        this._panAnim = null;
         this.renderer.mode = 'edit';
         document.body.classList.remove('jspen-live-preview');
         this.canvas.style.cursor = '';
@@ -10681,6 +11301,7 @@ ${sprite.type === 'text' ? `
             panStart = { x: e.clientX, y: e.clientY };
             initPan = { x: this.renderer.panX, y: this.renderer.panY };
           } else if (e.button === 0) {
+            ModuleEngine.resumeAudio();
             this.pointer.isDown = true;
             this.pointer.clicked = true;
             this.pointer.press = { x: mw.x, y: mw.y };
@@ -10735,7 +11356,8 @@ ${sprite.type === 'text' ? `
         // Pointer cursor for hyperlinks during preview mode
         if (this.moduleEngine.active) {
           const hoveredSp = this.moduleEngine.pickSprite(mw.x, mw.y);
-          this.canvas.style.cursor = this.moduleEngine.getClickLink(hoveredSp) ? 'pointer' : 'default';
+          this.canvas.style.cursor = this.moduleEngine.bus.hideCursor ? 'none'
+            : (this.moduleEngine.getClickLink(hoveredSp) ? 'pointer' : 'default');
         }
 
         if (this.tools.activeTool === 'eyedropper' && loupe) {
@@ -11029,10 +11651,17 @@ ${sprite.type === 'text' ? `
             }
           }
           const r = this.renderer;
+          if (this._panAnim) {
+            const a = this._panAnim;
+            const t = Math.min(1, (now - a.start) / a.dur);
+            r.panY = a.from + (a.to - a.from) * ModuleEngine.ease('easeInOutCubic', t);
+            if (t >= 1) this._panAnim = null;
+          }
           this.moduleEngine.bus.scroll.scrollY = Math.max(0, -r.panY / r.zoom);
           this.doc.viewportHeight = this.canvas.height / r.zoom;
           this.moduleEngine.update(dt, this.pointer.mw, this.pointer.ms, this.pointer.isDown, this.pointer.clicked, this.pointer.press);
           this.pointer.clicked = false;
+          if (this.moduleEngine.bus.hideCursor) this.canvas.style.cursor = 'none';
           this.renderCanvas();
           requestAnimationFrame(loop);
           return;

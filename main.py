@@ -120,11 +120,49 @@ class PreviewPage(QWebEnginePage):
     def __init__(self, parent_view=None, owner=None):
         super().__init__(parent_view)
         self.owner = owner
+        install_permission_prompt(self, owner)
 
     def createWindow(self, _type):
         if self.owner is not None and hasattr(self.owner, "open_preview_window"):
             return self.owner.open_preview_window()
         return None
+
+
+def install_permission_prompt(page, parent_widget):
+    """Microphone access (audio_reactive module) is granted only after the user
+    confirms it; every other permission request is denied."""
+
+    def ask(origin_text):
+        answer = QMessageBox.question(
+            parent_widget, "마이크 사용 권한",
+            f"이 문서의 '소리 반응' 모듈이 마이크를 사용하려고 합니다.\n\n허용하시겠습니까?\n({origin_text})",
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    if hasattr(page, "permissionRequested"):  # Qt >= 6.8
+        try:
+            from PyQt6.QtWebEngineCore import QWebEnginePermission
+        except ImportError:  # pragma: no cover
+            QWebEnginePermission = None
+
+        def on_permission(permission):
+            mic = QWebEnginePermission is not None and \
+                permission.permissionType() == QWebEnginePermission.PermissionType.MediaAudioCapture
+            if mic and ask(permission.origin().toString() or "local"):
+                permission.grant()
+            else:
+                permission.deny()
+
+        page.permissionRequested.connect(on_permission)
+    else:  # Qt 6.5 - 6.7
+        def on_feature(origin, feature):
+            mic = feature == QWebEnginePage.Feature.MediaAudioCapture
+            policy = QWebEnginePage.PermissionPolicy.PermissionGrantedByUser \
+                if mic and ask(origin.toString() or "local") \
+                else QWebEnginePage.PermissionPolicy.PermissionDeniedByUser
+            page.setFeaturePermission(origin, feature, policy)
+
+        page.featurePermissionRequested.connect(on_feature)
 
 
 class DesktopCanvasPage(QWebEnginePage):
@@ -134,6 +172,7 @@ class DesktopCanvasPage(QWebEnginePage):
     def __init__(self, parent_view=None, parent_window=None):
         super().__init__(parent_view)
         self.parent_window = parent_window
+        install_permission_prompt(self, parent_window)
 
     def createWindow(self, _type):
         if self.parent_window is not None:

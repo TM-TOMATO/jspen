@@ -51,6 +51,8 @@ test('template gallery loads every template', async () => {
 
 test('browser mode: Ctrl+S downloads a .jspen file, Ctrl+O opens one', async () => {
   const { page } = s;
+  // Shortcuts are ignored while an input has focus (typing priority).
+  await page.evaluate(() => document.activeElement && document.activeElement.blur());
   const [dl] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('Control+s')]);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jspen-'));
   const saved = path.join(tmp, 'saved.jspen');
@@ -67,9 +69,8 @@ test('browser mode: Ctrl+S downloads a .jspen file, Ctrl+O opens one', async () 
   fs.writeFileSync(broken, '{not json');
   const [fc2] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Control+o')]);
   await fc2.setFiles(broken);
-  await page.waitForTimeout(300);
+  await page.waitForFunction(() => /불러오지 못했습니다/.test(document.querySelector('.studio-toast')?.textContent || ''));
   assert.equal(await page.evaluate(() => jspenApp.doc.layers.length), 5);
-  assert.match(await page.evaluate(() => document.querySelector('.studio-toast')?.textContent || ''), /불러오지 못했습니다/);
 });
 
 test('drawing tools, undo/redo and menus run without errors', async () => {
