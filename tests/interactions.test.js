@@ -187,3 +187,38 @@ test('website (HTML/CSS) export runs modules on the DOM elements', async () => {
   await q.close();
   assert.deepEqual(errs, []);
 });
+
+test('user scripts from an opened file ask before running; own scripts run; exports run scripts', async () => {
+  const { page, context } = s;
+  const code = "api.self.x = 400;";
+  await page.evaluate((code) => jspenApp.loadProjectFromJSON({ name: 'scripted', width: 800, height: 600, layers: [{ name: 'L', sprites: [
+    { name: 'a', type: 'rect', x: 100, y: 100, width: 40, height: 40, modules: [{ id: 'cs', type: 'custom_script', name: 'js', enabled: true, params: { condition: 'always', runOn: 'frame', code } }] }] }] }), code);
+  // 1) not trusted: the preview asks; "cancel" keeps the script from running
+  await page.keyboard.press('Control+Space');
+  await page.waitForSelector('.studio-modal-overlay');
+  await page.click('#btnStudioModalCancel');
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => Math.round(jspenApp.doc.layers[0].sprites[0].runtime.x)), 100);
+  await page.keyboard.press('Escape');
+  // 2) allowed: runs
+  await page.keyboard.press('Control+Space');
+  await page.waitForSelector('.studio-modal-overlay');
+  await page.click('#btnStudioModalOk');
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => Math.round(jspenApp.doc.layers[0].sprites[0].runtime.x)), 400);
+  await page.keyboard.press('Escape');
+  // 3) a script with an error shows a toast
+  await page.evaluate(() => { jspenApp.doc.layers[0].sprites[0].modules[0].params.code = 'nope('; jspenApp.trustScript('nope('); });
+  await page.keyboard.press('Control+Space');
+  await page.waitForFunction(() => /스크립트 오류/.test(document.querySelector('.studio-toast')?.textContent || ''));
+  await page.keyboard.press('Escape');
+  // 4) exported page runs the author's script
+  await page.evaluate((code) => { jspenApp.doc.layers[0].sprites[0].modules[0].params.code = code; }, code);
+  const html = await page.evaluate(() => PhotoshopJSExporter.generateHTML(jspenApp.doc));
+  const q = await context.newPage();
+  await q.setViewportSize({ width: 800, height: 600 });
+  await q.setContent(html); await q.waitForTimeout(300);
+  const px = await q.evaluate(() => { const c = document.querySelector('canvas'); const k = c.width / 800; return Array.from(c.getContext('2d').getImageData(Math.round(400 * k), Math.round(100 * k), 1, 1).data)[3]; });
+  await q.close();
+  assert.ok(px > 0, 'sprite drawn at x=400 by the script');
+});

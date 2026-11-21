@@ -745,6 +745,14 @@
       paramOptions: { source: [['microphone', '마이크'], ['document', '문서 효과음·오디오']], property: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'],['filter_blur','필터: 흐림'],['filter_brightness','필터: 밝기'],['filter_hueRotate','필터: 색조 회전'],['filter_grayscale','필터: 흑백']] },
       paramLabels: { source: '소리 입력', sensitivity: '감도', smoothing: '부드러움 (0~1)', property: '속성', minValue: '조용할 때 값', maxValue: '최대 소리일 때 값' }
     },
+    custom_script: {
+      category: 'logic', name: '사용자 스크립트 (JS)', icon: 'JS',
+      description: '직접 작성한 자바스크립트를 매 프레임(또는 시작할 때 한 번) 실행합니다. api 객체로 스프라이트·입력·변수·신호를 다룹니다.',
+      defaultParams: { condition: 'always', runOn: 'frame', code: "// api.self 로 이 스프라이트를, api.mouse / api.time 등으로 입력을 다룹니다.\n// 예: 마우스 쪽을 바라보며 천천히 커졌다 작아지기\nconst dx = api.mouse.x - api.self.x;\nconst dy = api.mouse.y - api.self.y;\napi.self.rotation = Math.atan2(dy, dx) * 180 / Math.PI;\napi.self.scale = 1 + Math.sin(api.time * 2) * 0.1;" },
+      paramOptions: { runOn: [['frame', '매 프레임'], ['start', '시작할 때 한 번']] },
+      paramLabels: { runOn: '실행 시점', code: '코드' },
+      paramTypes: { code: 'code' }
+    },
     scene_transition: {
       category: 'web', name: '씬 전환 / 섹션 이동', icon: 'SCN',
       description: '클릭·신호 등에 반응해 다른 섹션(스프라이트)으로 부드럽게 이동하거나 페이지를 엽니다. 페이드 전환을 지원합니다.',
@@ -3250,6 +3258,8 @@
       this.disabledModuleIds = null;
       // Anchor (#id) navigation is host specific (studio pans, exported page scrolls).
       this.onNavigateAnchor = null;
+      this.scriptGate = null;     // (code) => bool; null = run all scripts
+      this.onScriptError = null;  // (sprite, module, error)
     }
 
     // Finish a drag at the exact release position (called from the pointer-up
@@ -3272,6 +3282,96 @@
       }
       if (dp.constrainAxis !== 'y') this.draggedSprite.runtime.x = nx;
       if (dp.constrainAxis !== 'x') this.draggedSprite.runtime.y = ny;
+    }
+
+    // ---------------- User scripts (custom_script) ----------------
+    // Scripts run only when allowed (the studio asks before running scripts
+    // from an opened file). Compiled functions are cached per source text.
+    compileScript(code) {
+      this._scriptCache = this._scriptCache || new Map();
+      if (!this._scriptCache.has(code)) {
+        let entry;
+        try { entry = { fn: new Function('api', '"use strict";\n' + code) }; }
+        catch (e) { entry = { error: e }; }
+        this._scriptCache.set(code, entry);
+      }
+      return this._scriptCache.get(code);
+    }
+
+    // Live view of a sprite for scripts: reading/writing runtime values.
+    scriptSprite(sp) {
+      if (!sp) return null;
+      const rt = sp.runtime;
+      const eng = this;
+      return {
+        get id() { return sp.id; }, get name() { return sp.name; }, get type() { return sp.type; },
+        get width() { return sp.width; }, get height() { return sp.height; },
+        get x() { return rt.x; }, set x(v) { if (isFinite(v)) rt.x = +v; },
+        get y() { return rt.y; }, set y(v) { if (isFinite(v)) rt.y = +v; },
+        get rotation() { return rt.rotation; }, set rotation(v) { if (isFinite(v)) rt.rotation = +v; },
+        get scale() { return rt.scaleX; }, set scale(v) { if (isFinite(v)) { rt.scaleX = +v; rt.scaleY = +v; } },
+        get scaleX() { return rt.scaleX; }, set scaleX(v) { if (isFinite(v)) rt.scaleX = +v; },
+        get scaleY() { return rt.scaleY; }, set scaleY(v) { if (isFinite(v)) rt.scaleY = +v; },
+        get opacity() { return rt.opacity; }, set opacity(v) { if (isFinite(v)) rt.opacity = Math.max(0, Math.min(1, +v)); },
+        get visible() { return rt.visible !== false; }, set visible(v) { rt.visible = !!v; },
+        get fill() { return sp.fill; }, set fill(v) { sp.fill = String(v); },
+        get text() { return ModuleEngine.getText(sp); }, set text(v) { ModuleEngine.setText(sp, v); },
+        get hovered() { return !!rt.isHovered; },
+        get restX() { return sp.x; }, get restY() { return sp.y; },
+        contains(x, y) { return eng.isPointInside(x, y, sp); }
+      };
+    }
+
+    runScript(sprite, mod, p, ctx, clock, dt) {
+      // The studio sets scriptGate to allow only scripts the user wrote or
+      // approved; exported pages run their author's scripts.
+      if (typeof this.scriptGate === 'function' && !this.scriptGate(String(p.code || ''))) { this.bus.scriptsBlocked = true; return; }
+      const rt = sprite.runtime;
+      rt._scriptDead = rt._scriptDead || {};
+      if (rt._scriptDead[mod.id]) return;
+      if (p.runOn === 'start') {
+        rt._scriptRan = rt._scriptRan || {};
+        if (rt._scriptRan[mod.id]) return;
+        rt._scriptRan[mod.id] = true;
+      }
+      const compiled = this.compileScript(String(p.code || ''));
+      const fail = (err) => {
+        rt._scriptDead[mod.id] = true; // stop this module for this run
+        if (typeof this.onScriptError === 'function') this.onScriptError(sprite, mod, err);
+        else if (typeof console !== 'undefined') console.error('[JSPen script]', sprite.name, err);
+      };
+      if (compiled.error) { fail(compiled.error); return; }
+      rt._scriptState = rt._scriptState || {};
+      const state = rt._scriptState[mod.id] || (rt._scriptState[mod.id] = {});
+      const bus = this.bus, eng = this;
+      const api = {
+        self: this.scriptSprite(sprite),
+        find: (nameOrId) => {
+          for (const l of eng.doc.layers) for (const s of l.sprites) if (s.id === nameOrId || s.name === nameOrId) return eng.scriptSprite(s);
+          return null;
+        },
+        all: () => eng.doc.layers.flatMap(l => l.sprites).map(s => eng.scriptSprite(s)),
+        time: bus.time, dt, local: clock,
+        mouse: { x: bus.mouse.x, y: bus.mouse.y, vx: bus.mouse.vx, vy: bus.mouse.vy, down: !!bus.mouse.isDown, clicked: !!bus.mouse.clicked },
+        key: (k) => !!bus.keyState[k],
+        scroll: { y: bus.scroll?.scrollY || 0, progress: eng.scrollProgress() },
+        vars: {
+          get: (n) => bus.vars.get(String(n)),
+          set: (n, v) => { bus.vars.set(String(n), v); },
+          add: (n, d = 1) => { const v = (Number(bus.vars.get(String(n))) || 0) + Number(d); bus.vars.set(String(n), v); return v; }
+        },
+        emit: (name, payload) => bus.emitSignal(String(name), sprite.id, payload),
+        hasSignal: (name) => bus.hasSignal(String(name)),
+        value: ctx.value,
+        setValue: (v) => { ctx.value = Number(v) || 0; },
+        state,
+        open: (url, target = '_blank') => eng.navigateHyperlink(String(url || ''), target),
+        random: (a = 0, b = 1) => a + Math.random() * (b - a),
+        lerp: (a, b, t) => a + (b - a) * t,
+        clamp: (v, a, b) => Math.max(a, Math.min(b, v)),
+        log: (...args) => { if (typeof console !== 'undefined') console.log('[JSPen script]', ...args); }
+      };
+      try { compiled.fn(api); } catch (e) { fail(e); }
     }
 
     // Host -> engine wheel input (consumed on the next update).
@@ -4625,6 +4725,10 @@
                 ctx.value = rt._lvl;
                 break;
               }
+
+              case 'custom_script':
+                this.runScript(sprite, mod, p, ctx, clock, dt);
+                break;
 
               case 'scene_transition': {
                 if (!this.shouldFire(sprite, mod, p, 'fireOn')) break;
@@ -6860,6 +6964,14 @@ ${sprite.type === 'text' ? `
               </select>
             </div>`;
             }
+            if (def.paramTypes && def.paramTypes[key] === 'code') {
+              return `
+            <div class="ps-prop-row" style="flex-direction:column;align-items:stretch;gap:4px;">
+              <label class="ps-prop-label">${escapeHtml(label)}: <span style="color:#71717a;font-weight:400;">(api.self, api.find(), api.mouse, api.time, api.vars, api.emit() …)</span></label>
+              <textarea class="ps-input jspen-code-input" data-param-key="${escapeHtml(key)}" data-param-type="code" rows="10" spellcheck="false"
+                style="font-family:Consolas,'Courier New',monospace;font-size:11px;line-height:1.45;white-space:pre;tab-size:2;resize:vertical;min-height:140px;">${escapeHtml(params[key] || '')}</textarea>
+            </div>`;
+            }
             return `
             <div class="ps-prop-row">
               <label class="ps-prop-label">${escapeHtml(label)}:</label>
@@ -7105,6 +7217,24 @@ ${sprite.type === 'text' ? `
             if (this.cb.onCanvasRender) this.cb.onCanvasRender();
           };
 
+          if (input.dataset.paramType === 'code') {
+            // Code: keep typing cheap (no undo step per key); commit on blur.
+            input.addEventListener('input', () => {
+              if (!mod.params) mod.params = {};
+              mod.params[key] = input.value;
+              window.jspenApp?.trustScript(input.value); // written by the user here
+            });
+            input.addEventListener('keydown', e => {
+              if (e.key === 'Tab') {
+                e.preventDefault();
+                const a = input.selectionStart, b = input.selectionEnd;
+                input.setRangeText('  ', a, b, 'end');
+                mod.params[key] = input.value;
+              }
+            });
+            input.addEventListener('change', () => { mod.params[key] = input.value; window.jspenApp?.trustScript(input.value); this.doc.saveState(); });
+            return;
+          }
           input.addEventListener('input', onValChange);
           input.addEventListener('change', () => {
             onValChange();
@@ -11157,6 +11287,42 @@ ${sprite.type === 'text' ? `
       setTimeout(() => { ta.focus(); ta.select(); }, 0);
     }
 
+    // ---------------- User script trust ----------------
+    // Code typed or added in this session is trusted. Scripts that came with
+    // an opened file run only after the user allows them (once per session).
+    trustScript(code) {
+      this._trustedScripts = this._trustedScripts || new Set();
+      this._trustedScripts.add(String(code));
+    }
+
+    isScriptTrusted(code) {
+      if (code === String(MODULE_REGISTRY.custom_script.defaultParams.code)) return true;
+      return !!(this._trustedScripts && this._trustedScripts.has(String(code)));
+    }
+
+    untrustedScripts() {
+      const out = [];
+      for (const l of this.doc.layers) {
+        for (const m of [...(l.modules || []), ...l.sprites.flatMap(sp => sp.modules || [])]) {
+          if (m.type === 'custom_script' && m.enabled !== false && !this.isScriptTrusted(String(m.params?.code || ''))) out.push(m);
+        }
+      }
+      return out;
+    }
+
+    async askToTrustScripts() {
+      const pending = this.untrustedScripts();
+      if (!pending.length || this._askingScripts) return;
+      this._askingScripts = true;
+      const ok = await StudioModal.confirm(
+        `이 문서에는 직접 작성하지 않은 사용자 스크립트가 ${pending.length}개 있습니다. ` +
+        '스크립트는 이 프로그램 안에서 자바스크립트로 실행됩니다. 신뢰하는 파일일 때만 허용하세요. 실행할까요?',
+        '사용자 스크립트 실행');
+      this._askingScripts = false;
+      if (ok) pending.forEach(m => this.trustScript(String(m.params?.code || '')));
+      else StudioToast.show('사용자 스크립트는 실행하지 않고 미리보기합니다.');
+    }
+
     // Live module preview (Ctrl+Space): runs the module engine on the studio
     // canvas. The document is snapshotted on start and restored on stop because
     // modules change sprite data (filters, visibility, text, ...) while running.
@@ -11172,6 +11338,11 @@ ${sprite.type === 'text' ? `
           selectedSpriteIds: new Set(this.doc.selectedSpriteIds || [])
         };
         this.moduleEngine.disabledModuleIds = this.nodeEditor ? this.nodeEditor.getDisabledModuleIds() : null;
+        this.moduleEngine.scriptGate = code => this.isScriptTrusted(code);
+        this.moduleEngine.onScriptError = (sp, mod, err) => {
+          StudioToast.show(`스크립트 오류 (${sp.name}): ${err && err.message ? err.message : err}`, 5000);
+        };
+        this.askToTrustScripts();
         this.moduleEngine.onNavigateAnchor = (sp, opts = {}) => {
           const to = -(sp.y - sp.height / 2) * this.renderer.zoom + 24;
           if (opts.smooth) {

@@ -340,3 +340,19 @@ test('scene_transition moves to a section smoothly, or with a fade', async () =>
   assert.ok(r.navs[1].t >= 0.3, 'switches in the middle of the fade');
   assert.equal(frame(r, 'after').fade, false);
 });
+
+test('custom_script: api.self / find / vars / emit / state, run on start, errors stop only that module', async () => {
+  const r = await run({ sprites: [
+    { name: 'a', x: 100, y: 100, mods: [['custom_script', { code: "api.self.x = api.mouse.x; api.self.rotation += 1; api.state.n = (api.state.n || 0) + 1; api.vars.set('n', api.state.n); if (api.state.n === 3) api.emit('three');" }]] },
+    { name: 'b', x: 300, y: 100, mods: [['custom_script', { runOn: 'start', code: "api.find('a').y = 50; api.self.text = 'started';" }]] },
+    { name: 'bad', x: 500, y: 100, mods: [['custom_script', { code: 'throw new Error("boom")' }], ['orbit_spin', { speedDegPerSec: 60 }]] }],
+    frames: [{ mouse: [222, 0], n: 5, snap: 's' }] });
+  const v = snap(r, 's');
+  assert.equal(v.a.x, 222);
+  assert.equal(v.a.rot, 5);
+  assert.equal(v.a.y, 50, 'b moved a once on start');
+  assert.equal(v.b.text, 'started');
+  assert.equal(frame(r, 's').vars.n, 5);
+  assert.equal(sigCount(r, 'three'), 1);
+  assert.ok(v.bad.rot > 0, 'a failing script does not stop the other modules');
+});
