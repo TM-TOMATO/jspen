@@ -3572,3 +3572,23 @@ body.jspen-live-preview #kritaFloatingLayer {
 body.jspen-live-preview #viewportContainer {
   box-shadow: inset 0 0 0 2px #e4e4e7;
 }
+
+/* ==========================================================================
+   Layers panel fixes
+   - list items must not shrink, otherwise the list never overflows and
+     cannot scroll (groups were squashed and clipped instead)
+   - the layer name keeps a minimum width next to the row buttons
+   ========================================================================== */
+.ps-layer-list > * {
+  flex-shrink: 0;
+}
+.ps-layer-row .ps-layer-title,
+.ps-layer-row .ps-layer-title-input,
+.ps-sprite-sub-item .ps-sprite-title {
+  min-width: 56px;
+  flex: 1 1 56px;
+}
+.ps-layer-row .ps-btn-layer-add-sp {
+  min-width: 20px;
+  padding: 1px 5px;
+}

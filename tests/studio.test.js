@@ -141,3 +141,50 @@ test('re-rendering panels does not leak window listeners', async () => {
   await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Shift+Tab');
   assert.equal(await countListeners(), before);
 });
+
+test('layers panel: double-click renames, long lists scroll, brush never adds layers', async () => {
+  const { page } = s;
+  await page.evaluate(() => jspenApp.loadProjectFromJSON({ name: 't', width: 1440, height: 900, layers: [{ name: 'L1', sprites: [{ name: 'S', type: 'rect', x: 300, y: 300, width: 100, height: 100 }] }] }));
+  // rename by double-click (the first click re-renders the panel)
+  await page.dblclick('#layersContainer .ps-layer-title');
+  await page.waitForSelector('#layersContainer input.ps-layer-title-input');
+  await page.keyboard.press('Control+a'); await page.keyboard.type('배경'); await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => jspenApp.doc.layers[0].name), '배경');
+  const titleWidth = await page.evaluate(() => document.querySelector('#layersContainer .ps-layer-title').getBoundingClientRect().width);
+  assert.ok(titleWidth >= 40, `layer name visible (${titleWidth}px)`);
+
+  // brush strokes stay in the selected layer, also after undo/redo
+  const bb = await (await page.$('#viewportCanvas')).boundingBox();
+  const stroke = async (y) => { await page.mouse.move(bb.x + 300, bb.y + y); await page.mouse.down(); await page.mouse.move(bb.x + 380, bb.y + y + 20); await page.mouse.up(); };
+  await page.keyboard.press('b'); await stroke(200); await page.keyboard.press('Control+z'); await page.keyboard.press('Control+y'); await stroke(260);
+  await page.keyboard.press('u'); await page.mouse.move(bb.x + 500, bb.y + 300); await page.mouse.down(); await page.mouse.move(bb.x + 560, bb.y + 360); await page.mouse.up();
+  const r = await page.evaluate(() => ({ layers: jspenApp.doc.layers.length, brushSprites: jspenApp.doc.layers[0].sprites.filter(x => x.type === 'brush').length,
+    strokes: (jspenApp.doc.layers[0].sprites.find(x => x.type === 'brush') || {}).strokes?.length }));
+  assert.deepEqual(r, { layers: 1, brushSprites: 1, strokes: 2 });
+
+  // a long list scrolls
+  await page.evaluate(() => { for (let i = 0; i < 40; i++) jspenApp.doc.layers[0].addSprite({ name: 'n' + i, type: 'rect', x: 10, y: 10, width: 10, height: 10 }); jspenApp.refreshUI(); });
+  const lb = await (await page.$('#layersContainer .ps-layer-list')).boundingBox();
+  await page.mouse.move(lb.x + lb.width / 2, lb.y + lb.height / 2); await page.mouse.wheel(0, 400); await page.waitForTimeout(200);
+  assert.ok(await page.evaluate(() => document.querySelector('#layersContainer .ps-layer-list').scrollTop) > 0, 'layer list scrolled');
+  await page.keyboard.press('v');
+});
+
+test('layer modules run for every sprite of the layer; unsaved changes are confirmed', async () => {
+  const { page } = s;
+  await page.evaluate(() => jspenApp.loadProjectFromJSON({ name: 't', width: 800, height: 600, layers: [{ name: 'L', modules: [
+    { id: 'lm', type: 'motion_wave', name: 'w', enabled: true, params: { condition: 'always', axis: 'y', amplitude: 30, frequency: 1 } }],
+    sprites: [{ name: 'a', type: 'rect', x: 100, y: 300, width: 40, height: 40 }, { name: 'b', type: 'rect', x: 300, y: 300, width: 40, height: 40 }] }] }));
+  assert.equal(await page.evaluate(() => jspenApp.isDirty()), false, 'fresh document is clean');
+  await page.keyboard.press('Control+Space'); await page.waitForTimeout(400);
+  const moved = await page.evaluate(() => jspenApp.doc.layers[0].sprites.map(x => Math.round(x.runtime.y) !== 300));
+  await page.keyboard.press('Escape');
+  assert.deepEqual(moved, [true, true]);
+  await page.evaluate(() => { jspenApp.doc.layers[0].sprites[0].name = 'changed'; jspenApp.doc.saveState(); });
+  assert.equal(await page.evaluate(() => jspenApp.isDirty()), true);
+  await page.evaluate(() => { window.__opened = null; jspenApp.openProjectText(JSON.stringify({ name: 'other', layers: [] }), 'o.jspen', true).then(ok => { window.__opened = ok; }); });
+  await page.waitForSelector('.studio-modal-overlay');
+  await page.click('#btnStudioModalCancel');
+  await page.waitForFunction(() => window.__opened !== null);
+  assert.deepEqual(await page.evaluate(() => [window.__opened, jspenApp.doc.name]), [false, 't']);
+});

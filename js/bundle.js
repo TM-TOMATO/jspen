@@ -111,6 +111,8 @@
     },
 
     downloadText(filename, text, mime = 'application/json') {
+      // Desktop: native save dialog (Chromium downloads are unreliable there).
+      if (this.call('saveFile', String(filename), String(text))) return;
       const blob = new Blob([text], { type: mime + ';charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -729,7 +731,17 @@
   // 3. Sprite & Layer Models (Photoshop Layer Hierarchy)
   // ==========================================================================
   class Sprite {
+    // Optional fields that are saved only when set (text styling, brush canvas,
+    // responsive overrides, form fields, accessibility, ...).
+    static extraFields() {
+      return ['textColor', 'isBrushCanvas', 'letterSpacing', 'lineHeight', 'fontStyle', 'textDecoration',
+        'valign', 'responsive', 'form', 'alt', 'headingLevel', 'imageFit', 'naturalWidth', 'naturalHeight'];
+    }
+
     constructor(options = {}) {
+      for (const f of Sprite.extraFields()) {
+        if (options[f] !== undefined && options[f] !== null) this[f] = JSON.parse(JSON.stringify(options[f]));
+      }
       this.id = options.id || 'sprite_' + Math.random().toString(36).substr(2, 9);
       this.name = options.name || '스프라이트';
       this.type = options.type || 'rect'; // 'rect' | 'circle' | 'path' | 'brush' | 'text' | 'image' | 'empty'
@@ -915,7 +927,9 @@
         isMask: this.isMask,
         maskMode: this.maskMode,
         maskTargetId: this.maskTargetId,
-        filters: JSON.parse(JSON.stringify(this.filters || {}))
+        filters: JSON.parse(JSON.stringify(this.filters || {})),
+        ...Object.fromEntries(Sprite.extraFields().filter(f => this[f] !== undefined && this[f] !== null)
+          .map(f => [f, JSON.parse(JSON.stringify(this[f]))]))
       };
     }
 
@@ -1273,6 +1287,15 @@
       this.historyIndex = this.history.length - 1;
     }
 
+    // Unsaved changes = current undo state differs from the last saved/loaded one.
+    markSaved() {
+      this.savedEntry = this.history[this.historyIndex];
+    }
+
+    isDirty() {
+      return this.history.length > 0 && this.history[this.historyIndex] !== this.savedEntry;
+    }
+
     // Load an undo snapshot while keeping the current selection when it still exists.
     restoreHistoryEntry(entry) {
       const selLayerId = this.selectedLayerId, selSpriteId = this.selectedSpriteId;
@@ -1331,6 +1354,7 @@
         this.history = [];
         this.historyIndex = -1;
         this.saveState();
+        this.markSaved();
       }
     }
 
@@ -2735,25 +2759,7 @@
       }
 
       if (this.activeTool === 'brush') {
-        let activeLayer = this.doc.getSelectedLayer();
-        if (!activeLayer || !activeLayer.isBrushLayer) {
-          let bLayer = this.doc.layers.find(l => l.isBrushLayer);
-          if (!bLayer) {
-            bLayer = this.doc.addLayer('브러시 레이어');
-            bLayer.isBrushLayer = true;
-            if (typeof StudioToast !== 'undefined') {
-              StudioToast.show('브러시 전용 레이어가 생성되었습니다.');
-            }
-          } else {
-            if (typeof StudioToast !== 'undefined') {
-              StudioToast.show(`브러시 전용 레이어(${bLayer.name})로 전환되었습니다.`);
-            }
-          }
-          this.doc.selectedLayerId = bLayer.id;
-          activeLayer = bLayer;
-          if (this.onCommit) this.onCommit();
-        }
-
+        // Strokes go into the selected layer (no extra layers are created).
         this.activeBrushStroke = [{ x: wx, y: wy }];
         if (this.onCanvasRender) this.onCanvasRender();
         return;
@@ -2958,22 +2964,21 @@
         this.activeBrushStroke = null;
         return;
       }
-      let activeLayer = this.doc.getSelectedLayer();
-      if (!activeLayer || !activeLayer.isBrushLayer) {
-        activeLayer = this.doc.layers.find(l => l.isBrushLayer);
-        if (!activeLayer) {
-          activeLayer = this.doc.addLayer('브러시 레이어');
-          activeLayer.isBrushLayer = true;
-        }
-        this.doc.selectedLayerId = activeLayer.id;
+      let activeLayer = this.doc.getSelectedLayer() || this.doc.layers[this.doc.layers.length - 1];
+      if (!activeLayer) {
+        activeLayer = this.doc.addLayer({ name: '레이어 1' });
       }
+      this.doc.selectedLayerId = activeLayer.id;
 
       const pts = this.activeBrushStroke;
       if (pts.length === 1) {
         pts.push({ x: pts[0].x + 0.1, y: pts[0].y + 0.1 });
       }
 
-      let brushSprite = activeLayer.sprites.find(s => s.type === 'brush' && s.isBrushCanvas);
+      // Keep painting into the selected brush canvas, else the layer's one.
+      const sel = this.doc.getSelectedSprite();
+      let brushSprite = (sel && sel.type === 'brush' && sel.isBrushCanvas && activeLayer.sprites.includes(sel)) ? sel
+        : activeLayer.sprites.find(s => s.type === 'brush' && s.isBrushCanvas);
       if (!brushSprite) {
         brushSprite = activeLayer.addSprite({
           name: '브러시 아트워크',
@@ -3478,7 +3483,8 @@
     // Call from a user gesture (pointer down / key) so browsers allow audio.
     static resumeAudio() {
       try {
-        const ac = ModuleEngine._audioCtx;
+        // Create (or resume) inside a user gesture so browsers allow sound.
+        const ac = ModuleEngine.audioContext();
         if (ac && ac.state === 'suspended') ac.resume();
       } catch (_) {}
     }
@@ -3786,7 +3792,10 @@
           const rest = { x: sprite.runtime.x, y: sprite.runtime.y, rotation: sprite.runtime.rotation,
             scaleX: sprite.runtime.scaleX, scaleY: sprite.runtime.scaleY, opacity: sprite.runtime.opacity };
 
-          for (const mod of (sprite.modules || [])) {
+          // Layer modules (added with the layer's +fx) apply to every sprite of
+          // the layer, before the sprite's own modules.
+          const stack = (layer.modules && layer.modules.length) ? [...layer.modules, ...(sprite.modules || [])] : (sprite.modules || []);
+          for (const mod of stack) {
             if (!mod.enabled) continue;
             if (this.disabledModuleIds && this.disabledModuleIds.has(mod.id)) continue;
             if (!ctx.gateOpen) continue;
@@ -5630,8 +5639,8 @@ ${this.getRuntimeSource(withEngine)}
                 `}
 
                 <span class="ps-layer-count-badge">${escapeHtml(l.sprites.length)}개</span>
-                <button class="ps-btn-layer-add-sp" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+스프라이트</button>
-                <button class="ps-btn-layer-add-sp" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#e4e4e7;color:#e4e4e7;">+트리거</button>
+                <button class="ps-btn-layer-add-sp" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+</button>
+                <button class="ps-btn-layer-add-sp" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#e4e4e7;color:#e4e4e7;">⚡</button>
                 <button class="ps-btn-add-module ${(l.modules && l.modules.length > 0) ? 'has-modules' : ''}" data-act="add-layer-mod" title="레이어 모듈 추가">+fx</button>
                 <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
                 <button class="ps-btn-del-item" data-act="delete-layer" title="레이어 삭제">✕</button>
@@ -5734,7 +5743,20 @@ ${this.getRuntimeSource(withEngine)}
     initEventsOnce() {
       // 1. Single click delegation on persistent container
       this.el.addEventListener('click', e => {
-
+        // Double-click on a name starts renaming. The first click re-renders the
+        // panel (selection), so the native dblclick never fires; use e.detail.
+        if (e.detail === 2) {
+          const titleEl = e.target.closest('.ps-layer-title, .ps-sprite-title');
+          if (titleEl) {
+            const spriteItem = e.target.closest('[data-sprite-id]');
+            const layerGroup = e.target.closest('[data-layer-id]');
+            this.renamingId = spriteItem ? spriteItem.dataset.spriteId : layerGroup?.dataset.layerId;
+            this.render();
+            const inp = this.el.querySelector('.ps-layer-title-input');
+            if (inp) { inp.focus(); inp.select(); }
+            return;
+          }
+        }
 
         if (e.target.closest('#btnNewLayer')) {
           const l = new Layer({ name: `레이어 ${this.doc.layers.length + 1}` });
@@ -7604,11 +7626,12 @@ ${sprite.type === 'text' ? `
                 <button class="ps-dropdown-item" id="mNew">새 도큐먼트 <span class="shortcut">Ctrl+N</span></button>
                 <button class="ps-dropdown-item" id="mOpen">열기... <span class="shortcut">Ctrl+O</span></button>
                 <button class="ps-dropdown-item" id="mSave">프로젝트 저장 (.jspen) <span class="shortcut">Ctrl+S</span></button>
+                <button class="ps-dropdown-item" id="mSaveAs">다른 이름으로 저장... <span class="shortcut">Ctrl+Shift+S</span></button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mSettings">환경 설정... <span class="shortcut">Ctrl+,</span></button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mWebPreview">새 창에서 웹 미리보기 <span class="shortcut">Alt+W</span></button>
-                <button class="ps-dropdown-item" id="mWebExport">웹사이트 (HTML/CSS/JS) 내보내기...</button>
+                <button class="ps-dropdown-item" id="mWebExport">웹사이트 (HTML) 내보내기...</button>
                 <div class="ps-dropdown-sep"></div>
                 <div style="padding:4px 8px;font-size:10px;color:#a1a1aa;font-weight:600;">웹 템플릿 삽입</div>
                 <button class="ps-dropdown-item" id="btnOpenTemplateGallery" style="color:#f4f4f5;font-weight:600;">📂 템플릿 갤러리 열기...</button>
@@ -7650,8 +7673,8 @@ ${sprite.type === 'text' ? `
             </div>
             <div class="ps-menu-item"><span>웹(W)</span>
               <div class="ps-dropdown-menu">
-                <button class="ps-dropdown-item" id="mWPreview">실시간 웹 미리보기 <span class="shortcut">Ctrl+Space</span></button>
-                <button class="ps-dropdown-item" id="mWExport">완성 웹사이트 (HTML 파일) 다운로드...</button>
+                <button class="ps-dropdown-item" id="mWPreview">새 창에서 웹 미리보기 <span class="shortcut">Alt+W</span></button>
+                <button class="ps-dropdown-item" id="mWExport">웹사이트 (HTML) 내보내기...</button>
                 <button class="ps-dropdown-item" id="mWCopy">HTML/CSS 소스 코드 복사</button>
                 <div class="ps-dropdown-sep"></div>
                 <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#e4e4e7;">웹 컴포넌트 템플릿 원클릭 삽입</div>
@@ -7915,12 +7938,14 @@ ${sprite.type === 'text' ? `
       this.el.querySelector('#mExp')?.addEventListener('click', () => this.cb.onExport());
       this.el.querySelector('#mSettings')?.addEventListener('click', () => this.cb.onOpenSettings());
       this.el.querySelector('#mNew')?.addEventListener('click', async () => {
-        const ok = await StudioModal.confirm('새 도큐먼트를 생성하시겠습니까? 저장되지 않은 작업은 유실됩니다.', '새 도큐먼트');
+        const ok = window.jspenApp && !window.jspenApp.isDirty()
+          ? true : await StudioModal.confirm('새 도큐먼트를 생성하시겠습니까? 저장되지 않은 작업은 유실됩니다.', '새 도큐먼트');
         if (ok) {
           location.reload();
         }
       });
       this.el.querySelector('#mSave')?.addEventListener('click', () => window.jspenApp?.saveProject());
+      this.el.querySelector('#mSaveAs')?.addEventListener('click', () => window.jspenApp?.saveProject(true));
       this.el.querySelector('#mOpen')?.addEventListener('click', () => window.jspenApp?.openProject());
 
       // Edit actions
@@ -9364,8 +9389,7 @@ ${sprite.type === 'text' ? `
         });
       });
       this.el.querySelector('#btnDl').addEventListener('click', () => {
-        const b = new Blob([PhotoshopJSExporter.generateHTML(this.doc)], { type: 'text/html' });
-        const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'index.html'; a.click();
+        NativeBridge.downloadText('index.html', PhotoshopJSExporter.generateHTML(this.doc), 'text/html');
       });
       this.el.querySelector('#btnRun')?.addEventListener('click', () => {
         const win = window.open();
@@ -10504,22 +10528,47 @@ ${sprite.type === 'text' ? `
       return base + '.jspen';
     }
 
-    saveProject() {
+    // Ctrl+S saves to the current file (desktop) without asking again;
+    // Ctrl+Shift+S / "다른 이름으로 저장" always asks.
+    saveProject(saveAs = false) {
       this.endLivePreview();
-      // Desktop: native save dialog (main.py). Browser: download a .jspen file.
       const json = JSON.stringify(this.doc.toJSON(), null, 2);
-      if (NativeBridge.call('saveProject', json, this.getProjectFileName())) return;
+      if (NativeBridge.call('saveProjectTo', json, this.getProjectFileName(), !!saveAs)) return;
       NativeBridge.downloadText(this.getProjectFileName(), json);
+      this.doc.markSaved();
       StudioToast.show('프로젝트 파일(.jspen)을 다운로드했습니다.');
+    }
+
+    // Called by the desktop shell after a successful save.
+    markSaved() {
+      this.doc.markSaved();
+    }
+
+    isDirty() {
+      return !!(this.doc && this.doc.isDirty());
+    }
+
+    // Ask before replacing a document with unsaved changes.
+    async confirmDiscard(action = '다른 프로젝트를 열면') {
+      if (!this.isDirty()) return true;
+      return StudioModal.confirm(`저장하지 않은 변경 사항이 있습니다. ${action} 지금 작업은 사라집니다. 계속할까요?`, '변경 사항 버리기');
     }
 
     async openProject() {
       this.endLivePreview();
+      if (!(await this.confirmDiscard())) return;
       if (NativeBridge.send('open')) return;
       const file = await NativeBridge.pickTextFile('.jspen,.json');
-      if (file && this.loadProjectFromJSON(file.text)) {
-        StudioToast.show(`'${file.name}' 프로젝트를 불러왔습니다.`);
-      }
+      if (file) this.openProjectText(file.text, file.name, false);
+    }
+
+    // Open project text (file picker, drag & drop, desktop shell).
+    async openProjectText(text, name = '', confirm = true) {
+      this.endLivePreview();
+      if (confirm && !(await this.confirmDiscard())) return false;
+      const ok = this.loadProjectFromJSON(text);
+      if (ok && name) StudioToast.show(`'${name}' 프로젝트를 불러왔습니다.`);
+      return ok;
     }
 
     async insertWebsiteTemplate(type) {
@@ -11351,11 +11400,8 @@ ${sprite.type === 'text' ? `
     exportWebsiteFiles() {
       this.endLivePreview();
       const exportHtml = this.generateWebsiteHTML(true);
-      const blob = new Blob([exportHtml], { type: 'text/html;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = (this.doc.name || 'website').replace(/\s+/g, '_') + '.html';
-      a.click();
+      const name = String(this.doc.name || 'website').replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_') + '.html';
+      NativeBridge.downloadText(name, exportHtml, 'text/html');
     }
 
     renderCanvas() {
@@ -11436,7 +11482,7 @@ ${sprite.type === 'text' ? `
           if (file.name.endsWith('.jspen') || file.name.endsWith('.json')) {
             const reader = new FileReader();
             reader.onload = ev => {
-              this.loadProjectFromJSON(ev.target.result);
+              this.openProjectText(ev.target.result, file.name, true);
             };
             reader.readAsText(file);
           }
@@ -11447,7 +11493,14 @@ ${sprite.type === 'text' ? `
         if (e.ctrlKey) {
           e.preventDefault();
         }
-      }, { passive: false });
+        // A focused number input (or select) swallows the wheel to change its
+        // value, which blocks panel scrolling; blur it so the panel scrolls.
+        const t = e.target;
+        if (t && t === document.activeElement && t.matches &&
+            t.matches('input[type="number"], input[type="color"], input[type="range"], select')) {
+          t.blur();
+        }
+      }, { passive: false, capture: true });
 
       this.canvas.addEventListener('wheel', e => {
         e.preventDefault();
@@ -11859,7 +11912,7 @@ ${sprite.type === 'text' ? `
         }
         else if (k === 'h') this.tools.setTool('hand');
         else if (e.ctrlKey && k === 'e') { e.preventDefault(); this.exportModal.show(); }
-        else if (e.ctrlKey && k === 's') { e.preventDefault(); this.saveProject(); }
+        else if (e.ctrlKey && k === 's') { e.preventDefault(); this.saveProject(e.shiftKey); }
         else if (e.ctrlKey && k === 'o') { e.preventDefault(); this.openProject(); }
         else if (e.key === 'Enter' || e.key === 'Escape') {
           if (this.tools.activeTool === 'curve' && this.tools.activeCurvePoints.length > 1) {

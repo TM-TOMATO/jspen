@@ -94,7 +94,23 @@ class HostBridge(QObject):
 
     @pyqtSlot(str, str)
     def saveProject(self, json_text, file_name):
-        self._window.save_project_text(json_text, file_name)
+        self._window.save_project_text(json_text, file_name, save_as=True)
+
+    @pyqtSlot(str, str, bool)
+    def saveProjectTo(self, json_text, file_name, save_as):
+        """Ctrl+S (save_as=False) overwrites the current file without asking."""
+        self._window.save_project_text(json_text, file_name, save_as=save_as)
+
+    @pyqtSlot(str, str)
+    def saveFile(self, file_name, text):
+        """Exports (HTML/JS) chosen with a native save dialog."""
+        self._window.save_text_file(file_name, text)
+
+    @pyqtSlot(str)
+    def projectOpened(self, path):
+        """The page accepted a project opened from disk (after any confirmation)."""
+        if is_project_file(path):
+            self._window.current_file = os.path.abspath(path)
 
 
 class PreviewWindow(QMainWindow):
@@ -201,6 +217,7 @@ class MainWindow(QMainWindow):
 
         self.preview_windows = []
         self.current_file = None
+        self._close_confirmed = False
         self.initial_file = initial_file if is_project_file(initial_file) else None
 
         # Embedded studio view
@@ -268,7 +285,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def on_load_finished(self, ok):
         if ok and self.initial_file:
-            self.open_project_file(self.initial_file)
+            self.open_project_file(self.initial_file, confirm=False)
             self.initial_file = None
 
     def native_save_project(self):
@@ -287,22 +304,45 @@ class MainWindow(QMainWindow):
             on_json_ready,
         )
 
-    def save_project_text(self, json_text, file_name):
-        """Show a save dialog and write the project JSON."""
-        default_path = self.current_file or os.path.basename(file_name or "project.jspen")
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "JSPen 프로젝트 저장", default_path,
-            "JSPen Project (*.jspen);;JSON Files (*.json)"
-        )
+    def save_project_text(self, json_text, file_name, save_as=False):
+        """Write the project JSON. Asks for a path only for "save as" or when
+        the document has not been saved/opened from a file yet."""
+        file_path = None if save_as else self.current_file
+        if not file_path:
+            default_path = self.current_file or os.path.basename(file_name or "project.jspen")
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "JSPen 프로젝트 저장", default_path,
+                "JSPen Project (*.jspen);;JSON Files (*.json)"
+            )
+            if not file_path:
+                return
+            if not file_path.lower().endswith(PROJECT_EXTENSIONS):
+                file_path += ".jspen"
+        try:
+            tmp_path = file_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(json_text)
+            os.replace(tmp_path, file_path)  # never leave a half-written project
+            self.current_file = file_path
+            self.run_js("window.jspenApp && jspenApp.markSaved();")
+            self.notify(f"프로젝트가 저장되었습니다: {os.path.basename(file_path)}")
+        except OSError as e:
+            QMessageBox.critical(self, "저장 오류", f"파일을 저장할 수 없습니다:\n{e}")
+
+    def save_text_file(self, file_name, text):
+        """Save an exported file (HTML/JS) through a native dialog."""
+        base = os.path.basename(file_name or "export.html")
+        start = os.path.join(os.path.dirname(self.current_file), base) if self.current_file else base
+        ext = os.path.splitext(base)[1].lower()
+        filters = {".html": "HTML Files (*.html)", ".js": "JavaScript Files (*.js)",
+                   ".jspen": "JSPen Project (*.jspen)"}.get(ext, "All Files (*.*)")
+        file_path, _ = QFileDialog.getSaveFileName(self, "파일 저장", start, filters + ";;All Files (*.*)")
         if not file_path:
             return
-        if not file_path.lower().endswith(PROJECT_EXTENSIONS):
-            file_path += ".jspen"
         try:
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write(json_text)
-            self.current_file = file_path
-            self.notify(f"프로젝트가 저장되었습니다: {os.path.basename(file_path)}")
+                f.write(text)
+            self.notify(f"저장되었습니다: {os.path.basename(file_path)}")
         except OSError as e:
             QMessageBox.critical(self, "저장 오류", f"파일을 저장할 수 없습니다:\n{e}")
 
@@ -313,27 +353,47 @@ class MainWindow(QMainWindow):
             "JSPen Project (*.jspen *.json);;All Files (*.*)"
         )
         if file_path:
-            self.open_project_file(file_path)
+            # The page already asked about unsaved changes before the dialog.
+            self.open_project_file(file_path, confirm=False)
 
-    def open_project_file(self, file_path):
-        """Load a .jspen/.json file into the studio."""
+    def open_project_file(self, file_path, confirm=True):
+        """Load a .jspen/.json file into the studio. With confirm=True the page
+        asks first when the current document has unsaved changes."""
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
         except (OSError, UnicodeDecodeError) as e:
             QMessageBox.critical(self, "불러오기 오류", f"파일을 열 수 없습니다:\n{e}")
             return
-
-        def on_loaded(ok):
-            if ok:
-                self.current_file = file_path
-                self.notify(f"프로젝트를 불러왔습니다: {os.path.basename(file_path)}")
-            # On failure the studio already shows an error toast.
-
         self.run_js(
-            f"!!(window.jspenApp && window.jspenApp.loadProjectFromJSON({json.dumps(content)}))",
-            on_loaded,
+            "window.jspenApp && Promise.resolve(window.jspenApp.openProjectText("
+            f"{json.dumps(content)}, {json.dumps(os.path.basename(file_path))}, {json.dumps(bool(confirm))}"
+            ")).then(ok => { if (ok && window.JSPenHost) JSPenHost.projectOpened("
+            f"{json.dumps(os.path.abspath(file_path))}); }});"
         )
+
+    def closeEvent(self, event):
+        """Ask before closing when the document has unsaved changes."""
+        if self._close_confirmed:
+            super().closeEvent(event)
+            return
+        event.ignore()
+
+        def on_dirty(dirty):
+            if dirty:
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Icon.Warning)
+                box.setWindowTitle("저장하지 않은 변경 사항")
+                box.setText("저장하지 않은 변경 사항이 있습니다.\n저장하지 않고 닫을까요?")
+                discard = box.addButton("저장하지 않고 닫기", QMessageBox.ButtonRole.DestructiveRole)
+                box.addButton("취소", QMessageBox.ButtonRole.RejectRole)
+                box.exec()
+                if box.clickedButton() is not discard:
+                    return
+            self._close_confirmed = True
+            self.close()
+
+        self.run_js("!!(window.jspenApp && window.jspenApp.isDirty())", on_dirty)
 
     # ------------------------------------------------------------------
     # Downloads (<a download>, blob URLs)
