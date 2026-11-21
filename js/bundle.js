@@ -291,16 +291,8 @@
   'use strict';
 
   // ==========================================================================
-  // 1. SoundEffects Engine (Web Audio API Synthesizer)
-  // ==========================================================================
-  class SoundManager {
-    constructor() {}
-    init() {}
-    play() {}
-  }
-
-  // ==========================================================================
-  // 2. Module Registry (28 Builtin Modules + Timeline Keyframe + Nodes)
+  // 2. Module Registry (every module here must be handled by ModuleEngine or
+  //    the renderer; tests/modules.test.js enforces this)
   // ==========================================================================
   const MODULE_REGISTRY = {
     text_label: {
@@ -2531,31 +2523,6 @@
       ctx.restore();
     }
 
-    _legacy_drawSpriteLabelText(ctx, sprite, hw, hh, lop) {
-      ctx.save();
-      const isLight = (hex) => {
-        if (!hex || hex === 'transparent') return false;
-        let c = String(hex).replace('#', '');
-        if (c.length === 3) c = c.split('').map(x => x + x).join('');
-        if (c.length !== 6) return false;
-        const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
-        return (0.299 * r + 0.587 * g + 0.114 * b) > 160;
-      };
-      ctx.fillStyle = sprite.textColor || (isLight(sprite.fill) ? '#09090b' : '#ffffff');
-      ctx.font = `${sprite.fontWeight || 'bold'} ${sprite.fontSize || 14}px ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'}`;
-      const textAlign = sprite.textAlign || 'center';
-      ctx.textAlign = textAlign;
-      ctx.textBaseline = 'middle';
-      const lines = String(sprite.text || '').split('\n');
-      const lh = (sprite.fontSize || 14) * 1.35;
-      const startY = -(lines.length - 1) * lh / 2;
-      const pad = 14;
-      const textX = textAlign === 'left' ? (-hw + pad) : (textAlign === 'right' ? (hw - pad) : 0);
-      for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], textX, startY + i * lh);
-      }
-      ctx.restore();
-    }
 
     drawTransformGizmo(ctx, sprite, transformBox) {
       const handles = transformBox.getHandles(sprite);
@@ -7737,7 +7704,6 @@ ${sprite.type === 'text' ? `
       this.panStart = { x: 0, y: 0 };
       this.knifeCutting = false;
       this.knifePath = [];
-      this.sound = new SoundManager();
 
       this.syncFromDoc();
       this.bindEventsOnce();
@@ -9988,6 +9954,7 @@ ${sprite.type === 'text' ? `
     }
 
     async show() {
+      this.app.endLivePreview?.();
       const templates = await this.fetchTemplateList();
       this.close();
 
@@ -10164,7 +10131,7 @@ ${sprite.type === 'text' ? `
       });
       this.dockerManager = new KritaDockerManager(this);
       this.menuBar = new MenuBarUI(document.getElementById('topMenuBar'), this.doc, {
-        onExport: () => this.exportModal.show(),
+        onExport: () => { this.endLivePreview(); this.exportModal.show(); },
         onOpenSettings: () => this.settingsModal.show(),
         onToggleNodeMode: () => this.toggleNodeMode(),
         onResetLayout: () => this.resetLayout(),
@@ -10212,7 +10179,14 @@ ${sprite.type === 'text' ? `
       this.handleResize();
     }
 
+    // Actions that read or replace the document must not see the live
+    // preview's runtime changes (and must not be undone by its restore).
+    endLivePreview() {
+      if (this.moduleEngine && this.moduleEngine.active) this.toggleModulePreview(false);
+    }
+
     loadProjectFromJSON(jsonObjOrString) {
+      this.endLivePreview();
       // Snapshot the current document so a broken file cannot leave it half-loaded.
       const backup = this.doc.toJSON();
       const backupHistory = this.doc.history.slice();
@@ -10256,6 +10230,7 @@ ${sprite.type === 'text' ? `
     }
 
     saveProject() {
+      this.endLivePreview();
       // Desktop: native save dialog (main.py). Browser: download a .jspen file.
       const json = JSON.stringify(this.doc.toJSON(), null, 2);
       if (NativeBridge.call('saveProject', json, this.getProjectFileName())) return;
@@ -10264,6 +10239,7 @@ ${sprite.type === 'text' ? `
     }
 
     async openProject() {
+      this.endLivePreview();
       if (NativeBridge.send('open')) return;
       const file = await NativeBridge.pickTextFile('.jspen,.json');
       if (file && this.loadProjectFromJSON(file.text)) {
@@ -10272,6 +10248,7 @@ ${sprite.type === 'text' ? `
     }
 
     async insertWebsiteTemplate(type) {
+      this.endLivePreview();
       const W = this.doc.width || 1440;
       // If template file exists in templates folder, load it cleanly!
       const filenameMap = {
@@ -11061,6 +11038,7 @@ ${sprite.type === 'text' ? `
     }
 
     openWebPreviewWindow() {
+      this.endLivePreview();
       const previewHtml = this.generateWebsiteHTML(false);
       const blob = new Blob([previewHtml], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
@@ -11074,6 +11052,7 @@ ${sprite.type === 'text' ? `
     }
 
     copyWebsiteCode() {
+      this.endLivePreview();
       const exportHtml = this.generateWebsiteHTML(true);
       navigator.clipboard.writeText(exportHtml).then(() => {
         StudioToast.show('웹사이트 전체 HTML 코드가 클립보드에 복사되었습니다!');
@@ -11089,6 +11068,7 @@ ${sprite.type === 'text' ? `
     }
 
     exportWebsiteFiles() {
+      this.endLivePreview();
       const exportHtml = this.generateWebsiteHTML(true);
       const blob = new Blob([exportHtml], { type: 'text/html;charset=utf-8' });
       const a = document.createElement('a');

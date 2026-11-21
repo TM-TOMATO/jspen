@@ -121,3 +121,24 @@ test('exported player supports drag, hover, follow and links', async () => {
   await q.close();
   assert.deepEqual(errs, []);
 });
+
+test('saving or opening a file during live preview never captures runtime changes', async () => {
+  const { page } = s;
+  await page.evaluate(SETUP);
+  await page.evaluate(() => {
+    const sp = jspenApp.doc.layers[0].sprites.find(x => x.name === 'counter');
+    sp.modules.push({ id: 'tw', type: 'typewriter', name: 'tw', enabled: true,
+      params: Object.assign(JSON.parse(JSON.stringify(MODULE_REGISTRY.typewriter.defaultParams)), { startOn: 'load', charsPerSec: 1, startDelay: 5 }) });
+  });
+  await page.keyboard.press('Control+Space');
+  await page.waitForTimeout(200);
+  // the typewriter has blanked the text at runtime
+  assert.equal(await page.evaluate(() => jspenApp.doc.layers[0].sprites.find(x => x.name === 'counter').text.replace('|', '')), '');
+  // a document action ends the preview first, so the saved data is the edited document
+  const saved = await page.evaluate(() => { jspenApp.endLivePreview(); return jspenApp.doc.toJSON(); });
+  assert.equal(saved.layers[0].sprites.find(x => x.name === 'counter').text, '0');
+  // opening a project while previewing keeps the newly opened project
+  await page.keyboard.press('Control+Space');
+  await page.evaluate(() => jspenApp.loadProjectFromJSON({ name: 'other', width: 400, height: 300, layers: [{ name: 'X', sprites: [] }] }));
+  assert.deepEqual(await page.evaluate(() => [jspenApp.moduleEngine.active, jspenApp.doc.name]), [false, 'other']);
+});
