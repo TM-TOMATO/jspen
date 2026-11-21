@@ -10,7 +10,8 @@
 
 ## 1. 빠른 시작 (원클릭 실행)
 
-폴더 안에 있는 **`start.bat`** 파일을 더블 클릭하시면 콘솔창 없이 **포토샵 형태의 프레임리스 다크 테마 네이티브 데스크톱 프로그램 창**이 즉시 실행됩니다.
+폴더 안의 **`start.vbs`** (또는 **`JSPenStudio.pyw`**) 를 더블 클릭하면 콘솔 창 없이 바로 실행됩니다.
+`start.bat`도 동작하지만 배치 파일 특성상 콘솔 창이 잠깐 보입니다.
 
 * 의존성 설치 (최초 1회):
   ```bash
@@ -30,7 +31,9 @@
   브라우저 모드에서 `Ctrl+S`는 `.jspen` 파일 다운로드, `Ctrl+O`는 파일 선택 창으로 동작합니다.
 
 * 단독 실행 파일(.exe) 생성:
-  `build_exe.bat`을 실행하면 파이썬이 없는 PC에서도 바로 실행되는 `dist\JSPenStudio.exe`가 생성됩니다.
+  `build_exe.bat`(또는 `python build_exe.py`)을 실행하면 파이썬이 없는 PC에서도 실행되는
+  `dist\JSPenStudio\JSPenStudio.exe`가 만들어지고, 빌드 직후 자동으로 실행 점검(`--selftest`)을 합니다.
+  옵션: `--onefile`(단일 exe, 시작이 느림), `--no-prune`(Qt 파일 정리 생략). GitHub Actions의 Windows 빌드 결과물도 받을 수 있습니다.
 
 ---
 
@@ -130,7 +133,33 @@
 
 ---
 
-## 6. 테스트
+## 6. 콘텐츠 만들기
+
+* **이미지**: 파일 > 이미지 가져오기(`Ctrl+Shift+I`), 캔버스로 끌어다 놓기, 클립보드 붙여넣기(`Ctrl+V`).
+  큰 이미지는 2048px로 줄여 문서에 넣습니다. 속성창에서 교체·맞춤 방식(채우기/전체 보이기/늘리기)·대체 텍스트를 설정합니다.
+* **글꼴**: 텍스트와 텍스트 라벨에서 글꼴을 고르고, `+` 또는 파일 > 글꼴 파일 추가로 `.ttf/.otf/.woff/.woff2`를 문서에 넣을 수 있습니다
+  (내보낸 결과물에도 포함).
+* **폼**: 웹 > 폼 요소 삽입. 입력칸(텍스트·이메일·전화·숫자·여러 줄·체크박스·선택 목록)과 전송 버튼, 문의 폼 세트.
+  미리보기와 내보낸 결과물에서 실제 입력칸으로 동작하고, 전송 버튼은 같은 레이어의 입력칸을 검증해 메일(mailto)·서버(POST)·신호로 보냅니다.
+  입력값은 전역 변수 `form.이름`으로도 읽을 수 있습니다.
+* **반응형 화면**: 메뉴바 오른쪽의 `데스크톱 / 태블릿 / 모바일`. 화면마다 위치·크기·글자 크기·표시 여부를 따로 지정합니다.
+  새 화면은 데스크톱 배치를 비율대로 줄인 상태로 시작하니, 그 화면에서 글자 크기와 배치를 다듬으세요.
+  내보낸 웹사이트와 JS는 창 폭(태블릿 ≤ 1024px, 모바일 ≤ 600px)에 맞는 배치를 사용합니다.
+* **캔버스 크기 변경**: 내용을 비율 유지하며 맞추기 / 늘리기 / 그대로 두기 중에서 고릅니다.
+* **사용자 스크립트 모듈**: 직접 쓴 자바스크립트를 매 프레임 또는 시작 시 실행합니다.
+  ```js
+  // api.self: 이 스프라이트 (x, y, rotation, scale, opacity, visible, fill, text, hovered)
+  // api.find('이름'), api.all(), api.mouse {x, y, down, clicked}, api.key('Space'), api.scroll {y, progress}
+  // api.time / api.dt / api.local, api.vars.get/set/add, api.emit('신호'), api.hasSignal('신호')
+  // api.value / api.setValue(v) (모듈 스택 값), api.state (모듈별 저장 공간), api.open(url), api.random/lerp/clamp/log
+  api.self.rotation = Math.atan2(api.mouse.y - api.self.y, api.mouse.x - api.self.x) * 180 / Math.PI;
+  ```
+  다른 사람이 만든 파일에 들어 있는 스크립트는 미리보기를 시작할 때 실행 여부를 묻습니다.
+* **저장**: `Ctrl+S`는 열었던 파일에 바로 저장, `Ctrl+Shift+S`는 다른 이름으로 저장. 저장하지 않은 변경이 있으면 열기·새 문서·닫기 전에 확인합니다.
+
+---
+
+## 7. 테스트
 
 ```bash
 npm install
