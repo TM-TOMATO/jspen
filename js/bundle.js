@@ -124,6 +124,33 @@
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
 
+    // Pick a file and read it as text or as a data URL: { name, size, data }.
+    pickFile(accept, as = 'text') {
+      return new Promise(resolve => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = accept;
+        input.style.display = 'none';
+        input.addEventListener('change', () => {
+          const file = input.files && input.files[0];
+          input.remove();
+          if (!file) { resolve(null); return; }
+          NativeBridge.readFile(file, as).then(resolve);
+        });
+        document.body.appendChild(input);
+        input.click();
+      });
+    },
+
+    readFile(file, as = 'text') {
+      return new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ name: file.name, size: file.size, type: file.type, data: reader.result });
+        reader.onerror = () => resolve(null);
+        if (as === 'dataurl') reader.readAsDataURL(file); else reader.readAsText(file);
+      });
+    },
+
     pickTextFile(accept) {
       return new Promise(resolve => {
         const input = document.createElement('input');
@@ -1102,6 +1129,7 @@
       this.currentFrame = 0;
       this.isPlaying = false;
       this.isLooping = true;
+      this.fonts = [];          // uploaded fonts: [{ family, src: data URL }]
       this.autoKey = true;
 
       if (options.layers && options.layers.length > 0) {
@@ -1343,6 +1371,7 @@
       this.totalFrames = data.totalFrames || this.totalFrames;
       this.fps = data.fps || this.fps;
       this.isLooping = data.isLooping !== undefined ? data.isLooping : this.isLooping;
+      this.fonts = Array.isArray(data.fonts) ? data.fonts.filter(f => f && f.family && f.src).map(f => ({ family: String(f.family), src: String(f.src) })) : [];
 
       this.layers = (data.layers || []).map(lData => new Layer(lData));
       this.selectedLayerId = data.selectedLayerId || (this.layers.length > 0 ? this.layers[0].id : null);
@@ -1367,6 +1396,7 @@
         currentFrame: this.currentFrame,
         selectedLayerId: this.selectedLayerId,
         selectedSpriteId: this.selectedSpriteId,
+        fonts: (this.fonts || []).map(f => ({ family: f.family, src: f.src })),
         layers: this.layers.map(l => l.toJSON())
       };
     }
@@ -2086,6 +2116,41 @@
       ctx.restore();
     }
 
+    static defaultFontStack() {
+      return '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif';
+    }
+
+    // CSS/canvas font-family for a chosen family. A plain name is quoted and
+    // gets the default fallbacks; a full stack is used as is (sanitised).
+    static fontStack(family) {
+      const f = String(family || '').replace(/[;{}<>\\]/g, '').trim();
+      if (!f) return PhotoshopCanvas.defaultFontStack();
+      if (f.includes(',') || /["']/.test(f) || /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/.test(f)) return f;
+      return '"' + f + '", ' + PhotoshopCanvas.defaultFontStack();
+    }
+
+    static safeFontFamilyName(name) {
+      return String(name || '').replace(/[^\w\s\-\uAC00-\uD7A3\u3131-\u318E]/g, '').trim().slice(0, 64);
+    }
+
+    // Register document fonts ({ family, src: data URL }) with the page;
+    // onLoad runs after each font is ready (re-render, clear text caches).
+    static loadDocumentFonts(fonts, onLoad) {
+      if (typeof FontFace === 'undefined' || !document.fonts) return;
+      PhotoshopCanvas._loadedFonts = PhotoshopCanvas._loadedFonts || new Set();
+      for (const f of fonts || []) {
+        const family = PhotoshopCanvas.safeFontFamilyName(f.family);
+        const src = String(f.src || '');
+        const key = family + '|' + src.length + '|' + src.slice(-32);
+        if (!family || !/^data:(font|application)\/[\w.+-]+;base64,[A-Za-z0-9+/=]+$/.test(src) || PhotoshopCanvas._loadedFonts.has(key)) continue;
+        PhotoshopCanvas._loadedFonts.add(key);
+        try {
+          const face = new FontFace(family, 'url(' + src + ')');
+          face.load().then(ff => { document.fonts.add(ff); if (onLoad) onLoad(family); }).catch(() => {});
+        } catch (_) {}
+      }
+    }
+
     // Particles emitted by the module engine (studio preview / exported player).
     drawParticles(ctx) {
       const engine = this.moduleEngine || (typeof window !== 'undefined' && window.jspenApp ? window.jspenApp.moduleEngine : null);
@@ -2433,13 +2498,27 @@
         ctx.restore();
       } else if (sprite.type === 'image') {
         if (sprite.imageUrl) {
-          if (!sprite._imgObj) {
+          if (!sprite._imgObj || sprite._imgSrc !== sprite.imageUrl) {
             sprite._imgObj = new Image();
+            sprite._imgSrc = sprite.imageUrl;
             sprite._imgObj.src = sprite.imageUrl;
-            sprite._imgObj.onload = () => { if (window.jspenApp?.renderCanvas) window.jspenApp.renderCanvas(); };
+            sprite._imgObj.onload = () => { if (typeof window !== 'undefined' && window.jspenApp?.renderCanvas) window.jspenApp.renderCanvas(); };
           }
-          if (sprite._imgObj.complete && sprite._imgObj.naturalWidth) {
-            ctx.drawImage(sprite._imgObj, -hw, -hh, sprite.width, sprite.height);
+          const img = sprite._imgObj;
+          if (img.complete && img.naturalWidth) {
+            // imageFit: 'cover' (default, crop to fill), 'contain' (whole image), 'fill' (stretch)
+            const fit = sprite.imageFit || 'cover';
+            const W = sprite.width, H = sprite.height, iw = img.naturalWidth, ih = img.naturalHeight;
+            if (fit === 'fill') {
+              ctx.drawImage(img, -hw, -hh, W, H);
+            } else if (fit === 'contain') {
+              const k = Math.min(W / iw, H / ih);
+              ctx.drawImage(img, -iw * k / 2, -ih * k / 2, iw * k, ih * k);
+            } else {
+              const k = Math.max(W / iw, H / ih);
+              const sw = W / k, sh = H / k;
+              ctx.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, -hw, -hh, W, H);
+            }
           } else {
             ctx.fillStyle = '#27272a';
             ctx.fillRect(-hw, -hh, sprite.width, sprite.height);
@@ -2453,7 +2532,7 @@
       } else if (sprite.type === 'text') {
         ctx.save();
         const fontSize = sprite.fontSize || 16;
-        ctx.font = `${sprite.fontWeight || 'normal'} ${fontSize}px ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'}`;
+        ctx.font = `${sprite.fontWeight || 'normal'} ${fontSize}px ${PhotoshopCanvas.fontStack(sprite.fontFamily)}`;
         ctx.fillStyle = sprite.fill || '#ffffff';
         if (sprite.fillOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.fillOpacity));
         const textAlign = sprite.textAlign || 'center';
@@ -2521,7 +2600,7 @@
       const lh = fontSize * lhRatio;
 
       ctx.fillStyle = color;
-      ctx.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif`;
+      ctx.font = `${fontWeight} ${fontSize}px ${PhotoshopCanvas.fontStack(p.fontFamily)}`;
       ctx.textAlign = textAlign;
       ctx.textBaseline = 'middle';
 
@@ -5213,6 +5292,11 @@ ${this.getRuntimeSource(withEngine)}
   const renderer = new JSPenPlayerCanvas(canvas, model);
   renderer.showRulers = false;
   const ctx = renderer.ctx;
+  // Uploaded fonts: redraw (and re-wrap text) once they are loaded.
+  PhotoshopCanvas.loadDocumentFonts(model.fonts, () => {
+    for (const l of model.layers) for (const s of l.sprites) s._wrapCache = null;
+    player.requestDraw();
+  });
 
   const hasKeyframes = model.layers.some(l => l.sprites.some(s =>
     s.keyframes && Object.keys(s.keyframes).some(k => Array.isArray(s.keyframes[k]) && s.keyframes[k].length > 0)));
@@ -6393,6 +6477,14 @@ ${sprite.type === 'text' ? `
             <div class="blender-scrub-group">
               <input type="number" class="blender-scrub-input" id="inpFontSize" min="1" max="200" value="${escapeHtml(sprite.fontSize || 32)}">
             </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">글꼴:</label>
+            <select class="ps-select" id="inpFontFamily">
+              ${(window.jspenApp ? window.jspenApp.fontChoices() : [['', '기본 글꼴']]).map(([v, l]) => `<option value="${escapeHtml(v)}" ${((sprite.fontFamily === 'Pretendard, sans-serif' ? '' : sprite.fontFamily) || '') === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+              ${(sprite.fontFamily && sprite.fontFamily !== 'Pretendard, sans-serif') && !(window.jspenApp ? window.jspenApp.fontChoices() : []).some(([v]) => v === sprite.fontFamily) ? `<option value="${escapeHtml(sprite.fontFamily)}" selected>${escapeHtml(sprite.fontFamily)}</option>` : ''}
+            </select>
+            <button class="btn btn-secondary btn-sm" data-act-font-upload title="글꼴 파일(.ttf/.otf/.woff/.woff2)을 문서에 추가" style="margin-left:4px;padding:2px 6px;">+</button>
           </div>` : `
           <div class="ps-prop-row" style="margin-top:6px;">
             <button class="btn btn-secondary btn-sm" id="btnQuickAddTextMod" style="width:100%;font-size:11px;padding:4px 8px;display:flex;align-items:center;justify-content:center;gap:4px;" title="스프라이트 안에 텍스트 라벨 모듈을 추가합니다">
@@ -6408,6 +6500,29 @@ ${sprite.type === 'text' ? `
               <option value="right" ${sprite.textAlign === 'right' ? 'selected' : ''}>오른쪽 정렬</option>
             </select>
           </div>
+        </div>
+        ` : ''}
+
+        ${sprite.type === 'image' ? `
+        <!-- Image Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">이미지 (Image)</div>
+          <div class="ps-prop-row">
+            <button class="btn btn-secondary btn-sm" id="btnReplaceImage" style="width:100%;">이미지 교체...</button>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">맞춤 방식:</label>
+            <select class="ps-select" id="inpImageFit">
+              <option value="cover" ${(sprite.imageFit || 'cover') === 'cover' ? 'selected' : ''}>채우기 (잘라서 꽉 채움)</option>
+              <option value="contain" ${sprite.imageFit === 'contain' ? 'selected' : ''}>전체 보이기 (여백 허용)</option>
+              <option value="fill" ${sprite.imageFit === 'fill' ? 'selected' : ''}>늘리기 (비율 무시)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">대체 텍스트:</label>
+            <input type="text" class="ps-input" id="inpImageAlt" placeholder="화면 낭독기·검색엔진용 설명" value="${escapeHtml(sprite.alt || '')}">
+          </div>
+          ${sprite.naturalWidth ? `<div class="ps-prop-row"><button class="btn btn-secondary btn-sm" id="btnImageNatural" style="width:100%;">원본 비율로 (${escapeHtml(sprite.naturalWidth)} × ${escapeHtml(sprite.naturalHeight)})</button></div>` : ''}
         </div>
         ` : ''}
 
@@ -6474,6 +6589,14 @@ ${sprite.type === 'text' ? `
             <div class="blender-scrub-group">
               <input type="number" class="blender-scrub-input" data-param-key="fontSize" min="8" max="160" value="${escapeHtml(params.fontSize || 16)}">
             </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">글꼴:</label>
+            <select class="ps-select" data-param-key="fontFamily">
+              ${(window.jspenApp ? window.jspenApp.fontChoices() : [['', '기본 글꼴']]).map(([v, l]) => `<option value="${escapeHtml(v)}" ${(params.fontFamily || '') === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+              ${params.fontFamily && !(window.jspenApp ? window.jspenApp.fontChoices() : []).some(([v]) => v === params.fontFamily) ? `<option value="${escapeHtml(params.fontFamily)}" selected>${escapeHtml(params.fontFamily)}</option>` : ''}
+            </select>
+            <button class="btn btn-secondary btn-sm" data-act-font-upload title="글꼴 파일(.ttf/.otf/.woff/.woff2)을 문서에 추가" style="margin-left:4px;padding:2px 6px;">+</button>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">글자 색상:</label>
@@ -6945,6 +7068,16 @@ ${sprite.type === 'text' ? `
         });
 
         // Parameters with data-param-key
+        this.el.querySelector('select[data-param-key="fontFamily"]')?.parentElement?.querySelector('[data-act-font-upload]')?.addEventListener('click', async () => {
+          const family = window.jspenApp ? await window.jspenApp.addFontFile() : null;
+          if (!family) return;
+          if (!mod.params) mod.params = {};
+          mod.params.fontFamily = family;
+          if (sprite) sprite._wrapCache = null;
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+
         this.el.querySelectorAll('[data-param-key]').forEach(input => {
           const key = input.dataset.paramKey;
           const onValChange = () => {
@@ -7035,6 +7168,47 @@ ${sprite.type === 'text' ? `
           sprite.textAlign = e.target.value;
           this.doc.saveState();
           if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+        this.el.querySelector('#inpFontFamily')?.parentElement?.querySelector('[data-act-font-upload]')?.addEventListener('click', async () => {
+          const family = window.jspenApp ? await window.jspenApp.addFontFile() : null;
+          if (!family) return;
+          sprite.fontFamily = family;
+          sprite._wrapCache = null;
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+        this.el.querySelector('#inpFontFamily')?.addEventListener('change', e => {
+          sprite.fontFamily = e.target.value || 'Pretendard, sans-serif';
+          sprite._wrapCache = null;
+          this.doc.saveState();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+        // Image
+        this.el.querySelector('#btnReplaceImage')?.addEventListener('click', async () => {
+          const f = await NativeBridge.pickFile('image/*', 'dataurl');
+          if (!f) return;
+          try {
+            const info = await App.prepareImage(f.data);
+            sprite.imageUrl = info.url;
+            sprite.naturalWidth = info.width; sprite.naturalHeight = info.height;
+            this.doc.saveState();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          } catch (err) { StudioToast.show(err.message); }
+        });
+        this.el.querySelector('#inpImageFit')?.addEventListener('change', e => {
+          sprite.imageFit = e.target.value;
+          this.doc.saveState();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+        this.el.querySelector('#inpImageAlt')?.addEventListener('change', e => {
+          sprite.alt = e.target.value;
+          this.doc.saveState();
+        });
+        this.el.querySelector('#btnImageNatural')?.addEventListener('click', () => {
+          if (!sprite.naturalWidth) return;
+          sprite.height = Math.round(sprite.width * sprite.naturalHeight / sprite.naturalWidth);
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
         });
 
         // Quick add text_label module
@@ -7628,6 +7802,9 @@ ${sprite.type === 'text' ? `
                 <button class="ps-dropdown-item" id="mSave">프로젝트 저장 (.jspen) <span class="shortcut">Ctrl+S</span></button>
                 <button class="ps-dropdown-item" id="mSaveAs">다른 이름으로 저장... <span class="shortcut">Ctrl+Shift+S</span></button>
                 <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" id="mImportImage">이미지 가져오기... <span class="shortcut">Ctrl+Shift+I</span></button>
+                <button class="ps-dropdown-item" id="mAddFont">글꼴 파일 추가...</button>
+                <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mSettings">환경 설정... <span class="shortcut">Ctrl+,</span></button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mWebPreview">새 창에서 웹 미리보기 <span class="shortcut">Alt+W</span></button>
@@ -7946,6 +8123,8 @@ ${sprite.type === 'text' ? `
       });
       this.el.querySelector('#mSave')?.addEventListener('click', () => window.jspenApp?.saveProject());
       this.el.querySelector('#mSaveAs')?.addEventListener('click', () => window.jspenApp?.saveProject(true));
+      this.el.querySelector('#mImportImage')?.addEventListener('click', () => window.jspenApp?.pickImage());
+      this.el.querySelector('#mAddFont')?.addEventListener('click', () => window.jspenApp?.addFontFile());
       this.el.querySelector('#mOpen')?.addEventListener('click', () => window.jspenApp?.openProject());
 
       // Edit actions
@@ -10504,6 +10683,7 @@ ${sprite.type === 'text' ? `
           }
         }
         this.doc.loadFromData(data, true);
+        this.loadDocumentFonts();
         this.refreshUI();
         if (this.isNodeMode) {
           this.nodeEditor.syncFromDoc();
@@ -10521,6 +10701,105 @@ ${sprite.type === 'text' ? `
         StudioToast.show('프로젝트 파일을 불러오지 못했습니다: ' + (err && err.message ? err.message : err), 3500);
         return false;
       }
+    }
+
+    // ---------------- Images ----------------
+    // Decode an image data URL; downscale anything larger than maxSide so the
+    // document (and its undo history) stays reasonable.
+    static prepareImage(dataUrl, maxSide = 2048) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.naturalWidth, h = img.naturalHeight, url = dataUrl;
+          if (Math.max(w, h) > maxSide) {
+            const k = maxSide / Math.max(w, h);
+            w = Math.round(w * k); h = Math.round(h * k);
+            const c = document.createElement('canvas'); c.width = w; c.height = h;
+            c.getContext('2d').drawImage(img, 0, 0, w, h);
+            url = /^data:image\/jpe?g/i.test(dataUrl) ? c.toDataURL('image/jpeg', 0.9) : c.toDataURL('image/png');
+          }
+          resolve({ url, width: w, height: h });
+        };
+        img.onerror = () => reject(new Error('이미지를 읽을 수 없습니다.'));
+        img.src = dataUrl;
+      });
+    }
+
+    // Insert an image sprite (centre of the view, or at a world point).
+    async insertImage(dataUrl, name = '이미지', at = null) {
+      this.endLivePreview();
+      if (!/^data:image\/(png|jpe?g|gif|webp|bmp|svg\+xml);/i.test(String(dataUrl))) {
+        StudioToast.show('지원하지 않는 이미지 형식입니다 (PNG, JPG, GIF, WebP, BMP, SVG).');
+        return null;
+      }
+      let info;
+      try { info = await App.prepareImage(dataUrl); } catch (e) { StudioToast.show(e.message); return null; }
+      const layer = this.doc.getSelectedLayer() || this.doc.layers[this.doc.layers.length - 1] || this.doc.addLayer({ name: '레이어 1' });
+      // Fit inside 60% of the artboard, never upscale.
+      const k = Math.min(1, (this.doc.width * 0.6) / info.width, (this.doc.height * 0.6) / info.height);
+      const r = this.renderer;
+      const center = at || r.screenToWorld(this.canvas.width / 2, this.canvas.height / 2);
+      const sp = layer.addSprite({
+        name: String(name || '이미지').replace(/\.[^.]+$/, '').slice(0, 40) || '이미지', type: 'image', imageUrl: info.url,
+        x: Math.round(center.x), y: Math.round(center.y), width: Math.max(1, Math.round(info.width * k)), height: Math.max(1, Math.round(info.height * k)),
+        naturalWidth: info.width, naturalHeight: info.height, imageFit: 'cover', fill: 'transparent', strokeWidth: 0
+      });
+      this.doc.selectedLayerId = layer.id;
+      this.doc.selectedSpriteId = sp.id;
+      this.doc.selectedSpriteIds = new Set([sp.id]);
+      this.doc.saveState();
+      this.refreshUI();
+      StudioToast.show('이미지를 추가했습니다.');
+      return sp;
+    }
+
+    async importImageFile(file, at = null) {
+      if (!file) return null;
+      if (file.size > 25 * 1024 * 1024) { StudioToast.show('이미지 파일이 너무 큽니다 (최대 25MB).'); return null; }
+      const r = await NativeBridge.readFile(file, 'dataurl');
+      return r ? this.insertImage(r.data, file.name, at) : null;
+    }
+
+    async pickImage() {
+      const f = await NativeBridge.pickFile('image/*', 'dataurl');
+      if (f) return this.insertImage(f.data, f.name);
+      return null;
+    }
+
+    // Register uploaded document fonts and re-render when they are ready.
+    loadDocumentFonts() {
+      PhotoshopCanvas.loadDocumentFonts(this.doc.fonts, () => {
+        for (const l of this.doc.layers) for (const sp of l.sprites) sp._wrapCache = null;
+        this.renderCanvas();
+      });
+    }
+
+    // Font choices for the inspector: document fonts first, then common
+    // fonts available on Windows / macOS, then generic families.
+    fontChoices() {
+      const doc = (this.doc.fonts || []).map(f => [f.family, f.family + ' (문서 글꼴)']);
+      const common = [['Malgun Gothic', '맑은 고딕'], ['Noto Sans KR', 'Noto Sans KR'], ['Nanum Gothic', '나눔고딕'],
+        ['Apple SD Gothic Neo', 'Apple SD 산돌고딕 Neo'], ['Arial', 'Arial'], ['Helvetica', 'Helvetica'], ['Verdana', 'Verdana'],
+        ['Georgia', 'Georgia'], ['Times New Roman', 'Times New Roman'], ['Courier New', 'Courier New'],
+        ['serif', '세리프 (기본)'], ['monospace', '고정폭 (기본)']];
+      return [['', '기본 글꼴']].concat(doc, common);
+    }
+
+    // Add a font file (.ttf/.otf/.woff/.woff2) to the document.
+    async addFontFile() {
+      const file = await NativeBridge.pickFile('.ttf,.otf,.woff,.woff2,font/*', 'dataurl');
+      if (!file) return null;
+      if (file.size > 8 * 1024 * 1024) { StudioToast.show('글꼴 파일이 너무 큽니다 (최대 8MB).'); return null; }
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      const mime = { ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2' }[ext] || 'font/ttf';
+      const src = String(file.data).replace(/^data:[^;,]*;base64,/, 'data:' + mime + ';base64,');
+      const family = PhotoshopCanvas.safeFontFamilyName(file.name.replace(/\.[^.]+$/, '')) || 'CustomFont';
+      this.doc.fonts = (this.doc.fonts || []).filter(f => f.family !== family).concat([{ family, src }]);
+      this.doc.saveState();
+      this.loadDocumentFonts();
+      this.refreshUI(); // the new font appears in the font lists
+      StudioToast.show(`글꼴 '${family}'을(를) 문서에 추가했습니다.`);
+      return family;
     }
 
     getProjectFileName() {
@@ -11052,7 +11331,8 @@ ${sprite.type === 'text' ? `
           bgStyle = 'transparent';
           textColor = sprite.fill || '#ffffff';
         } else if (sprite.type === 'image' && sprite.imageUrl) {
-          innerContent = `<img src="${escapeHtml(safeUrl(sprite.imageUrl, true))}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;" />`;
+          const fit = ['cover', 'contain', 'fill'].includes(sprite.imageFit) ? sprite.imageFit : 'cover';
+          innerContent = `<img src="${escapeHtml(safeUrl(sprite.imageUrl, true))}" alt="${escapeHtml(sprite.alt || '')}" style="width:100%;height:100%;object-fit:${fit};display:block;border-radius:inherit;" />`;
           bgStyle = 'transparent';
         } else if (sprite.type === 'brush') {
           const pts = sprite.brushStrokePoints || [];
@@ -11170,7 +11450,7 @@ ${sprite.type === 'text' ? `
             justify-content: ${justify};
             padding: ${padding};
             color: ${textColor};
-            font-family: ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'};
+            font-family: ${PhotoshopCanvas.fontStack(textMod && textMod.params && textMod.params.fontFamily ? textMod.params.fontFamily : (sprite.type === 'text' ? sprite.fontFamily : ''))};
             font-size: ${sprite.fontSize || 16}px;
             font-weight: ${sprite.fontWeight || 'normal'};
             text-align: ${textAlign};
@@ -11192,6 +11472,8 @@ ${sprite.type === 'text' ? `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(doc.name)} - JSPen Website</title>
+  ${(doc.fonts || []).filter(f => /^data:(font|application)\/[\w.+-]+;base64,[A-Za-z0-9+/=]+$/.test(f.src || '')).map(f =>
+    `<style>@font-face { font-family: "${PhotoshopCanvas.safeFontFamilyName(f.family)}"; src: url(${f.src}); font-display: swap; }</style>`).join('\n  ')}
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
@@ -11485,8 +11767,27 @@ ${sprite.type === 'text' ? `
               this.openProjectText(ev.target.result, file.name, true);
             };
             reader.readAsText(file);
+          } else if (/^image\//.test(file.type) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name)) {
+            // Dropped images land where they were dropped on the canvas.
+            const r = this.canvas.getBoundingClientRect();
+            const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+            const at = inside ? this.renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top) : null;
+            this.importImageFile(file, at);
+          } else if (/\.(ttf|otf|woff2?)$/i.test(file.name)) {
+            StudioToast.show('글꼴은 텍스트 속성의 "글꼴 파일 추가"로 넣을 수 있습니다.');
           }
         }
+      });
+
+      // Paste an image from the system clipboard (screenshot, copied image).
+      window.addEventListener('paste', e => {
+        const t = document.activeElement;
+        if (t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable)) return;
+        const item = [...(e.clipboardData?.items || [])].find(i => i.kind === 'file' && /^image\//.test(i.type));
+        if (!item) return;
+        e.preventDefault();
+        if (this._pasteTimer) { clearTimeout(this._pasteTimer); this._pasteTimer = null; this._pasteDeferred = false; }
+        this.importImageFile(item.getAsFile());
       });
 
       window.addEventListener('wheel', e => {
@@ -11845,6 +12146,19 @@ ${sprite.type === 'text' ? `
 
         // 7. Paste
         if (checkShortcutMatch(e, pasteKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V') && !isInput)) {
+          // Let the paste event check the system clipboard for an image
+          // first; the internal sprite clipboard is used when there is none.
+          if (this.clipboardSprite && !this._pasteDeferred) {
+            this._pasteDeferred = true;
+            const replay = { ...e, key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey, preventDefault() {} };
+            this._pasteTimer = setTimeout(() => {
+              this._pasteTimer = null;
+              window.dispatchEvent(new KeyboardEvent('keydown', { key: replay.key, code: replay.code, ctrlKey: replay.ctrlKey, metaKey: replay.metaKey }));
+              this._pasteDeferred = false;
+            }, 60);
+            return;
+          }
+          this._pasteDeferred = false;
           if (this.clipboardSprite) {
             e.preventDefault();
             const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
@@ -11913,6 +12227,7 @@ ${sprite.type === 'text' ? `
         else if (k === 'h') this.tools.setTool('hand');
         else if (e.ctrlKey && k === 'e') { e.preventDefault(); this.exportModal.show(); }
         else if (e.ctrlKey && k === 's') { e.preventDefault(); this.saveProject(e.shiftKey); }
+        else if (e.ctrlKey && e.shiftKey && k === 'i') { e.preventDefault(); this.pickImage(); }
         else if (e.ctrlKey && k === 'o') { e.preventDefault(); this.openProject(); }
         else if (e.key === 'Enter' || e.key === 'Escape') {
           if (this.tools.activeTool === 'curve' && this.tools.activeCurvePoints.length > 1) {
@@ -12001,6 +12316,7 @@ ${sprite.type === 'text' ? `
   window.Layer = Layer;
   window.Sprite = Sprite;
   window.PhotoshopJSExporter = PhotoshopJSExporter;
+  window.PhotoshopCanvas = PhotoshopCanvas;
   window.MODULE_REGISTRY = MODULE_REGISTRY;
 
   window.addEventListener('DOMContentLoaded', () => {
