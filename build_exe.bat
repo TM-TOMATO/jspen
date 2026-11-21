@@ -1,18 +1,32 @@
 @echo off
-chcp 65001 >nul
+rem JSPen Studio - build the Windows executable.
+rem This file is intentionally ASCII-only: cmd.exe misreads UTF-8 batch files.
+rem All Korean messages are printed by build_exe.py.
+setlocal
+cd /d "%~dp0"
+
+set "PY=python"
+where python >nul 2>nul || set "PY=py -3"
+
 echo ========================================================
-echo  [JSPen Studio] 단일 실행 파일 (.exe) 빌드 도구
+echo  JSPen Studio - build JSPenStudio.exe
 echo ========================================================
-echo.
-echo PyInstaller 패키지를 확인하고 설치합니다...
-pip install pyinstaller
+echo [1/2] Installing packages (requirements.txt + pyinstaller)...
+%PY% -m pip install -r requirements.txt pyinstaller
+if errorlevel 1 goto error
+
+echo [2/2] Building...
+rem Options: --onefile (single exe), --no-prune, --no-selftest
+%PY% build_exe.py %*
+if errorlevel 1 goto error
 
 echo.
-echo 단독 실행 파일(JSPenStudio.exe)로 패키징을 시작합니다...
-pyinstaller --noconsole --onefile --name "JSPenStudio" --add-data "index.html;." --add-data "css;css" --add-data "js;js" main.py
-
-echo.
-echo ========================================================
-echo  [빌드 완료] dist\JSPenStudio.exe 파일이 생성되었습니다.
-echo ========================================================
+echo Done: dist\JSPenStudio\JSPenStudio.exe
 pause
+exit /b 0
+
+:error
+echo.
+echo [ERROR] Build failed. See the messages above.
+pause
+exit /b 1

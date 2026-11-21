@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "check": "node --check js/bundle.js && node --check server.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js"
   },
   "keywords": [
     "javascript",
@@ -15,5 +17,8 @@
     "code-generator"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
 }

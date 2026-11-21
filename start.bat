@@ -1,6 +1,9 @@
 @echo off
-:: JSPen Studio - Native Desktop Application Launcher
-:: 검은색 콘솔 창 없이 순수 네이티브 윈도우 창으로 즉시 실행합니다.
-
-start "" pythonw "%~dp0main.py"
+:: JSPen Studio launcher. A .bat file always opens a console briefly;
+:: use start.vbs or JSPenStudio.pyw for a launch without any console window.
+if exist "%~dp0start.vbs" (
+  wscript "%~dp0start.vbs" %*
+) else (
+  start "" pythonw "%~dp0main.py" %*
+)
 exit /b

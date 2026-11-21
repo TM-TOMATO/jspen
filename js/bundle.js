@@ -6,6 +6,181 @@
 (function () {
 
   // ==========================================================================
+  // Security helpers: HTML escaping & URL scheme allowlist
+  // ==========================================================================
+  // Escape a value for safe insertion into HTML text or a quoted attribute.
+  function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // Return the URL if it is a relative link, an in-page anchor, or uses an
+  // allowed scheme (http, https, mailto, tel). Anything else (javascript:,
+  // data:, vbscript:, ...) yields ''. Pass allowImageData to also accept
+  // data:image/* URLs (for <img src>).
+  function safeUrl(url, allowImageData = false) {
+    if (url === null || url === undefined) return '';
+    const raw = String(url).trim();
+    if (!raw) return '';
+    // Browsers ignore control characters and whitespace when parsing the scheme.
+    const compact = raw.replace(/[\u0000-\u0020\u007F]+/g, '').toLowerCase();
+    const scheme = compact.match(/^([a-z][a-z0-9+.-]*):/);
+    if (!scheme) return raw;
+    if (['http', 'https', 'mailto', 'tel'].includes(scheme[1])) return raw;
+    if (allowImageData && /^data:image\/(png|jpe?g|gif|webp|bmp);/.test(compact)) return raw;
+    return '';
+  }
+
+  // Serialize data as a JS literal that is safe to embed inside <script>.
+  function jsonForScript(data, space) {
+    return JSON.stringify(data, null, space)
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
+  }
+
+  if (typeof window !== 'undefined') {
+    window.JSPenSecurity = { escapeHtml, safeUrl, jsonForScript };
+  }
+
+  // ==========================================================================
+  // Native Bridge: desktop (PyQt6 QtWebEngine) vs. plain browser
+  // ==========================================================================
+  // In the desktop shell (main.py) a QWebChannel publishes `window.JSPenHost`
+  // (slots: command(name), saveProject(json, fileName)). The channel connects
+  // asynchronously, so calls made before it is ready are queued.
+  const NativeBridge = {
+    isDesktop: typeof window !== 'undefined' && !!(window.qt && window.qt.webChannelTransport),
+    _queue: [],
+
+    _host() {
+      return (typeof window !== 'undefined' && window.JSPenHost) || null;
+    },
+
+    _flush() {
+      const host = this._host();
+      if (!host) return;
+      const pending = this._queue.splice(0);
+      for (const [method, args] of pending) {
+        if (typeof host[method] === 'function') host[method](...args);
+      }
+    },
+
+    call(method, ...args) {
+      if (!this.isDesktop) return false;
+      this._queue.push([method, args]);
+      this._flush();
+      return true;
+    },
+
+    // Window / file commands handled by the desktop shell.
+    send(cmd) {
+      return this.call('command', String(cmd));
+    },
+
+    // Load a JSON resource by relative URL. fetch() cannot read file:// URLs in
+    // Chromium, so fall back to XMLHttpRequest (allowed in the desktop shell).
+    loadJSON(url) {
+      if (location.protocol !== 'file:') {
+        return fetch(url).then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        });
+      }
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.overrideMimeType('application/json');
+        xhr.onload = () => {
+          // file:// responses report status 0 on success
+          if (xhr.status === 0 || (xhr.status >= 200 && xhr.status < 300)) {
+            try { resolve(JSON.parse(xhr.responseText)); } catch (e) { reject(e); }
+          } else {
+            reject(new Error(`HTTP ${xhr.status}`));
+          }
+        };
+        xhr.onerror = () => reject(new Error('load failed: ' + url));
+        xhr.send();
+      });
+    },
+
+    downloadText(filename, text, mime = 'application/json') {
+      // Desktop: native save dialog (Chromium downloads are unreliable there).
+      if (this.call('saveFile', String(filename), String(text))) return;
+      const blob = new Blob([text], { type: mime + ';charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+
+    // Pick a file and read it as text or as a data URL: { name, size, data }.
+    pickFile(accept, as = 'text') {
+      return new Promise(resolve => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = accept;
+        input.style.display = 'none';
+        input.addEventListener('change', () => {
+          const file = input.files && input.files[0];
+          input.remove();
+          if (!file) { resolve(null); return; }
+          NativeBridge.readFile(file, as).then(resolve);
+        });
+        document.body.appendChild(input);
+        input.click();
+      });
+    },
+
+    readFile(file, as = 'text') {
+      return new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ name: file.name, size: file.size, type: file.type, data: reader.result });
+        reader.onerror = () => resolve(null);
+        if (as === 'dataurl') reader.readAsDataURL(file); else reader.readAsText(file);
+      });
+    },
+
+    pickTextFile(accept) {
+      return new Promise(resolve => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = accept;
+        input.style.display = 'none';
+        input.addEventListener('change', () => {
+          const file = input.files && input.files[0];
+          input.remove();
+          if (!file) { resolve(null); return; }
+          const reader = new FileReader();
+          reader.onload = () => resolve({ name: file.name, text: String(reader.result) });
+          reader.onerror = () => resolve(null);
+          reader.readAsText(file);
+        });
+        document.body.appendChild(input);
+        input.click();
+      });
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.JSPenNative = NativeBridge;
+    if (NativeBridge.isDesktop) {
+      document.addEventListener('jspen-host-ready', () => NativeBridge._flush());
+      NativeBridge._flush();
+    }
+  }
+
+  // ==========================================================================
   // Studio Modal & Toast Engine (Replacing all native browser dialogs)
   // ==========================================================================
   class StudioModal {
@@ -16,11 +191,11 @@
         overlay.innerHTML = `
           <div class="studio-modal-box">
             <div class="studio-modal-header">
-              <span class="studio-modal-title">${title}</span>
+              <span class="studio-modal-title">${escapeHtml(title)}</span>
               <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
             </div>
             <div class="studio-modal-body">
-              <div class="studio-modal-msg">${msg}</div>
+              <div class="studio-modal-msg">${escapeHtml(msg)}</div>
             </div>
             <div class="studio-modal-footer">
               <button class="btn btn-primary btn-sm" id="btnStudioModalOk" style="min-width:70px;">확인</button>
@@ -51,11 +226,11 @@
         overlay.innerHTML = `
           <div class="studio-modal-box">
             <div class="studio-modal-header">
-              <span class="studio-modal-title">${title}</span>
+              <span class="studio-modal-title">${escapeHtml(title)}</span>
               <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
             </div>
             <div class="studio-modal-body">
-              <div class="studio-modal-msg">${msg}</div>
+              <div class="studio-modal-msg">${escapeHtml(msg)}</div>
             </div>
             <div class="studio-modal-footer">
               <button class="btn btn-secondary btn-sm" id="btnStudioModalCancel" style="min-width:65px;">취소</button>
@@ -79,6 +254,35 @@
       });
     }
 
+    // Choice dialog: resolves with the chosen value, or null when cancelled.
+    static choose(msg, options, title = '선택') {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'studio-modal-overlay';
+        overlay.innerHTML = `
+          <div class="studio-modal-box">
+            <div class="studio-modal-header">
+              <span class="studio-modal-title">${escapeHtml(title)}</span>
+              <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
+            </div>
+            <div class="studio-modal-body">
+              <div class="studio-modal-msg">${escapeHtml(msg)}</div>
+              <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px;">
+                ${options.map(([v, label, hint], i) => `<button class="btn btn-secondary btn-sm" data-choice="${i}" style="text-align:left;justify-content:flex-start;white-space:normal;">
+                  <b>${escapeHtml(label)}</b>${hint ? `<span style="display:block;font-weight:400;color:#a1a1aa;font-size:11px;">${escapeHtml(hint)}</span>` : ''}</button>`).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+        const done = v => { overlay.remove(); resolve(v); };
+        overlay.querySelectorAll('[data-choice]').forEach(b => b.addEventListener('click', () => done(options[+b.dataset.choice][0])));
+        overlay.querySelector('#btnStudioModalClose').onclick = () => done(null);
+        overlay.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } });
+        overlay.querySelector('[data-choice]')?.focus();
+      });
+    }
+
     static prompt(msg, defaultVal = '', title = '입력') {
       return new Promise(resolve => {
         const overlay = document.createElement('div');
@@ -86,12 +290,12 @@
         overlay.innerHTML = `
           <div class="studio-modal-box">
             <div class="studio-modal-header">
-              <span class="studio-modal-title">${title}</span>
+              <span class="studio-modal-title">${escapeHtml(title)}</span>
               <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
             </div>
             <div class="studio-modal-body">
-              <div class="studio-modal-msg">${msg}</div>
-              <input type="text" class="studio-modal-input" id="studioModalInput" value="${defaultVal || ''}" />
+              <div class="studio-modal-msg">${escapeHtml(msg)}</div>
+              <input type="text" class="studio-modal-input" id="studioModalInput" value="${escapeHtml(defaultVal || '')}" />
             </div>
             <div class="studio-modal-footer">
               <button class="btn btn-secondary btn-sm" id="btnStudioModalCancel" style="min-width:65px;">취소</button>
@@ -145,16 +349,8 @@
   'use strict';
 
   // ==========================================================================
-  // 1. SoundEffects Engine (Web Audio API Synthesizer)
-  // ==========================================================================
-  class SoundManager {
-    constructor() {}
-    init() {}
-    play() {}
-  }
-
-  // ==========================================================================
-  // 2. Module Registry (28 Builtin Modules + Timeline Keyframe + Nodes)
+  // 2. Module Registry (every module here must be handled by ModuleEngine or
+  //    the renderer; tests/modules.test.js enforces this)
   // ==========================================================================
   const MODULE_REGISTRY = {
     text_label: {
@@ -190,8 +386,10 @@
     // 1. Sensory & Gestures
     mouse_position: {
       category: 'sensor', name: '마우스 위치 추적', icon: 'POS',
-      description: '마우스 커서의 X, Y 좌표 및 이동 속도를 실시간 감지합니다.',
-      defaultParams: { condition: 'always', coordinateMode: 'relative', smoothFactor: 0.15 }
+      description: '마우스 좌표와 이동 속도를 부드럽게 감지해 다음 모듈의 입력 값(속도)으로 넘깁니다. 움직이면 신호를 보냅니다.',
+      defaultParams: { condition: 'always', coordinateMode: 'relative', smoothFactor: 0.15, signalName: 'mouse_move' },
+      paramOptions: { coordinateMode: [['relative', '스프라이트 기준'], ['absolute', '캔버스 기준']] },
+      paramLabels: { coordinateMode: '좌표 기준', smoothFactor: '부드러움 (0~1)', signalName: '이동 신호 이름' }
     },
     hover_proximity: {
       category: 'sensor', name: '호버 및 근접 감지', icon: 'ZONE',
@@ -210,8 +408,9 @@
     },
     scroll_wheel: {
       category: 'sensor', name: '스크롤 휠 감지', icon: 'WHL',
-      description: '마우스 휠 굴림을 감지하여 수치를 증감합니다.',
-      defaultParams: { condition: 'always', sensitivity: 1.0, minVal: 0, maxVal: 100 }
+      description: '스프라이트 위에서 마우스 휠을 굴리면 수치를 증감해 다음 모듈의 입력 값으로 넘깁니다.',
+      defaultParams: { condition: 'always', sensitivity: 1.0, minVal: 0, maxVal: 100, startVal: 0 },
+      paramLabels: { sensitivity: '감도', minVal: '최솟값', maxVal: '최댓값', startVal: '시작값' }
     },
     keyboard_trigger: {
       category: 'sensor', name: '키보드 입력 감지', icon: 'KEY',
@@ -220,18 +419,21 @@
     },
     collision_detector: {
       category: 'sensor', name: '충돌 및 겹침 감지', icon: 'COL',
-      description: '다른 지정 레이어와 영역이 겹치거나 닿았을 때 신호를 보냅니다.',
-      defaultParams: { condition: 'always', targetLayerId: null, bounceBack: true }
+      description: '대상 스프라이트(비우면 모든 스프라이트)와 겹치면 트리거와 신호를 발생시키고, 선택하면 튕겨 나갑니다.',
+      defaultParams: { condition: 'always', targetSpriteId: '', bounceBack: true, signalName: 'collision' },
+      paramLabels: { targetSpriteId: '충돌 대상', bounceBack: '튕겨내기', signalName: '충돌 신호 이름' }
     },
     viewport_visibility: {
       category: 'sensor', name: '화면 가시성 감지', icon: 'VIEW',
-      description: '캔버스 가시 영역 내에 들어왔을 때 트리거를 발동합니다.',
-      defaultParams: { condition: 'always', triggerOnce: false }
+      description: '스프라이트가 화면(스크롤 영역) 안에 보이면 트리거를 발동하고 신호를 보냅니다.',
+      defaultParams: { condition: 'always', triggerOnce: false, signalName: 'visible' },
+      paramLabels: { triggerOnce: '한 번만 발동', signalName: '진입 신호 이름' }
     },
     timer_interval: {
       category: 'sensor', name: '타이머 및 주기 발신', icon: 'TIME',
-      description: '지정한 주기(초)마다 반복 신호를 발생시킵니다.',
-      defaultParams: { condition: 'always', intervalSec: 1.0, autoStart: true }
+      description: '지정한 주기(초)마다 반복 신호를 보내고, 누적 횟수를 다음 모듈의 입력 값으로 넘깁니다.',
+      defaultParams: { condition: 'always', intervalSec: 1.0, autoStart: true, signalName: 'timer_tick' },
+      paramLabels: { intervalSec: '주기 (초)', autoStart: '즉시 시작', signalName: '신호 이름' }
     },
 
     // 2. Link & Logic
@@ -322,13 +524,20 @@
     },
     distance_rope: {
       category: 'logic', name: '거리 제한 로프', icon: 'ROPE',
-      description: '타겟과의 최대 거리를 제한하여 밧줄처럼 매달리게 만듭니다.',
-      defaultParams: { condition: 'always', targetLayerId: null, maxDistance: 150 }
+      description: '대상(비우면 마우스)과의 거리를 최대 거리 이내로 제한해 밧줄에 매달린 것처럼 움직입니다.',
+      defaultParams: { condition: 'always', targetSpriteId: '', maxDistance: 150 },
+      paramLabels: { targetSpriteId: '연결 대상', maxDistance: '최대 거리 (px)' }
     },
     value_remapper: {
       category: 'logic', name: '값 매핑기', icon: 'MAP',
       description: '입력 수치를 원하는 출력 범위로 비례 환산하여 속성이나 필터에 연결합니다.',
-      defaultParams: { condition: 'always', inputSource: 'mouse_x', inMin: 0, inMax: 800, outMin: 0, outMax: 360, outputProperty: 'rotation' }
+      defaultParams: { condition: 'always', inputSource: 'mouse_x', varName: '', inMin: 0, inMax: 800, outMin: 0, outMax: 360, outputProperty: 'rotation', outputMode: 'absolute', clamp: true },
+      paramOptions: {
+        inputSource: [['mouse_x', '마우스 X'], ['mouse_y', '마우스 Y'], ['mouse_distance', '마우스와의 거리'], ['mouse_speed', '마우스 속도'], ['time', '경과 시간 (초)'], ['scroll', '스크롤 위치'], ['scroll_progress', '스크롤 진행률 (0~1)'], ['variable', '전역 변수'], ['audio_level', '소리 크기 (0~1)'], ['stack', '이전 모듈 값']],
+        outputProperty: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'], ['filter_blur', '필터: 흐림'], ['filter_brightness', '필터: 밝기'], ['filter_hueRotate', '필터: 색조 회전'], ['filter_grayscale', '필터: 흑백'], ['none', '출력 없음 (값만 전달)']],
+        outputMode: [['absolute', '절댓값으로 설정'], ['offset', '원래 값에 더하기']]
+      },
+      paramLabels: { inputSource: '입력 소스', varName: '변수 이름 (전역 변수 입력 시)', inMin: '입력 최소', inMax: '입력 최대', outMin: '출력 최소', outMax: '출력 최대', outputProperty: '출력 속성', outputMode: '출력 방식', clamp: '범위 제한' }
     },
     signal_relay: {
       category: 'logic', name: '신호 전달기 (Signal Relay)', icon: 'RLY',
@@ -358,20 +567,26 @@
     },
     node_merge: {
       category: 'logic', name: '모듈 합치기', icon: 'MRG',
-      description: '여러 모듈의 출력 신호 또는 변형 효과를 하나로 병합하여 적용합니다.',
-      defaultParams: { condition: 'always', blendMode: 'add', weight: 1.0 }
+      description: '앞선 모듈들이 만든 변형 효과(또는 전달 값)에 가중치를 곱해 하나로 합칩니다.',
+      defaultParams: { condition: 'always', blendMode: 'mix', weight: 1.0 },
+      paramOptions: { blendMode: [['mix', '변형 효과 혼합'], ['value', '전달 값에 곱하기']] },
+      paramLabels: { blendMode: '합치기 방식', weight: '가중치' }
     },
     node_math: {
       category: 'logic', name: '계산 및 설정 노드', icon: 'CALC',
-      description: '입력 수치에 사칙연산(+ - * /) 및 범위 제한(Clamp) 연산을 수행합니다.',
-      defaultParams: { condition: 'always', op: 'multiply', factor: 1.5, offset: 0 }
+      description: '이전 모듈이 전달한 수치에 연산(값 = 연산(입력, 계수) + 오프셋)을 적용해 다음 모듈로 넘깁니다.',
+      defaultParams: { condition: 'always', op: 'multiply', factor: 1.5, offset: 0 },
+      paramOptions: { op: [['add', '더하기'], ['subtract', '빼기'], ['multiply', '곱하기'], ['divide', '나누기'], ['power', '거듭제곱'], ['min', '최솟값'], ['max', '최댓값'], ['clamp', '0~계수 범위 제한'], ['modulo', '나머지']] },
+      paramLabels: { op: '연산', factor: '계수', offset: '오프셋' }
     },
 
     // 3. Motion & Visual FX
     tween_interpolator: {
       category: 'motion', name: '트윈 보간 모션', icon: 'TWN',
-      description: '시작값에서 끝값까지 지정 시간 동안 부드럽게 변형합니다.',
-      defaultParams: { condition: 'always', property: 'x', toValue: 200, duration: 1.0, easing: 'easeOutCubic' }
+      description: '원래 값에서 목표값까지 지정 시간 동안 부드럽게 변형합니다. 앞에 반복 루프·이징 모듈을 두면 그 설정을 따릅니다.',
+      defaultParams: { condition: 'always', property: 'x', toValue: 200, duration: 1.0, easing: 'easeOutCubic' },
+      paramOptions: { property: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)']], easing: [['linear','선형 (Linear)'], ['easeInQuad','가속 (In Quad)'], ['easeOutQuad','감속 (Out Quad)'], ['easeInOutQuad','가감속 (InOut Quad)'], ['easeOutCubic','감속 (Out Cubic)'], ['easeInOutCubic','가감속 (InOut Cubic)'], ['easeOutBack','반동 (Out Back)'], ['elasticOut','탄성 (Elastic)'], ['bounceOut','바운스 (Bounce)'], ['expoOut','지수 감속 (Expo)']] },
+      paramLabels: { property: '속성', toValue: '목표값', duration: '시간 (초)', easing: '이징' }
     },
     path_follower: {
       category: 'motion', name: '패스 주행 (Path)', icon: 'PATH',
@@ -381,7 +596,8 @@
     mouse_tilt_3d: {
       category: 'motion', name: '마우스 3D 틸트', icon: '3D',
       description: '마우스 위치에 따라 카드처럼 입체적으로 기울어지는 효과를 냅니다.',
-      defaultParams: { condition: 'always', maxTilt: 20, perspective: 800 }
+      defaultParams: { condition: 'always', maxTilt: 20, perspective: 800 },
+      paramLabels: { maxTilt: '최대 기울기 (도)', perspective: '원근 거리 (작을수록 강함)' }
     },
     particle_emitter: {
       category: 'motion', name: '파티클 분출기', icon: 'FX',
@@ -427,40 +643,166 @@
     },
     duration_delay: {
       category: 'timing', name: '듀레이션 및 지연', icon: 'DUR',
-      description: '지정 초 동안 대기 후 작동하거나 실행 유지 시간을 제어합니다.',
-      defaultParams: { condition: 'always', delay: 0.5, duration: 1.5 }
+      description: '아래에 있는 모듈들을 지연 시간 뒤에 시작해 지속 시간 동안만 실행합니다 (지속 0 = 계속).',
+      defaultParams: { condition: 'always', delay: 0.5, duration: 1.5 },
+      paramLabels: { delay: '지연 (초)', duration: '지속 (초, 0=계속)' }
     },
     step_sequencer: {
       category: 'timing', name: '단계별 시퀀서', icon: 'SEQ',
-      description: '1단계 ➔ 2단계 ➔ 3단계 등을 순차적으로 실행합니다.',
-      defaultParams: { condition: 'always', stepCount: 4, stepInterval: 0.5 }
+      description: '단계(0, 1, 2, …)를 일정 간격으로 넘기며 단계마다 신호를 보내고, 현재 단계를 다음 모듈의 입력 값으로 넘깁니다.',
+      defaultParams: { condition: 'always', stepCount: 4, stepInterval: 0.5, signalPrefix: 'step_' },
+      paramLabels: { stepCount: '단계 수', stepInterval: '간격 (초)', signalPrefix: '신호 접두어' }
     },
     stagger_domino: {
       category: 'timing', name: '시차 도미노 모션', icon: 'STAG',
-      description: '여러 레이어에 순차적인 시간차(Stagger)를 두고 효과를 발동합니다.',
-      defaultParams: { condition: 'always', staggerDelay: 0.08 }
+      description: '레이어 안 순서에 따라 (순서 × 시차)만큼 늦게 아래 모듈들을 시작해 도미노처럼 연쇄 동작합니다.',
+      defaultParams: { condition: 'always', staggerDelay: 0.08 },
+      paramLabels: { staggerDelay: '시차 (초)' }
     },
     easing_presets: {
       category: 'timing', name: '이징 커브 프리셋', icon: 'EASE',
-      description: 'Elastic, Bounce, Back, Expo 등의 가속도 곡선을 적용합니다.',
-      defaultParams: { condition: 'always', curve: 'bounceOut' }
+      description: '아래에 있는 트윈 모듈에 Elastic, Bounce, Back, Expo 등의 가속도 곡선을 적용합니다.',
+      defaultParams: { condition: 'always', curve: 'bounceOut' },
+      paramOptions: { curve: [['linear','선형 (Linear)'], ['easeInQuad','가속 (In Quad)'], ['easeOutQuad','감속 (Out Quad)'], ['easeInOutQuad','가감속 (InOut Quad)'], ['easeOutCubic','감속 (Out Cubic)'], ['easeInOutCubic','가감속 (InOut Cubic)'], ['easeOutBack','반동 (Out Back)'], ['elasticOut','탄성 (Elastic)'], ['bounceOut','바운스 (Bounce)'], ['expoOut','지수 감속 (Expo)']] },
+      paramLabels: { curve: '곡선' }
     },
     loop_mode: {
       category: 'timing', name: '반복 루프 모드', icon: 'LOOP',
-      description: '1회 실행(Once), 무한 반복(Infinite), 왕복 재생(Ping-Pong)을 제어합니다.',
-      defaultParams: { condition: 'always', mode: 'infinite' }
+      description: '아래에 있는 트윈·시퀀서·지연 모듈을 1회 실행, 무한 반복, 왕복 재생 중 하나로 동작시킵니다.',
+      defaultParams: { condition: 'always', mode: 'infinite' },
+      paramOptions: { mode: [['once', '1회 실행'], ['infinite', '무한 반복'], ['pingpong', '왕복 재생']] },
+      paramLabels: { mode: '반복 방식' }
     },
 
     // 5. Audio
     synth_sfx: {
       category: 'audio', name: '내장 신디사이저 SFX', icon: 'SFX',
-      description: '외부 파일 없이 즉시 뾱, 찰칵, 딩동, 팝, 스위치 효과음을 합성 재생합니다.',
-      defaultParams: { condition: 'always', sound: 'pop', trigger: 'click' }
+      description: '외부 파일 없이 뾱, 찰칵, 딩동, 팝, 스위치 효과음을 합성 재생합니다.',
+      defaultParams: { condition: 'always', sound: 'pop', trigger: 'click', listenSignal: '', volume: 0.6 },
+      paramOptions: { sound: [['pop', '팝'], ['click', '찰칵'], ['ding', '딩동'], ['switch', '스위치'], ['boop', '뾱'], ['whoosh', '휙']], trigger: [['click','클릭 시'],['hover','마우스 진입 시'],['trigger','트리거 발동 시'],['signal','신호 수신 시']] },
+      paramLabels: { sound: '효과음', trigger: '재생 시점', listenSignal: '수신 신호 (신호 수신 시)', volume: '볼륨 (0~1)' }
     },
     audio_clip: {
       category: 'audio', name: '오디오 파일 재생', icon: 'AUD',
-      description: '오디오 파일을 지정하여 특정 타이밍이나 클릭 시 재생합니다.',
-      defaultParams: { condition: 'always', audioUrl: '', volume: 0.8 }
+      description: '오디오 파일(URL)을 클릭, 진입, 트리거, 신호 시점에 재생합니다.',
+      defaultParams: { condition: 'always', audioUrl: '', volume: 0.8, trigger: 'click', listenSignal: '', loop: false },
+      paramOptions: { trigger: [['click','클릭 시'],['hover','마우스 진입 시'],['trigger','트리거 발동 시'],['signal','신호 수신 시']] },
+      paramLabels: { audioUrl: '오디오 URL', volume: '볼륨 (0~1)', trigger: '재생 시점', listenSignal: '수신 신호 (신호 수신 시)', loop: '반복 재생' }
+    },
+    // ---------------- Web interaction modules ----------------
+    scroll_progress: {
+      category: 'motion', name: '스크롤 진행 연동', icon: 'SCRL',
+      description: '페이지(또는 이 요소가 화면을 지나가는) 스크롤 진행률 0~1에 따라 속성을 시작값에서 끝값으로 바꿉니다. 패럴랙스에 사용합니다.',
+      defaultParams: { condition: 'always', range: 'page', property: 'y', fromValue: 0, toValue: -200, outputMode: 'offset', easing: 'linear' },
+      paramOptions: { range: [['page', '페이지 전체'], ['element', '요소가 화면을 지나는 동안']], property: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'],['filter_blur','필터: 흐림'],['filter_brightness','필터: 밝기'],['filter_hueRotate','필터: 색조 회전'],['filter_grayscale','필터: 흑백']], outputMode: [['offset', '원래 값에 더하기'], ['absolute', '절댓값으로 설정']], easing: [['linear','선형'],['easeOutQuad','감속 (Quad)'],['easeInOutQuad','가감속 (Quad)'],['easeOutCubic','감속 (Cubic)'],['easeInOutCubic','가감속 (Cubic)'],['easeOutBack','반동 (Back)'],['elasticOut','탄성'],['bounceOut','바운스'],['expoOut','지수 감속']] },
+      paramLabels: { range: '진행 기준', property: '속성', fromValue: '시작값', toValue: '끝값', outputMode: '출력 방식', easing: '이징' }
+    },
+    entrance_animation: {
+      category: 'web', name: '등장 애니메이션', icon: 'IN',
+      description: '화면에 들어오면 페이드업, 슬라이드, 줌 등으로 등장합니다. 들어오기 전에는 숨겨져 있습니다.',
+      defaultParams: { condition: 'always', effect: 'fade_up', distance: 40, duration: 0.7, delay: 0, easing: 'easeOutCubic', startOn: 'visible', once: true },
+      paramOptions: {
+        effect: [['fade_up', '페이드 업'], ['fade_down', '페이드 다운'], ['fade_in', '페이드 인'], ['slide_left', '왼쪽에서 슬라이드'], ['slide_right', '오른쪽에서 슬라이드'], ['zoom_in', '줌 인'], ['zoom_out', '줌 아웃'], ['rotate_in', '회전하며 등장']],
+        easing: [['linear','선형'],['easeOutQuad','감속 (Quad)'],['easeInOutQuad','가감속 (Quad)'],['easeOutCubic','감속 (Cubic)'],['easeInOutCubic','가감속 (Cubic)'],['easeOutBack','반동 (Back)'],['elasticOut','탄성'],['bounceOut','바운스'],['expoOut','지수 감속']], startOn: [['visible', '화면에 보일 때'], ['load', '시작하자마자']]
+      },
+      paramLabels: { effect: '효과', distance: '이동 거리 (px)', duration: '시간 (초)', delay: '지연 (초)', easing: '이징', startOn: '시작 시점', once: '한 번만 재생' }
+    },
+    state_style: {
+      category: 'web', name: '상태 전환 스타일', icon: 'STAT',
+      description: '마우스를 올리거나 누를 때 채우기·테두리·글자색·크기를 부드럽게 바꿉니다. 버튼 호버 효과에 사용합니다. (빈 칸은 바꾸지 않음)',
+      defaultParams: { condition: 'always', hoverFill: '#3f3f46', pressFill: '#52525b', hoverStroke: '', hoverTextColor: '', hoverScale: 1.04, pressScale: 0.97, transition: 0.15 },
+      paramLabels: { hoverFill: '호버 채우기 색', pressFill: '눌림 채우기 색', hoverStroke: '호버 테두리 색', hoverTextColor: '호버 글자 색', hoverScale: '호버 크기', pressScale: '눌림 크기', transition: '전환 시간 (초)' }
+    },
+    count_up: {
+      category: 'web', name: '숫자 카운트업', icon: '123',
+      description: '화면에 들어오면 텍스트를 시작값에서 목표 숫자까지 올립니다. (예: 1,200+ 고객)',
+      defaultParams: { condition: 'always', from: 0, to: 1200, duration: 1.6, decimals: 0, prefix: '', suffix: '+', separator: true, startOn: 'visible', easing: 'easeOutCubic' },
+      paramOptions: { startOn: [['visible', '화면에 보일 때'], ['load', '시작하자마자']], easing: [['linear','선형'],['easeOutQuad','감속 (Quad)'],['easeInOutQuad','가감속 (Quad)'],['easeOutCubic','감속 (Cubic)'],['easeInOutCubic','가감속 (Cubic)'],['easeOutBack','반동 (Back)'],['elasticOut','탄성'],['bounceOut','바운스'],['expoOut','지수 감속']] },
+      paramLabels: { from: '시작값', to: '목표값', duration: '시간 (초)', decimals: '소수 자릿수', prefix: '앞 글자', suffix: '뒤 글자', separator: '천 단위 쉼표', startOn: '시작 시점', easing: '이징' }
+    },
+    typewriter: {
+      category: 'web', name: '타자기 텍스트', icon: 'TYPE',
+      description: '텍스트를 한 글자씩 타이핑하듯 보여 주고 커서를 깜빡입니다. 반복 시 지웠다가 다시 씁니다.',
+      defaultParams: { condition: 'always', charsPerSec: 14, startDelay: 0.3, cursor: '|', loop: false, holdSec: 1.5, startOn: 'visible' },
+      paramOptions: { startOn: [['visible', '화면에 보일 때'], ['load', '시작하자마자']] },
+      paramLabels: { charsPerSec: '초당 글자 수', startDelay: '시작 지연 (초)', cursor: '커서 문자 (비우면 없음)', loop: '반복 (지우고 다시 쓰기)', holdSec: '완성 후 유지 (초)', startOn: '시작 시점' }
+    },
+    magnetic: {
+      category: 'motion', name: '마그네틱 끌림', icon: 'MAG',
+      description: '커서가 가까이 오면 스프라이트가 커서 쪽으로 살짝 끌려옵니다.',
+      defaultParams: { condition: 'always', radius: 120, strength: 0.35, smoothing: 0.18 },
+      paramLabels: { radius: '감지 반경 (px)', strength: '끌림 세기 (0~1)', smoothing: '부드러움 (0~1)' }
+    },
+    cursor_fx: {
+      category: 'motion', name: '커서 트레일 / 커스텀 커서', icon: 'CUR',
+      description: '트레일: 커서를 따라 잔상 입자를 남깁니다. 커스텀 커서: 이 스프라이트가 시스템 커서를 대신합니다.',
+      defaultParams: { condition: 'always', mode: 'trail', color: '#e4e4e7', size: 5, lifetime: 0.5, lag: 0 },
+      paramOptions: { mode: [['trail', '커서 트레일'], ['cursor', '커스텀 커서 (이 스프라이트)']] },
+      paramLabels: { mode: '방식', color: '트레일 색', size: '트레일 크기', lifetime: '잔상 시간 (초)', lag: '따라오는 지연 (0~0.95)' }
+    },
+    property_binding: {
+      category: 'logic', name: '속성 바인딩', icon: 'BIND',
+      description: '다른 스프라이트의 속성 값을 (값 × 계수 + 오프셋)으로 따라 합니다.',
+      defaultParams: { condition: 'always', targetSpriteId: '', sourceProperty: 'x', targetProperty: 'x', factor: 1, offset: 0 },
+      paramOptions: { sourceProperty: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)']], targetProperty: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'],['filter_blur','필터: 흐림'],['filter_brightness','필터: 밝기'],['filter_hueRotate','필터: 색조 회전'],['filter_grayscale','필터: 흑백']] },
+      paramLabels: { targetSpriteId: '원본 스프라이트', sourceProperty: '원본 속성', targetProperty: '적용할 속성', factor: '계수', offset: '오프셋' }
+    },
+    condition_branch: {
+      category: 'logic', name: '조건 분기 (If)', icon: 'IF',
+      description: '입력 값을 기준값과 비교해 참/거짓이 바뀔 때 신호를 보냅니다. 거짓이면 아래 모듈을 멈출 수 있습니다.',
+      defaultParams: { condition: 'always', inputSource: 'stack', varName: 'score', compare: '>=', threshold: 10, signalTrue: 'if_true', signalFalse: 'if_false', gateBelow: true },
+      paramOptions: { inputSource: [['mouse_x','마우스 X'],['mouse_y','마우스 Y'],['mouse_distance','마우스와의 거리'],['mouse_speed','마우스 속도'],['time','경과 시간 (초)'],['scroll','스크롤 위치'],['scroll_progress','스크롤 진행률 (0~1)'],['variable','전역 변수'],['audio_level','소리 크기 (0~1)'],['stack','이전 모듈 값']], compare: [['>', '>'], ['>=', '≥'], ['<', '<'], ['<=', '≤'], ['==', '='], ['!=', '≠']] },
+      paramLabels: { inputSource: '입력 소스', varName: '변수 이름 (전역 변수 입력 시)', compare: '비교', threshold: '기준값', signalTrue: '참이 될 때 신호', signalFalse: '거짓이 될 때 신호', gateBelow: '거짓이면 아래 모듈 정지' }
+    },
+    global_variable: {
+      category: 'logic', name: '전역 변수', icon: 'VAR',
+      description: '문서 전체가 공유하는 변수를 설정·증감·토글하거나 읽습니다. 텍스트 스프라이트에 값을 표시할 수 있습니다.',
+      defaultParams: { condition: 'always', varName: 'score', action: 'add', value: 1, fireOn: 'click', listenSignal: '', initialValue: 0, displayTemplate: '' },
+      paramOptions: { action: [['read', '읽기 (값 전달만)'], ['set', '값으로 설정'], ['add', '값만큼 더하기'], ['toggle', '0/1 토글']], fireOn: [['click','클릭 시'],['hover','마우스 진입 시'],['trigger','트리거 발동 시'],['signal','신호 수신 시'],['always','항상 (매 프레임)']] },
+      paramLabels: { varName: '변수 이름', action: '동작', value: '값', fireOn: '실행 시점', listenSignal: '수신 신호 (신호 수신 시)', initialValue: '초기값', displayTemplate: '텍스트 표시 (예: 점수: {value})' }
+    },
+    physics_body: {
+      category: 'motion', name: '중력 및 물리 바디', icon: 'PHYS',
+      description: '중력으로 떨어지고 캔버스 가장자리에 튕깁니다. 드래그 모듈과 함께 쓰면 던질 수 있습니다.',
+      defaultParams: { condition: 'always', gravity: 900, bounce: 0.6, friction: 0.12, collideEdges: true },
+      paramLabels: { gravity: '중력 (px/s²)', bounce: '반발 (0~1)', friction: '바닥 마찰 (0~1)', collideEdges: '가장자리 충돌' }
+    },
+    audio_reactive: {
+      category: 'audio', name: '소리 반응', icon: 'MIC',
+      description: '마이크 또는 문서의 효과음·오디오 크기(0~1)에 따라 속성을 바꿉니다. 마이크는 처음 사용할 때 권한을 요청합니다.',
+      defaultParams: { condition: 'always', source: 'microphone', sensitivity: 1.5, smoothing: 0.25, property: 'scale', minValue: 1, maxValue: 1.4 },
+      paramOptions: { source: [['microphone', '마이크'], ['document', '문서 효과음·오디오']], property: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'],['filter_blur','필터: 흐림'],['filter_brightness','필터: 밝기'],['filter_hueRotate','필터: 색조 회전'],['filter_grayscale','필터: 흑백']] },
+      paramLabels: { source: '소리 입력', sensitivity: '감도', smoothing: '부드러움 (0~1)', property: '속성', minValue: '조용할 때 값', maxValue: '최대 소리일 때 값' }
+    },
+    custom_script: {
+      category: 'logic', name: '사용자 스크립트 (JS)', icon: 'JS',
+      description: '직접 작성한 자바스크립트를 매 프레임(또는 시작할 때 한 번) 실행합니다. api 객체로 스프라이트·입력·변수·신호를 다룹니다.',
+      defaultParams: { condition: 'always', runOn: 'frame', code: "// api.self 로 이 스프라이트를, api.mouse / api.time 등으로 입력을 다룹니다.\n// 예: 마우스 쪽을 바라보며 천천히 커졌다 작아지기\nconst dx = api.mouse.x - api.self.x;\nconst dy = api.mouse.y - api.self.y;\napi.self.rotation = Math.atan2(dy, dx) * 180 / Math.PI;\napi.self.scale = 1 + Math.sin(api.time * 2) * 0.1;" },
+      paramOptions: { runOn: [['frame', '매 프레임'], ['start', '시작할 때 한 번']] },
+      paramLabels: { runOn: '실행 시점', code: '코드' },
+      paramTypes: { code: 'code' }
+    },
+    form_submit: {
+      category: 'web', name: '폼 전송 버튼', icon: 'SEND',
+      description: '클릭하면 같은 레이어(또는 문서 전체)의 입력칸을 검증하고 메일·서버(POST)로 보내거나 신호만 보냅니다. 결과 문구를 텍스트 스프라이트에 표시할 수 있습니다.',
+      defaultParams: { condition: 'always', action: 'mailto', url: '', subject: '웹사이트 문의', encoding: 'json', scope: 'layer',
+        messageSpriteId: '', successMessage: '전송되었습니다. 감사합니다!', errorMessage: '전송에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+        resetOnSuccess: true, successSignal: 'form_success', errorSignal: 'form_error' },
+      paramOptions: {
+        action: [['mailto', '메일 앱으로 보내기 (mailto)'], ['post', '서버로 전송 (POST)'], ['signal', '신호만 보내기']],
+        encoding: [['json', 'JSON'], ['form', '폼 형식 (x-www-form-urlencoded)']],
+        scope: [['layer', '같은 레이어의 입력칸'], ['document', '문서 전체 입력칸']]
+      },
+      paramLabels: { action: '전송 방식', url: '받는 주소 (메일 주소 또는 https URL)', subject: '메일 제목', encoding: 'POST 형식', scope: '보낼 입력칸',
+        messageSpriteId: '결과 문구를 표시할 스프라이트', successMessage: '성공 문구', errorMessage: '실패 문구', resetOnSuccess: '성공 후 입력칸 비우기',
+        successSignal: '성공 신호', errorSignal: '실패 신호' }
+    },
+    scene_transition: {
+      category: 'web', name: '씬 전환 / 섹션 이동', icon: 'SCN',
+      description: '클릭·신호 등에 반응해 다른 섹션(스프라이트)으로 부드럽게 이동하거나 페이지를 엽니다. 페이드 전환을 지원합니다.',
+      defaultParams: { condition: 'always', fireOn: 'click', listenSignal: '', action: 'section', targetSpriteId: '', url: '', transition: 'smooth', duration: 0.6 },
+      paramOptions: { fireOn: [['click','클릭 시'],['hover','마우스 진입 시'],['trigger','트리거 발동 시'],['signal','신호 수신 시']], action: [['section', '섹션(스프라이트)으로 이동'], ['url', 'URL 열기']], transition: [['smooth', '부드러운 스크롤'], ['fade', '페이드 전환'], ['instant', '즉시']] },
+      paramLabels: { fireOn: '실행 시점', listenSignal: '수신 신호 (신호 수신 시)', action: '동작', targetSpriteId: '이동할 섹션', url: 'URL', transition: '전환 효과', duration: '전환 시간 (초)' }
     }
   };
 
@@ -468,7 +810,17 @@
   // 3. Sprite & Layer Models (Photoshop Layer Hierarchy)
   // ==========================================================================
   class Sprite {
+    // Optional fields that are saved only when set (text styling, brush canvas,
+    // responsive overrides, form fields, accessibility, ...).
+    static extraFields() {
+      return ['textColor', 'isBrushCanvas', 'letterSpacing', 'lineHeight', 'fontStyle', 'textDecoration',
+        'valign', 'responsive', 'form', 'alt', 'headingLevel', 'imageFit', 'naturalWidth', 'naturalHeight'];
+    }
+
     constructor(options = {}) {
+      for (const f of Sprite.extraFields()) {
+        if (options[f] !== undefined && options[f] !== null) this[f] = JSON.parse(JSON.stringify(options[f]));
+      }
       this.id = options.id || 'sprite_' + Math.random().toString(36).substr(2, 9);
       this.name = options.name || '스프라이트';
       this.type = options.type || 'rect'; // 'rect' | 'circle' | 'path' | 'brush' | 'text' | 'image' | 'empty'
@@ -558,6 +910,7 @@
     }
 
     resetRuntime() {
+      this.runtime._cond = null;
       this.runtime.x = this.x;
       this.runtime.y = this.y;
       this.runtime.rotation = this.rotation;
@@ -654,7 +1007,9 @@
         isMask: this.isMask,
         maskMode: this.maskMode,
         maskTargetId: this.maskTargetId,
-        filters: JSON.parse(JSON.stringify(this.filters || {}))
+        filters: JSON.parse(JSON.stringify(this.filters || {})),
+        ...Object.fromEntries(Sprite.extraFields().filter(f => this[f] !== undefined && this[f] !== null)
+          .map(f => [f, JSON.parse(JSON.stringify(this[f]))]))
       };
     }
 
@@ -820,12 +1175,16 @@
       this.history = [];
       this.historyIndex = -1;
       this.maxHistory = 40;
+      this.maxHistoryChars = 40 * 1024 * 1024; // ~80MB of UTF-16 strings at most
 
       this.totalFrames = 100;
       this.fps = 30;
       this.currentFrame = 0;
       this.isPlaying = false;
       this.isLooping = true;
+      this.fonts = [];          // uploaded fonts: [{ family, src: data URL }]
+      this.views = {};          // responsive layouts: { tablet: {width, height}, mobile: {...} }
+      this.activeView = 'desktop';
       this.autoKey = true;
 
       if (options.layers && options.layers.length > 0) {
@@ -958,13 +1317,16 @@
       return this.layers.length > 0 ? this.layers[0] : null;
     }
 
-    getSelectedSprite() {
+    // fallback=false: only an explicitly selected sprite (the inspector then
+    // shows the layer / canvas settings instead of the layer's first sprite).
+    getSelectedSprite(fallback = true) {
       if (this.selectedSpriteId) {
         for (const l of this.layers) {
           const s = l.getSprite(this.selectedSpriteId);
           if (s) return s;
         }
       }
+      if (!fallback) return null;
       const l = this.getSelectedLayer();
       return l && l.sprites.length > 0 ? l.sprites[0] : null;
     }
@@ -996,18 +1358,53 @@
     }
 
     saveState() {
+      const snapshot = JSON.stringify(this.historySnapshot());
+      // Clicking without changing anything must not add an undo step.
+      if (this.historyIndex >= 0 && this.history[this.historyIndex] === snapshot) return;
       if (this.historyIndex < this.history.length - 1) {
         this.history = this.history.slice(0, this.historyIndex + 1);
       }
-      this.history.push(JSON.stringify(this.toJSON()));
-      if (this.history.length > this.maxHistory) this.history.shift();
+      this.history.push(snapshot);
+      // Bound history by count and by total size (large brush documents).
+      let total = this.history.reduce((n, h) => n + h.length, 0);
+      while (this.history.length > 1 && (this.history.length > this.maxHistory || total > this.maxHistoryChars)) {
+        total -= this.history.shift().length;
+      }
       this.historyIndex = this.history.length - 1;
+    }
+
+    // Unsaved changes = current undo state differs from the last saved/loaded one.
+    markSaved() {
+      this.savedEntry = this.history[this.historyIndex];
+    }
+
+    isDirty() {
+      return this.history.length > 0 && this.history[this.historyIndex] !== this.savedEntry;
+    }
+
+    // Load an undo snapshot while keeping the current selection when it still exists.
+    restoreHistoryEntry(entry) {
+      const selLayerId = this.selectedLayerId, selSpriteId = this.selectedSpriteId;
+      const frame = this.currentFrame;
+      this.loadFromData(JSON.parse(entry), false);
+      if (selLayerId && this.getLayer(selLayerId)) this.selectedLayerId = selLayerId;
+      if (selSpriteId && this.findSpriteById(selSpriteId)) this.selectedSpriteId = selSpriteId;
+      this.currentFrame = frame;
+    }
+
+    // Undo snapshots exclude selection/playhead so selecting does not count as an edit.
+    historySnapshot() {
+      const data = this.toJSON();
+      delete data.selectedLayerId;
+      delete data.selectedSpriteId;
+      delete data.currentFrame;
+      return data;
     }
 
     undo() {
       if (this.historyIndex > 0) {
         this.historyIndex--;
-        this.loadFromData(JSON.parse(this.history[this.historyIndex]), false);
+        this.restoreHistoryEntry(this.history[this.historyIndex]);
         return true;
       }
       return false;
@@ -1016,7 +1413,7 @@
     redo() {
       if (this.historyIndex < this.history.length - 1) {
         this.historyIndex++;
-        this.loadFromData(JSON.parse(this.history[this.historyIndex]), false);
+        this.restoreHistoryEntry(this.history[this.historyIndex]);
         return true;
       }
       return false;
@@ -1032,6 +1429,7 @@
       this.totalFrames = data.totalFrames || this.totalFrames;
       this.fps = data.fps || this.fps;
       this.isLooping = data.isLooping !== undefined ? data.isLooping : this.isLooping;
+      this.fonts = Array.isArray(data.fonts) ? data.fonts.filter(f => f && f.family && f.src).map(f => ({ family: String(f.family), src: String(f.src) })) : [];
 
       this.layers = (data.layers || []).map(lData => new Layer(lData));
       this.selectedLayerId = data.selectedLayerId || (this.layers.length > 0 ? this.layers[0].id : null);
@@ -1039,14 +1437,165 @@
       this.selectedSpriteId = selL && selL.sprites.length > 0 ? selL.sprites[0].id : null;
       this.sortLayers();
 
+      // Responsive views: the data always holds desktop values; other views
+      // are per-sprite overrides (sprite.responsive[view]).
+      this.views = (data.views && typeof data.views === 'object') ? JSON.parse(JSON.stringify(data.views)) : {};
+      this.activeView = 'desktop';
+      this._desktopSize = null;
+      if (data.activeView && data.activeView !== 'desktop' && DocumentModel.viewNames().includes(data.activeView)) {
+        this.switchView(data.activeView);
+      }
+
       if (recordHistory) {
         this.history = [];
         this.historyIndex = -1;
         this.saveState();
+        this.markSaved();
       }
     }
 
+    // ---------------- Responsive views ----------------
+    static viewNames() { return ['desktop', 'tablet', 'mobile']; }
+    static viewWidths() { return { tablet: 768, mobile: 390 }; }
+    static viewProps() { return ['x', 'y', 'width', 'height', 'rotation', 'scaleX', 'scaleY', 'fontSize', 'visible']; }
+
+    static labelOf(sp) {
+      return (sp.modules || []).find(m => m.type === 'text_label' && m.params);
+    }
+
+    static captureView(sp) {
+      const o = {};
+      for (const k of DocumentModel.viewProps()) o[k] = sp[k];
+      const lbl = DocumentModel.labelOf(sp);
+      if (lbl && lbl.params.fontSize !== undefined) o.labelFontSize = lbl.params.fontSize;
+      return o;
+    }
+
+    static applyView(sp, o) {
+      if (!o) return;
+      for (const k of DocumentModel.viewProps()) if (o[k] !== undefined) sp[k] = o[k];
+      const lbl = DocumentModel.labelOf(sp);
+      if (lbl && o.labelFontSize !== undefined) lbl.params.fontSize = o.labelFontSize;
+      sp._wrapCache = null;
+    }
+
+    // First layout for a new view: the desktop layout scaled to its width.
+    static scaledView(desk, s) {
+      const o = Object.assign({}, desk);
+      for (const k of ['x', 'y', 'width', 'height']) if (isFinite(o[k])) o[k] = Math.round(o[k] * s);
+      // Proportional (no minimum): a clean, non-overlapping copy to adjust from.
+      if (isFinite(o.fontSize)) o.fontSize = Math.max(1, Math.round(o.fontSize * s));
+      if (isFinite(o.labelFontSize)) o.labelFontSize = Math.max(1, Math.round(o.labelFontSize * s));
+      return o;
+    }
+
+    hasView(name) {
+      return name === 'desktop' || !!(this.views && this.views[name]);
+    }
+
+    // Switch the edited layout. Base sprite fields always hold the active
+    // view's values; the desktop values are kept in sprite._desktop meanwhile.
+    switchView(name) {
+      if (!DocumentModel.viewNames().includes(name) || name === this.activeView) return false;
+      const from = this.activeView || 'desktop';
+      const all = this.layers.flatMap(l => l.sprites);
+      if (from === 'desktop') {
+        this._desktopSize = { width: this.width, height: this.height };
+        for (const sp of all) sp._desktop = DocumentModel.captureView(sp);
+      } else {
+        this.views[from] = { width: this.width, height: this.height };
+        for (const sp of all) { sp.responsive = sp.responsive || {}; sp.responsive[from] = DocumentModel.captureView(sp); }
+      }
+      const desk = this._desktopSize || { width: this.width, height: this.height };
+      if (name === 'desktop') {
+        for (const sp of all) { if (sp._desktop) DocumentModel.applyView(sp, sp._desktop); delete sp._desktop; }
+        this.width = desk.width; this.height = desk.height;
+      } else {
+        if (!this.views[name]) {
+          const w = DocumentModel.viewWidths()[name];
+          this.views[name] = { width: w, height: Math.max(200, Math.round(desk.height * w / desk.width)) };
+        }
+        const s = this.views[name].width / desk.width;
+        for (const sp of all) {
+          const deskVals = sp._desktop || DocumentModel.captureView(sp);
+          if (!sp._desktop) sp._desktop = deskVals;
+          const saved = sp.responsive && sp.responsive[name];
+          DocumentModel.applyView(sp, saved || DocumentModel.scaledView(deskVals, s));
+        }
+        this.width = this.views[name].width; this.height = this.views[name].height;
+      }
+      this.activeView = name;
+      return true;
+    }
+
+    // Change the canvas (current view) size. mode: 'fit' scales the content
+    // uniformly and centres it, 'stretch' maps positions to the new size,
+    // 'keep' leaves the content where it is.
+    resizeCanvas(w, h, mode = 'fit') {
+      const ow = this.width, oh = this.height;
+      if (!(w > 0 && h > 0)) return;
+      if (mode !== 'keep' && ow > 0 && oh > 0) {
+        const sx = w / ow, sy = h / oh, k = Math.min(sx, sy);
+        const offX = mode === 'fit' ? (w - ow * k) / 2 : 0, offY = mode === 'fit' ? (h - oh * k) / 2 : 0;
+        for (const l of this.layers) {
+          for (const sp of l.sprites) {
+            if (mode === 'fit') {
+              sp.x = sp.x * k + offX; sp.y = sp.y * k + offY;
+              sp.width = sp.width * k; sp.height = sp.height * k;
+            } else {
+              sp.x = sp.x * sx; sp.y = sp.y * sy;
+              sp.width = sp.width * sx; sp.height = sp.height * sy;
+            }
+            const fk = mode === 'fit' ? k : Math.min(sx, sy);
+            if (sp.fontSize) sp.fontSize = Math.max(6, Math.round(sp.fontSize * fk));
+            const lbl = DocumentModel.labelOf(sp);
+            if (lbl && lbl.params.fontSize) lbl.params.fontSize = Math.max(6, Math.round(lbl.params.fontSize * fk));
+            if (sp.strokeWidth) sp.strokeWidth = sp.strokeWidth * fk;
+            // brush strokes / path points are stored relative to the sprite centre
+            const scalePts = pts => (pts || []).forEach(pt => { for (const key of ['x', 'cp1x', 'cp2x']) if (isFinite(pt[key])) pt[key] *= (mode === 'fit' ? k : sx);
+              for (const key of ['y', 'cp1y', 'cp2y']) if (isFinite(pt[key])) pt[key] *= (mode === 'fit' ? k : sy); });
+            scalePts(sp.pathPoints);
+            for (const st of sp.strokes || []) { scalePts(st.points); if (st.size) st.size *= fk; }
+            sp._wrapCache = null;
+          }
+        }
+      }
+      this.width = Math.round(w);
+      this.height = Math.round(h);
+    }
+
+    // Remove a tablet/mobile layout (its overrides) entirely.
+    removeView(name) {
+      if (name === 'desktop' || !this.views[name]) return;
+      if (this.activeView === name) this.switchView('desktop');
+      delete this.views[name];
+      for (const l of this.layers) for (const sp of l.sprites) if (sp.responsive) delete sp.responsive[name];
+    }
+
     toJSON() {
+      const json = this._toJSONRaw();
+      json.activeView = this.activeView || 'desktop';
+      if (json.activeView === 'desktop') return json;
+      // Normalise: desktop values in the base fields, the active view as an override.
+      const desk = this._desktopSize || { width: this.width, height: this.height };
+      json.views = Object.assign({}, this.views, { [json.activeView]: { width: this.width, height: this.height } });
+      json.width = desk.width; json.height = desk.height;
+      const byId = new Map(this.layers.flatMap(l => l.sprites).map(sp => [sp.id, sp]));
+      for (const lj of json.layers) {
+        for (const sj of lj.sprites) {
+          const sp = byId.get(sj.id);
+          if (!sp) continue;
+          sj.responsive = Object.assign({}, sj.responsive || {}, { [json.activeView]: DocumentModel.captureView(sp) });
+          const d = sp._desktop || DocumentModel.captureView(sp);
+          for (const k of DocumentModel.viewProps()) if (d[k] !== undefined) sj[k] = d[k];
+          const lbl = DocumentModel.labelOf(sj);
+          if (lbl && d.labelFontSize !== undefined) lbl.params.fontSize = d.labelFontSize;
+        }
+      }
+      return json;
+    }
+
+    _toJSONRaw() {
       return {
         name: this.name, width: this.width, height: this.height,
         backgroundColor: this.backgroundColor, transparentBackground: this.transparentBackground,
@@ -1055,6 +1604,8 @@
         currentFrame: this.currentFrame,
         selectedLayerId: this.selectedLayerId,
         selectedSpriteId: this.selectedSpriteId,
+        fonts: (this.fonts || []).map(f => ({ family: f.family, src: f.src })),
+        views: JSON.parse(JSON.stringify(this.views || {})),
         layers: this.layers.map(l => l.toJSON())
       };
     }
@@ -1080,7 +1631,7 @@
     }
 
     getTarget() {
-      return this.doc.getSelectedSprite() || this.doc.getSelectedLayer();
+      return this.doc.getSelectedSprite(false);
     }
 
     getHandles(target) {
@@ -1413,12 +1964,75 @@
       this.centerArtboard();
     }
 
+    // Artboard resize grips (screen-sized) on the right edge, bottom edge
+    // and bottom-right corner, in world coordinates of the current transform.
+    artboardHandles() {
+      const W = this.doc.width, H = this.doc.height;
+      return [['r', W, H / 2], ['b', W / 2, H], ['rb', W, H]];
+    }
+
+    // Which grip / edge band (just outside the artboard) is under a screen point.
+    hitArtboardHandle(sx, sy) {
+      const W = this.doc.width * this.zoom, H = this.doc.height * this.zoom;
+      const x = sx - this.panX, y = sy - this.panY;
+      const near = (v, t) => v >= t - 4 && v <= t + 10;
+      if (near(x, W) && near(y, H)) return 'rb';
+      if (near(x, W) && y >= 0 && y <= H) return 'r';
+      if (near(y, H) && x >= 0 && x <= W) return 'b';
+      return null;
+    }
+
+    drawArtboardHandles(ctx) {
+      const app = typeof window !== 'undefined' ? window.jspenApp : null;
+      const drag = app && app.artboardDrag;
+      const z = this.zoom;
+      ctx.save();
+      for (const [edge, x, y] of this.artboardHandles()) {
+        const active = drag && drag.edge === edge;
+        const w = (edge === 'b' ? 18 : 6) / z, h = (edge === 'r' ? 18 : 6) / z;
+        ctx.fillStyle = active ? '#38bdf8' : 'rgba(228,228,231,0.85)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.lineWidth = 1 / z;
+        ctx.fillRect(x - w / 2, y - h / 2, w, h);
+        ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+      }
+      if (drag) {
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1.5 / z;
+        ctx.setLineDash([6 / z, 4 / z]);
+        ctx.strokeRect(0, 0, this.doc.width, this.doc.height);
+        ctx.setLineDash([]);
+        const label = `${this.doc.width} × ${this.doc.height}`;
+        ctx.font = `bold ${12 / z}px sans-serif`;
+        const tw = ctx.measureText(label).width;
+        const lx = this.doc.width + 10 / z, ly = this.doc.height + 10 / z;
+        ctx.fillStyle = 'rgba(24,24,27,0.92)';
+        ctx.fillRect(lx, ly, tw + 14 / z, 20 / z);
+        ctx.fillStyle = '#f4f4f5';
+        ctx.fillText(label, lx + 7 / z, ly + 14 / z);
+      }
+      ctx.restore();
+    }
+
     centerArtboard() {
       const parent = this.canvas.parentElement;
       if (!parent) return;
       const pw = parent.clientWidth, ph = parent.clientHeight;
       this.panX = Math.round((pw - this.doc.width * this.zoom) / 2);
       this.panY = Math.round((ph - this.doc.height * this.zoom) / 2);
+    }
+
+    // Sample the rendered viewport pixel at screen coords (eyedropper loupe).
+    getPixelColor(sx, sy) {
+      const x = Math.floor(sx), y = Math.floor(sy);
+      if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) return null;
+      try {
+        const [r, g, b, a] = this.ctx.getImageData(x, y, 1, 1).data;
+        const hex = '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        return { r, g, b, a, hex };
+      } catch (_) {
+        return null;
+      }
     }
 
     screenToWorld(sx, sy) {
@@ -1474,17 +2088,7 @@
       }
 
       // Draw particles if emitter active
-      if (window.jspenApp?.moduleEngine?.bus?.particles) {
-        for (const p of window.jspenApp.moduleEngine.bus.particles) {
-          ctx.save();
-          ctx.fillStyle = p.color;
-          ctx.globalAlpha = Math.max(0, p.life);
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size || 3, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
-        }
-      }
+      if (this.mode === 'preview') { this.drawParticles(ctx); this.drawScreenFade(ctx); }
 
       ctx.restore(); // end clip
 
@@ -1510,7 +2114,8 @@
 
       // Edit Mode Overlays
       if (this.mode === 'edit') {
-        const selSprite = this.doc.getSelectedSprite();
+        this.drawArtboardHandles(ctx);
+        const selSprite = this.doc.getSelectedSprite(false);
         if (selSprite && transformBox && (activeTool === 'move' || activeTool === 'direct')) {
           this.drawTransformGizmo(ctx, selSprite, transformBox);
         }
@@ -1771,7 +2376,75 @@
       ctx.restore();
     }
 
+    static defaultFontStack() {
+      return '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif';
+    }
+
+    // CSS/canvas font-family for a chosen family. A plain name is quoted and
+    // gets the default fallbacks; a full stack is used as is (sanitised).
+    static fontStack(family) {
+      const f = String(family || '').replace(/[;{}<>\\]/g, '').trim();
+      if (!f) return PhotoshopCanvas.defaultFontStack();
+      if (f.includes(',') || /["']/.test(f) || /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/.test(f)) return f;
+      return '"' + f + '", ' + PhotoshopCanvas.defaultFontStack();
+    }
+
+    static safeFontFamilyName(name) {
+      return String(name || '').replace(/[^\w\s\-\uAC00-\uD7A3\u3131-\u318E]/g, '').trim().slice(0, 64);
+    }
+
+    // Register document fonts ({ family, src: data URL }) with the page;
+    // onLoad runs after each font is ready (re-render, clear text caches).
+    static loadDocumentFonts(fonts, onLoad) {
+      if (typeof FontFace === 'undefined' || !document.fonts) return;
+      PhotoshopCanvas._loadedFonts = PhotoshopCanvas._loadedFonts || new Set();
+      for (const f of fonts || []) {
+        const family = PhotoshopCanvas.safeFontFamilyName(f.family);
+        const src = String(f.src || '');
+        const key = family + '|' + src.length + '|' + src.slice(-32);
+        if (!family || !/^data:(font|application)\/[\w.+-]+;base64,[A-Za-z0-9+/=]+$/.test(src) || PhotoshopCanvas._loadedFonts.has(key)) continue;
+        PhotoshopCanvas._loadedFonts.add(key);
+        try {
+          const face = new FontFace(family, 'url(' + src + ')');
+          face.load().then(ff => { document.fonts.add(ff); if (onLoad) onLoad(family); }).catch(() => {});
+        } catch (_) {}
+      }
+    }
+
+    // Particles emitted by the module engine (studio preview / exported player).
+    drawParticles(ctx) {
+      const engine = this.moduleEngine || (typeof window !== 'undefined' && window.jspenApp ? window.jspenApp.moduleEngine : null);
+      const particles = engine && engine.active && engine.bus ? engine.bus.particles : null;
+      if (!particles || particles.length === 0) return;
+      for (const p of particles) {
+        ctx.save();
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size || 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // scene_transition fade: black overlay rising to full and back (triangle).
+    drawScreenFade(ctx) {
+      const engine = this.moduleEngine || (typeof window !== 'undefined' && window.jspenApp ? window.jspenApp.moduleEngine : null);
+      const f = engine && engine.active && engine.bus ? engine.bus.fade : null;
+      if (!f) return;
+      const t = Math.max(0, Math.min(1, (engine.bus.time - f.start) / f.duration));
+      const a = 1 - Math.abs(2 * t - 1);
+      if (a <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, this.doc.width, this.doc.height);
+      ctx.restore();
+    }
+
     drawSprite(ctx, sprite) {
+      // Sprites hidden at runtime by a trigger (hide_sprite) are skipped in preview.
+      if (this.mode === 'preview' && sprite.runtime && sprite.runtime.visible === false) return;
       ctx.save();
       const lx = this.mode === 'preview' ? sprite.runtime.x : sprite.x;
       const ly = this.mode === 'preview' ? sprite.runtime.y : sprite.y;
@@ -2083,15 +2756,67 @@
         ctx.textBaseline = 'top';
         ctx.fillText(`⚡ ${sprite.name} (${sprite.triggerEvent || '진입 감지'})`, -hw + 8, -hh + 8);
         ctx.restore();
+      } else if (sprite.type === 'form_field') {
+        // Static look of an input (live inputs are DOM overlays at runtime).
+        const spec = FormRuntime.fieldSpec(sprite);
+        const W = sprite.width, H = sprite.height;
+        const fs = Math.max(8, sprite.fontSize || 16);
+        ctx.save();
+        ctx.font = `${fs}px ${PhotoshopCanvas.fontStack(sprite.fontFamily && sprite.fontFamily !== 'Pretendard, sans-serif' ? sprite.fontFamily : '')}`;
+        ctx.textBaseline = 'middle';
+        if (spec.kind === 'checkbox') {
+          const box = Math.min(H, fs + 4);
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = sprite.stroke || '#a1a1aa';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.roundRect(-W / 2, -box / 2, box, box, 3); ctx.fill(); ctx.stroke();
+          if (spec.value === 'true' || spec.value === '1') {
+            ctx.strokeStyle = '#18181b'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(-W / 2 + box * 0.22, 0); ctx.lineTo(-W / 2 + box * 0.42, box * 0.22); ctx.lineTo(-W / 2 + box * 0.8, -box * 0.25); ctx.stroke();
+          }
+          ctx.fillStyle = sprite.textColor || '#e4e4e7';
+          ctx.textAlign = 'left';
+          ctx.fillText(spec.label || spec.placeholder || spec.name, -W / 2 + box + 8, 0);
+        } else {
+          const r = Math.min(sprite.cornerRadius || 6, H / 2, W / 2);
+          ctx.fillStyle = sprite.fill && sprite.fill !== 'transparent' ? sprite.fill : '#ffffff';
+          ctx.strokeStyle = sprite.stroke || '#a1a1aa';
+          ctx.lineWidth = Math.max(1, sprite.strokeWidth || 1);
+          ctx.beginPath(); ctx.roundRect(-W / 2, -H / 2, W, H, r); ctx.fill(); ctx.stroke();
+          const shown = spec.value || spec.placeholder || (spec.kind === 'select' ? '선택하세요' : '');
+          ctx.fillStyle = spec.value ? (sprite.textColor || '#18181b') : '#a1a1aa';
+          ctx.textAlign = 'left';
+          const ty = spec.kind === 'textarea' ? -H / 2 + 8 + fs / 2 : 0;
+          ctx.save();
+          ctx.beginPath(); ctx.rect(-W / 2 + 4, -H / 2, W - (spec.kind === 'select' ? 28 : 8), H); ctx.clip();
+          ctx.fillText(shown, -W / 2 + 10, ty);
+          ctx.restore();
+          if (spec.kind === 'select') { ctx.fillStyle = '#71717a'; ctx.textAlign = 'right'; ctx.fillText('▾', W / 2 - 10, 0); }
+        }
+        ctx.restore();
       } else if (sprite.type === 'image') {
         if (sprite.imageUrl) {
-          if (!sprite._imgObj) {
+          if (!sprite._imgObj || sprite._imgSrc !== sprite.imageUrl) {
             sprite._imgObj = new Image();
+            sprite._imgSrc = sprite.imageUrl;
             sprite._imgObj.src = sprite.imageUrl;
-            sprite._imgObj.onload = () => { if (window.jspenApp?.renderCanvas) window.jspenApp.renderCanvas(); };
+            sprite._imgObj.onload = () => { if (typeof window !== 'undefined' && window.jspenApp?.renderCanvas) window.jspenApp.renderCanvas(); };
           }
-          if (sprite._imgObj.complete && sprite._imgObj.naturalWidth) {
-            ctx.drawImage(sprite._imgObj, -hw, -hh, sprite.width, sprite.height);
+          const img = sprite._imgObj;
+          if (img.complete && img.naturalWidth) {
+            // imageFit: 'cover' (default, crop to fill), 'contain' (whole image), 'fill' (stretch)
+            const fit = sprite.imageFit || 'cover';
+            const W = sprite.width, H = sprite.height, iw = img.naturalWidth, ih = img.naturalHeight;
+            if (fit === 'fill') {
+              ctx.drawImage(img, -hw, -hh, W, H);
+            } else if (fit === 'contain') {
+              const k = Math.min(W / iw, H / ih);
+              ctx.drawImage(img, -iw * k / 2, -ih * k / 2, iw * k, ih * k);
+            } else {
+              const k = Math.max(W / iw, H / ih);
+              const sw = W / k, sh = H / k;
+              ctx.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, -hw, -hh, W, H);
+            }
           } else {
             ctx.fillStyle = '#27272a';
             ctx.fillRect(-hw, -hh, sprite.width, sprite.height);
@@ -2105,7 +2830,7 @@
       } else if (sprite.type === 'text') {
         ctx.save();
         const fontSize = sprite.fontSize || 16;
-        ctx.font = `${sprite.fontWeight || 'normal'} ${fontSize}px ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'}`;
+        ctx.font = `${sprite.fontWeight || 'normal'} ${fontSize}px ${PhotoshopCanvas.fontStack(sprite.fontFamily)}`;
         ctx.fillStyle = sprite.fill || '#ffffff';
         if (sprite.fillOpacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, lop * sprite.fillOpacity));
         const textAlign = sprite.textAlign || 'center';
@@ -2173,7 +2898,7 @@
       const lh = fontSize * lhRatio;
 
       ctx.fillStyle = color;
-      ctx.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif`;
+      ctx.font = `${fontWeight} ${fontSize}px ${PhotoshopCanvas.fontStack(p.fontFamily)}`;
       ctx.textAlign = textAlign;
       ctx.textBaseline = 'middle';
 
@@ -2199,31 +2924,6 @@
       ctx.restore();
     }
 
-    _legacy_drawSpriteLabelText(ctx, sprite, hw, hh, lop) {
-      ctx.save();
-      const isLight = (hex) => {
-        if (!hex || hex === 'transparent') return false;
-        let c = String(hex).replace('#', '');
-        if (c.length === 3) c = c.split('').map(x => x + x).join('');
-        if (c.length !== 6) return false;
-        const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
-        return (0.299 * r + 0.587 * g + 0.114 * b) > 160;
-      };
-      ctx.fillStyle = sprite.textColor || (isLight(sprite.fill) ? '#09090b' : '#ffffff');
-      ctx.font = `${sprite.fontWeight || 'bold'} ${sprite.fontSize || 14}px ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'}`;
-      const textAlign = sprite.textAlign || 'center';
-      ctx.textAlign = textAlign;
-      ctx.textBaseline = 'middle';
-      const lines = String(sprite.text || '').split('\n');
-      const lh = (sprite.fontSize || 14) * 1.35;
-      const startY = -(lines.length - 1) * lh / 2;
-      const pad = 14;
-      const textX = textAlign === 'left' ? (-hw + pad) : (textAlign === 'right' ? (hw - pad) : 0);
-      for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], textX, startY + i * lh);
-      }
-      ctx.restore();
-    }
 
     drawTransformGizmo(ctx, sprite, transformBox) {
       const handles = transformBox.getHandles(sprite);
@@ -2436,25 +3136,7 @@
       }
 
       if (this.activeTool === 'brush') {
-        let activeLayer = this.doc.getSelectedLayer();
-        if (!activeLayer || !activeLayer.isBrushLayer) {
-          let bLayer = this.doc.layers.find(l => l.isBrushLayer);
-          if (!bLayer) {
-            bLayer = this.doc.addLayer('브러시 레이어');
-            bLayer.isBrushLayer = true;
-            if (typeof StudioToast !== 'undefined') {
-              StudioToast.show('브러시 전용 레이어가 생성되었습니다.');
-            }
-          } else {
-            if (typeof StudioToast !== 'undefined') {
-              StudioToast.show(`브러시 전용 레이어(${bLayer.name})로 전환되었습니다.`);
-            }
-          }
-          this.doc.selectedLayerId = bLayer.id;
-          activeLayer = bLayer;
-          if (this.onCommit) this.onCommit();
-        }
-
+        // Strokes go into the selected layer (no extra layers are created).
         this.activeBrushStroke = [{ x: wx, y: wy }];
         if (this.onCanvasRender) this.onCanvasRender();
         return;
@@ -2553,8 +3235,9 @@
         });
         this.doc.selectedSpriteId = sp.id;
         this.doc.saveState();
-        if (typeof StudioToast !== 'undefined') StudioToast.show('텍스트 스프라이트가 추가되었습니다.');
         if (this.onCommit) this.onCommit();
+        // Start typing right away (inline editor provided by the app).
+        if (typeof this.onTextCreated === 'function') this.onTextCreated(sp, true);
         return;
       }
     }
@@ -2658,22 +3341,21 @@
         this.activeBrushStroke = null;
         return;
       }
-      let activeLayer = this.doc.getSelectedLayer();
-      if (!activeLayer || !activeLayer.isBrushLayer) {
-        activeLayer = this.doc.layers.find(l => l.isBrushLayer);
-        if (!activeLayer) {
-          activeLayer = this.doc.addLayer('브러시 레이어');
-          activeLayer.isBrushLayer = true;
-        }
-        this.doc.selectedLayerId = activeLayer.id;
+      let activeLayer = this.doc.getSelectedLayer() || this.doc.layers[this.doc.layers.length - 1];
+      if (!activeLayer) {
+        activeLayer = this.doc.addLayer({ name: '레이어 1' });
       }
+      this.doc.selectedLayerId = activeLayer.id;
 
       const pts = this.activeBrushStroke;
       if (pts.length === 1) {
         pts.push({ x: pts[0].x + 0.1, y: pts[0].y + 0.1 });
       }
 
-      let brushSprite = activeLayer.sprites.find(s => s.type === 'brush' && s.isBrushCanvas);
+      // Keep painting into the selected brush canvas, else the layer's one.
+      const sel = this.doc.getSelectedSprite();
+      let brushSprite = (sel && sel.type === 'brush' && sel.isBrushCanvas && activeLayer.sprites.includes(sel)) ? sel
+        : activeLayer.sprites.find(s => s.type === 'brush' && s.isBrushCanvas);
       if (!brushSprite) {
         brushSprite = activeLayer.addSprite({
           name: '브러시 아트워크',
@@ -2832,6 +3514,180 @@
     }
   }
 
+  // ==========================================================================
+  // Form fields at runtime: real DOM inputs for `form_field` sprites.
+  // - canvas hosts (studio preview, exported JS) get overlay inputs placed
+  //   over the canvas each frame;
+  // - the website export already contains the inputs (bound by data-sid).
+  // Values are mirrored into the engine variables as "form.<name>".
+  // ==========================================================================
+  class FormRuntime {
+    // host: { container, place(sprite) -> {x, y, w, h, scale} | null, existing(sprite) -> Element | null }
+    constructor(engine, host) {
+      this.engine = engine;
+      this.host = host;
+      this.fields = new Map(); // sprite id -> { el, input, sprite, owned }
+    }
+
+    static fieldSpec(sp) {
+      const f = sp.form || {};
+      const kind = ['text', 'email', 'tel', 'number', 'textarea', 'checkbox', 'select'].includes(f.kind) ? f.kind : 'text';
+      const name = String(f.name || sp.name || 'field').replace(/[^\w\-가-힣]/g, '_').slice(0, 40) || 'field';
+      return { kind, name, label: String(f.label || ''), placeholder: String(f.placeholder || ''), required: !!f.required,
+        options: String(f.options || '').split(',').map(o => o.trim()).filter(Boolean), value: f.value !== undefined ? String(f.value) : '' };
+    }
+
+    static formSprites(doc) {
+      const out = [];
+      for (const l of doc.layers) {
+        if (!l.visible) continue;
+        for (const sp of l.sprites) if (sp.type === 'form_field' && sp.visible !== false) out.push({ sp, layer: l });
+      }
+      return out;
+    }
+
+    // Build the input element for a field (used for overlays and for the
+    // website export markup via outerHTML).
+    static createInput(sp, doc) {
+      const spec = FormRuntime.fieldSpec(sp);
+      let input;
+      if (spec.kind === 'textarea') input = doc.createElement('textarea');
+      else if (spec.kind === 'select') {
+        input = doc.createElement('select');
+        const ph = doc.createElement('option'); ph.value = ''; ph.textContent = spec.placeholder || '선택하세요'; input.appendChild(ph);
+        for (const o of spec.options) { const op = doc.createElement('option'); op.value = o; op.textContent = o; input.appendChild(op); }
+      } else {
+        input = doc.createElement('input');
+        input.type = spec.kind;
+      }
+      input.name = spec.name;
+      input.className = 'jspen-form-input';
+      if (spec.required) input.required = true;
+      if (spec.placeholder && spec.kind !== 'select' && spec.kind !== 'checkbox') input.placeholder = spec.placeholder;
+      if (spec.kind === 'checkbox') input.checked = spec.value === 'true' || spec.value === '1';
+      else if (spec.value) input.value = spec.value;
+      input.setAttribute('aria-label', spec.label || spec.placeholder || spec.name);
+      return input;
+    }
+
+    static inputStyle(sp, scale = 1) {
+      const fs = Math.max(8, (sp.fontSize || 16) * scale);
+      return 'box-sizing:border-box;width:100%;height:100%;margin:0;padding:' + Math.round(6 * scale) + 'px ' + Math.round(10 * scale) + 'px;' +
+        'font:' + fs + 'px ' + PhotoshopCanvas.fontStack(sp.fontFamily && sp.fontFamily !== 'Pretendard, sans-serif' ? sp.fontFamily : '') + ';' +
+        'color:' + (sp.textColor || '#18181b') + ';background:' + (sp.fill && sp.fill !== 'transparent' ? sp.fill : '#ffffff') + ';' +
+        'border:' + Math.max(1, sp.strokeWidth || 1) * scale + 'px solid ' + (sp.stroke || '#a1a1aa') + ';border-radius:' + (sp.cornerRadius || 6) * scale + 'px;' +
+        'outline:none;resize:none;';
+    }
+
+    ensure(sp) {
+      let f = this.fields.get(sp.id);
+      if (f) return f;
+      const existing = this.host.existing ? this.host.existing(sp) : null;
+      if (existing) {
+        const input = existing.matches('input,textarea,select') ? existing : existing.querySelector('input,textarea,select');
+        f = { el: existing, input, sprite: sp, owned: false };
+      } else {
+        const spec = FormRuntime.fieldSpec(sp);
+        const wrap = document.createElement(spec.kind === 'checkbox' ? 'label' : 'div');
+        wrap.className = 'jspen-form-overlay';
+        wrap.style.cssText = 'position:absolute;z-index:40;' + (spec.kind === 'checkbox' ? 'display:flex;align-items:center;gap:8px;cursor:pointer;' : '');
+        const input = FormRuntime.createInput(sp, document);
+        if (spec.kind === 'checkbox') {
+          wrap.appendChild(input);
+          const t = document.createElement('span'); t.textContent = spec.label || spec.placeholder || spec.name; wrap.appendChild(t);
+        } else {
+          wrap.appendChild(input);
+        }
+        // Keys typed into a field must not reach studio shortcuts / modules.
+        wrap.addEventListener('keydown', e => e.stopPropagation());
+        wrap.addEventListener('pointerdown', e => e.stopPropagation());
+        wrap.addEventListener('mousedown', e => e.stopPropagation());
+        this.host.container.appendChild(wrap);
+        f = { el: wrap, input, sprite: sp, owned: true };
+      }
+      if (f.input) {
+        const sync = () => this.publish(f);
+        f.input.addEventListener('input', sync);
+        f.input.addEventListener('change', sync);
+      }
+      this.fields.set(sp.id, f);
+      this.publish(f);
+      return f;
+    }
+
+    value(f) {
+      if (!f.input) return '';
+      return f.input.type === 'checkbox' ? (f.input.checked ? 1 : 0) : f.input.value;
+    }
+
+    publish(f) {
+      const spec = FormRuntime.fieldSpec(f.sprite);
+      this.engine.bus.vars.set('form.' + spec.name, this.value(f));
+    }
+
+    // Called every frame: create/position overlays, hide removed fields.
+    sync(doc) {
+      const seen = new Set();
+      for (const { sp } of FormRuntime.formSprites(doc)) {
+        seen.add(sp.id);
+        const f = this.ensure(sp);
+        if (!f.owned) continue;
+        const r = this.host.place(sp);
+        if (!r) { f.el.style.display = 'none'; continue; }
+        const spec = FormRuntime.fieldSpec(sp);
+        f.el.style.display = '';
+        f.el.style.left = r.x + 'px'; f.el.style.top = r.y + 'px';
+        f.el.style.width = r.w + 'px'; f.el.style.height = r.h + 'px';
+        if (f.scale !== r.scale) {
+          f.scale = r.scale;
+          if (spec.kind === 'checkbox') {
+            f.el.style.font = Math.max(8, (sp.fontSize || 16) * r.scale) + 'px ' + PhotoshopCanvas.fontStack('');
+            f.el.style.color = sp.textColor || '#e4e4e7';
+          } else {
+            f.input.style.cssText = FormRuntime.inputStyle(sp, r.scale);
+          }
+        }
+      }
+      for (const [id, f] of this.fields) {
+        if (!seen.has(id) && f.owned) { f.el.remove(); this.fields.delete(id); }
+      }
+    }
+
+    fieldsIn(layer) {
+      return [...this.fields.values()].filter(f => !layer || layer.sprites.includes(f.sprite));
+    }
+
+    // Validate; focuses and reports the first invalid field.
+    validate(fields) {
+      for (const f of fields) {
+        if (f.input && typeof f.input.checkValidity === 'function' && !f.input.checkValidity()) {
+          if (typeof f.input.reportValidity === 'function') f.input.reportValidity();
+          return false;
+        }
+      }
+      return true;
+    }
+
+    values(fields) {
+      const out = {};
+      for (const f of fields) out[FormRuntime.fieldSpec(f.sprite).name] = this.value(f);
+      return out;
+    }
+
+    reset(fields) {
+      for (const f of fields) {
+        if (!f.input) continue;
+        if (f.input.type === 'checkbox') f.input.checked = false; else f.input.value = '';
+        this.publish(f);
+      }
+    }
+
+    destroy() {
+      for (const f of this.fields.values()) if (f.owned) f.el.remove();
+      this.fields.clear();
+    }
+  }
+
   class ModuleEngine {
     constructor(docModel) {
       this.doc = docModel;
@@ -2843,28 +3699,566 @@
         keyState: {},
         signals: new Map(),
         activeTriggers: new Set(),
-        activeTriggerTargets: new Set()
+        activeTriggerTargets: new Set(),
+        vars: new Map(),      // global_variable store shared by the document
+        fade: null,           // scene_transition fade overlay { start, duration }
+        hideCursor: false     // cursor_fx custom cursor active this frame
       };
+      this._pendingNavs = [];
       this.bus.emitSignal = (signalName, sourceId = '', payload = null) => {
         if (!signalName) return;
         this.bus.signals.set(signalName, { time: this.bus.time, sourceId, payload });
       };
-      this.bus.hasSignal = (signalName, maxAgeSec = 0.35) => {
-        if (!signalName || signalName === '*') return this.bus.signals.size > 0;
-        const s = this.bus.signals.get(signalName);
-        if (!s) return false;
-        return (this.bus.time - s.time) <= maxAgeSec;
+      this.bus.hasSignal = (signalName, maxAgeSec = 0.35) => this.bus.signalTime(signalName, maxAgeSec) !== null;
+      // Time of the latest matching signal still fresh ('*' = any signal), or null.
+      this.bus.signalTime = (signalName, maxAgeSec = 0.35) => {
+        let best = null;
+        const consider = s => { if (s && (this.bus.time - s.time) <= maxAgeSec && (best === null || s.time > best)) best = s.time; };
+        if (!signalName || signalName === '*') for (const s of this.bus.signals.values()) consider(s);
+        else consider(this.bus.signals.get(signalName));
+        return best;
       };
       this.active = false;
       this.draggedSprite = null;
       this.dragOffset = { x: 0, y: 0 };
-      this.activeModuleIds = null; // Filtered by Node Graph OUTPUT connectivity
+      // Module ids disconnected from the Node Graph OUTPUT; these do not run.
+      this.disabledModuleIds = null;
+      // Anchor (#id) navigation is host specific (studio pans, exported page scrolls).
+      this.onNavigateAnchor = null;
+      this.scriptGate = null;     // (code) => bool; null = run all scripts
+      this.onScriptError = null;  // (sprite, module, error)
+    }
+
+    // Finish a drag at the exact release position (called from the pointer-up
+    // handler, so a pointer move right after release cannot shift the drop).
+    endDrag(wx, wy) {
+      if (!this.draggedSprite) return;
+      this.applyDragPosition(wx, wy);
+      this.bus.emitSignal('drag_end', this.draggedSprite.id);
+      this.draggedSprite = null;
+    }
+
+    applyDragPosition(wx, wy) {
+      const dp = this.dragParams || {};
+      let nx = wx - this.dragOffset.x;
+      let ny = wy - this.dragOffset.y;
+      if (dp.snapToGrid) {
+        const g = Math.max(1, parseFloat(dp.gridSize) || 20);
+        nx = Math.round(nx / g) * g;
+        ny = Math.round(ny / g) * g;
+      }
+      if (dp.constrainAxis !== 'y') this.draggedSprite.runtime.x = nx;
+      if (dp.constrainAxis !== 'x') this.draggedSprite.runtime.y = ny;
+    }
+
+    // ---------------- User scripts (custom_script) ----------------
+    // Scripts run only when allowed (the studio asks before running scripts
+    // from an opened file). Compiled functions are cached per source text.
+    compileScript(code) {
+      this._scriptCache = this._scriptCache || new Map();
+      if (!this._scriptCache.has(code)) {
+        let entry;
+        try { entry = { fn: new Function('api', '"use strict";\n' + code) }; }
+        catch (e) { entry = { error: e }; }
+        this._scriptCache.set(code, entry);
+      }
+      return this._scriptCache.get(code);
+    }
+
+    // Live view of a sprite for scripts: reading/writing runtime values.
+    scriptSprite(sp) {
+      if (!sp) return null;
+      const rt = sp.runtime;
+      const eng = this;
+      return {
+        get id() { return sp.id; }, get name() { return sp.name; }, get type() { return sp.type; },
+        get width() { return sp.width; }, get height() { return sp.height; },
+        get x() { return rt.x; }, set x(v) { if (isFinite(v)) rt.x = +v; },
+        get y() { return rt.y; }, set y(v) { if (isFinite(v)) rt.y = +v; },
+        get rotation() { return rt.rotation; }, set rotation(v) { if (isFinite(v)) rt.rotation = +v; },
+        get scale() { return rt.scaleX; }, set scale(v) { if (isFinite(v)) { rt.scaleX = +v; rt.scaleY = +v; } },
+        get scaleX() { return rt.scaleX; }, set scaleX(v) { if (isFinite(v)) rt.scaleX = +v; },
+        get scaleY() { return rt.scaleY; }, set scaleY(v) { if (isFinite(v)) rt.scaleY = +v; },
+        get opacity() { return rt.opacity; }, set opacity(v) { if (isFinite(v)) rt.opacity = Math.max(0, Math.min(1, +v)); },
+        get visible() { return rt.visible !== false; }, set visible(v) { rt.visible = !!v; },
+        get fill() { return sp.fill; }, set fill(v) { sp.fill = String(v); },
+        get text() { return ModuleEngine.getText(sp); }, set text(v) { ModuleEngine.setText(sp, v); },
+        get hovered() { return !!rt.isHovered; },
+        get restX() { return sp.x; }, get restY() { return sp.y; },
+        contains(x, y) { return eng.isPointInside(x, y, sp); }
+      };
+    }
+
+    runScript(sprite, mod, p, ctx, clock, dt) {
+      // The studio sets scriptGate to allow only scripts the user wrote or
+      // approved; exported pages run their author's scripts.
+      if (typeof this.scriptGate === 'function' && !this.scriptGate(String(p.code || ''))) { this.bus.scriptsBlocked = true; return; }
+      const rt = sprite.runtime;
+      rt._scriptDead = rt._scriptDead || {};
+      if (rt._scriptDead[mod.id]) return;
+      if (p.runOn === 'start') {
+        rt._scriptRan = rt._scriptRan || {};
+        if (rt._scriptRan[mod.id]) return;
+        rt._scriptRan[mod.id] = true;
+      }
+      const compiled = this.compileScript(String(p.code || ''));
+      const fail = (err) => {
+        rt._scriptDead[mod.id] = true; // stop this module for this run
+        if (typeof this.onScriptError === 'function') this.onScriptError(sprite, mod, err);
+        else if (typeof console !== 'undefined') console.error('[JSPen script]', sprite.name, err);
+      };
+      if (compiled.error) { fail(compiled.error); return; }
+      rt._scriptState = rt._scriptState || {};
+      const state = rt._scriptState[mod.id] || (rt._scriptState[mod.id] = {});
+      const bus = this.bus, eng = this;
+      const api = {
+        self: this.scriptSprite(sprite),
+        find: (nameOrId) => {
+          for (const l of eng.doc.layers) for (const s of l.sprites) if (s.id === nameOrId || s.name === nameOrId) return eng.scriptSprite(s);
+          return null;
+        },
+        all: () => eng.doc.layers.flatMap(l => l.sprites).map(s => eng.scriptSprite(s)),
+        time: bus.time, dt, local: clock,
+        mouse: { x: bus.mouse.x, y: bus.mouse.y, vx: bus.mouse.vx, vy: bus.mouse.vy, down: !!bus.mouse.isDown, clicked: !!bus.mouse.clicked },
+        key: (k) => !!bus.keyState[k],
+        scroll: { y: bus.scroll?.scrollY || 0, progress: eng.scrollProgress() },
+        vars: {
+          get: (n) => bus.vars.get(String(n)),
+          set: (n, v) => { bus.vars.set(String(n), v); },
+          add: (n, d = 1) => { const v = (Number(bus.vars.get(String(n))) || 0) + Number(d); bus.vars.set(String(n), v); return v; }
+        },
+        emit: (name, payload) => bus.emitSignal(String(name), sprite.id, payload),
+        hasSignal: (name) => bus.hasSignal(String(name)),
+        value: ctx.value,
+        setValue: (v) => { ctx.value = Number(v) || 0; },
+        state,
+        open: (url, target = '_blank') => eng.navigateHyperlink(String(url || ''), target),
+        random: (a = 0, b = 1) => a + Math.random() * (b - a),
+        lerp: (a, b, t) => a + (b - a) * t,
+        clamp: (v, a, b) => Math.max(a, Math.min(b, v)),
+        log: (...args) => { if (typeof console !== 'undefined') console.log('[JSPen script]', ...args); }
+      };
+      try { compiled.fn(api); } catch (e) { fail(e); }
+    }
+
+    // Host -> engine wheel input (consumed on the next update).
+    addWheel(deltaY) {
+      this._pendingWheel = (this._pendingWheel || 0) + deltaY;
+    }
+
+    // True when a sprite under the pointer listens to the wheel.
+    wantsWheel(wx, wy) {
+      const sp = this.pickSprite(wx, wy);
+      return !!(sp && (sp.modules || []).some(m => m.enabled !== false && m.type === 'scroll_wheel'));
+    }
+
+    // ---------------- Forms ----------------
+    // Validate and send the form fields (needs this.forms: a FormRuntime).
+    submitForm(sprite, layer, p) {
+      const forms = this.forms;
+      const fields = forms ? forms.fieldsIn(p.scope === 'document' ? null : layer) : [];
+      if (forms && !forms.validate(fields)) return;
+      const data = forms ? forms.values(fields) : {};
+      const msgSp = p.messageSpriteId ? this.doc.findSpriteById(p.messageSpriteId) : null;
+      const done = (ok) => {
+        if (msgSp) ModuleEngine.setText(msgSp, ok ? (p.successMessage || '') : (p.errorMessage || ''));
+        this.bus.emitSignal(ok ? (p.successSignal || 'form_success') : (p.errorSignal || 'form_error'), sprite.id, data);
+        if (ok && p.resetOnSuccess !== false && forms) forms.reset(fields);
+      };
+      const action = p.action || 'mailto';
+      if (action === 'signal') { done(true); return; }
+      if (action === 'mailto') {
+        const to = String(p.url || '').replace(/^mailto:/i, '').trim();
+        if (!/^[^@\s]+@[^@\s]+$/.test(to)) { done(false); return; }
+        const body = Object.entries(data).map(([k, v]) => k + ': ' + v).join('\n');
+        this.navigateHyperlink('mailto:' + to + '?subject=' + encodeURIComponent(p.subject || '') + '&body=' + encodeURIComponent(body), '_self');
+        done(true);
+        return;
+      }
+      // POST to an http(s) endpoint
+      const url = safeUrl(String(p.url || ''));
+      if (!/^https?:/i.test(url) || typeof fetch === 'undefined') { done(false); return; }
+      const json = p.encoding !== 'form';
+      const body = json ? JSON.stringify(data) : new URLSearchParams(Object.entries(data).map(([k, v]) => [k, String(v)])).toString();
+      fetch(url, { method: 'POST', headers: { 'Content-Type': json ? 'application/json' : 'application/x-www-form-urlencoded' }, body })
+        .then(r => done(r.ok)).catch(() => done(false));
+    }
+
+    // Topmost visible sprite under (wx, wy) using runtime (animated) transforms.
+    pickSprite(wx, wy) {
+      for (let li = this.doc.layers.length - 1; li >= 0; li--) {
+        const layer = this.doc.layers[li];
+        if (!layer.visible) continue;
+        for (let si = layer.sprites.length - 1; si >= 0; si--) {
+          const sp = layer.sprites[si];
+          if (!sp.visible || sp.type === 'screen_trigger') continue;
+          if (sp.runtime && (sp.runtime.visible === false || sp.runtime._isCursor)) continue;
+          if (this.isPointInside(wx, wy, sp)) return sp;
+        }
+      }
+      return null;
+    }
+
+    // Link of a sprite for click navigation (hyperlink module first, then sprite.linkUrl).
+    getClickLink(sprite) {
+      if (!sprite) return null;
+      const linkMod = (sprite.modules || []).find(m => m.enabled !== false && m.type === 'hyperlink' &&
+        !(this.disabledModuleIds && this.disabledModuleIds.has(m.id)));
+      const href = String((linkMod ? (linkMod.params?.url || sprite.linkUrl) : sprite.linkUrl) || '').trim();
+      if (!href) return null;
+      const trigger = linkMod ? (linkMod.params?.trigger || 'click') : 'click';
+      if (trigger !== 'click') return null;
+      return { href, target: (linkMod ? linkMod.params?.target : sprite.linkTarget) || '_blank' };
     }
 
     start() {
       this.active = true;
       this.bus.particles = [];
-      for (const l of this.doc.layers) l.resetRuntime();
+      this.bus.time = 0;
+      this.bus.signals.clear();
+      this.bus.scroll.deltaY = 0;
+      this.bus.vars = new Map();
+      this.bus.fade = null;
+      this.bus.hideCursor = false;
+      this._pendingNavs = [];
+      this._frame = 0;
+      for (const l of this.doc.layers) {
+        l.resetRuntime();
+        for (const sp of l.sprites) {
+          const rt = sp.runtime;
+          for (const k of Object.keys(rt)) {
+            if (k.startsWith('_') || ['toggleState', 'counterValue', 'isTriggered', 'wasTriggered', 'visible', 'activeLink', 'step'].includes(k)) delete rt[k];
+          }
+        }
+      }
+    }
+
+    // Seconds since `mod` became active on `sprite` (it restarts when the module
+    // was not executed on the previous frame, e.g. its condition was false or a
+    // timing gate above it was closed).
+    moduleClock(sprite, mod) {
+      const rt = sprite.runtime;
+      rt._clocks = rt._clocks || {};
+      const c = rt._clocks[mod.id];
+      if (!c || c.frame < this._frame - 1) {
+        rt._clocks[mod.id] = { start: this.bus.time, frame: this._frame };
+        return 0;
+      }
+      c.frame = this._frame;
+      return this.bus.time - c.start;
+    }
+
+    // Normalised progress (0..1) of a clock for a given loop mode.
+    static loopProgress(t, duration, loopMode) {
+      if (!(duration > 0)) return 1;
+      const r = t / duration;
+      if (loopMode === 'infinite') return r % 1;
+      if (loopMode === 'pingpong') { const f = r % 2; return f > 1 ? 2 - f : f; }
+      return Math.min(1, r);
+    }
+
+    static ease(name, t) {
+      t = Math.max(0, Math.min(1, t));
+      switch (name) {
+        case 'linear': return t;
+        case 'easeInQuad': return t * t;
+        case 'easeOutQuad': return t * (2 - t);
+        case 'easeInOutQuad': return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+        case 'easeInOutCubic': return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        case 'easeOutBack': { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+        case 'elasticOut': return t === 0 || t === 1 ? t : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * (2 * Math.PI) / 3) + 1;
+        case 'bounceOut': {
+          const n1 = 7.5625, d1 = 2.75;
+          if (t < 1 / d1) return n1 * t * t;
+          if (t < 2 / d1) { t -= 1.5 / d1; return n1 * t * t + 0.75; }
+          if (t < 2.5 / d1) { t -= 2.25 / d1; return n1 * t * t + 0.9375; }
+          t -= 2.625 / d1; return n1 * t * t + 0.984375;
+        }
+        case 'expoOut': return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
+        case 'easeOutCubic':
+        default: return 1 - Math.pow(1 - t, 3);
+      }
+    }
+
+    // Read / write a transform property in runtime space ('scale' = both axes).
+    static getProp(sprite, prop, fromRest = false) {
+      const src = fromRest ? sprite : sprite.runtime;
+      if (prop === 'scale') return src.scaleX;
+      return src[prop];
+    }
+
+    static setProp(sprite, prop, value) {
+      if (!isFinite(value)) return;
+      const rt = sprite.runtime;
+      if (prop === 'scale') { rt.scaleX = value; rt.scaleY = value; }
+      else if (prop === 'opacity') rt.opacity = Math.max(0, Math.min(1, value));
+      else if (prop === 'x' || prop === 'y' || prop === 'rotation' || prop === 'scaleX' || prop === 'scaleY') rt[prop] = value;
+      else if (prop && prop.startsWith('filter_')) {
+        if (!sprite.filters) sprite.filters = {};
+        sprite.filters[prop.slice(7)] = value;
+      }
+    }
+
+    // ---------------- Shared helpers for interaction modules ----------------
+
+    // Numeric inputs shared by value_remapper / condition_branch.
+    readInput(source, p, sprite, ctx, clock) {
+      const rt = sprite.runtime, m = this.bus.mouse;
+      switch (source) {
+        case 'mouse_x': return m.x;
+        case 'mouse_y': return m.y;
+        case 'mouse_distance': return Math.hypot(m.x - rt.x, m.y - rt.y);
+        case 'mouse_speed': return Math.hypot(m.vx, m.vy);
+        case 'time': return clock;
+        case 'scroll': return this.bus.scroll?.scrollY || 0;
+        case 'scroll_progress': return this.scrollProgress();
+        case 'variable': return Number(this.bus.vars.get(p.varName || '')) || 0;
+        case 'audio_level': return Math.max(ModuleEngine.audioLevel('microphone'), ModuleEngine.audioLevel('document'));
+        case 'stack': return ctx.value;
+        default: return m.x;
+      }
+    }
+
+    viewportHeight() {
+      return this.doc.viewportHeight || this.doc.height || 900;
+    }
+
+    // Page scroll progress 0..1 (top .. bottom of the document).
+    scrollProgress() {
+      const range = Math.max(1, (this.doc.height || 0) - this.viewportHeight());
+      return Math.max(0, Math.min(1, (this.bus.scroll?.scrollY || 0) / range));
+    }
+
+    // 0 when the sprite's top enters the bottom of the viewport, 1 when its
+    // bottom leaves the top.
+    elementProgress(sprite) {
+      const top = this.bus.scroll?.scrollY || 0, vh = this.viewportHeight();
+      const hh = Math.abs(sprite.height * (sprite.scaleY || 1)) / 2;
+      const span = vh + 2 * hh;
+      return Math.max(0, Math.min(1, (top + vh - (sprite.y - hh)) / span));
+    }
+
+    // Is at least `ratio` of the sprite's height inside the viewport?
+    isInView(sprite, ratio = 0.15) {
+      const top = this.bus.scroll?.scrollY || 0, vh = this.viewportHeight();
+      const h = Math.abs(sprite.height * (sprite.scaleY || 1));
+      const y0 = sprite.y - h / 2, y1 = sprite.y + h / 2;
+      const visible = Math.min(y1, top + vh) - Math.max(y0, top);
+      return visible >= Math.min(h, vh) * ratio;
+    }
+
+    // Start time for "startOn: visible | load" modules; null while waiting.
+    startTime(sprite, mod, p, resetWhenHidden = false) {
+      const rt = sprite.runtime, key = '_start_' + mod.id;
+      const ready = p.startOn === 'load' || this.isInView(sprite);
+      if (ready && rt[key] === undefined) rt[key] = this.bus.time;
+      if (!ready && resetWhenHidden && !this.isInView(sprite, 0)) delete rt[key];
+      return rt[key] === undefined ? null : rt[key];
+    }
+
+    static parseColor(c) {
+      if (!c || typeof c !== 'string') return null;
+      c = c.trim();
+      let m = c.match(/^#([0-9a-f]{3,8})$/i);
+      if (m) {
+        let h = m[1];
+        if (h.length === 3 || h.length === 4) h = h.split('').map(x => x + x).join('');
+        const n = parseInt(h.slice(0, 6), 16);
+        const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255, a];
+      }
+      m = c.match(/^rgba?\(([^)]+)\)$/i);
+      if (m) {
+        const v = m[1].split(',').map(x => parseFloat(x));
+        if (v.length >= 3 && v.slice(0, 3).every(isFinite)) return [v[0], v[1], v[2], isFinite(v[3]) ? v[3] : 1];
+      }
+      return null;
+    }
+
+    // Blend colour a -> b by t; non-parsable colours switch at t >= 0.5.
+    static mixColor(a, b, t) {
+      if (!b || t <= 0) return a;
+      if (t >= 1 || !a) return b;
+      const ca = ModuleEngine.parseColor(a), cb = ModuleEngine.parseColor(b);
+      if (!ca || !cb) return t < 0.5 ? a : b;
+      const r = ca.map((v, i) => v + (cb[i] - v) * t);
+      return `rgba(${Math.round(r[0])},${Math.round(r[1])},${Math.round(r[2])},${+r[3].toFixed(3)})`;
+    }
+
+    // Text shown by a sprite: a text sprite's text, else its text_label module.
+    static getText(sprite) {
+      if (sprite.type !== 'text') {
+        const lbl = (sprite.modules || []).find(m => m.type === 'text_label' && m.enabled !== false);
+        if (lbl) return String(lbl.params?.text ?? '');
+      }
+      return String(sprite.text ?? '');
+    }
+
+    static setText(sprite, text) {
+      text = String(text);
+      if (ModuleEngine.getText(sprite) === text) return;
+      const lbl = sprite.type !== 'text' && (sprite.modules || []).find(m => m.type === 'text_label' && m.enabled !== false);
+      if (lbl) { lbl.params = lbl.params || {}; lbl.params.text = text; }
+      else sprite.text = text;
+      sprite._wrapCache = null;
+    }
+
+    static formatNumber(v, decimals, separator) {
+      const d = Math.max(0, Math.min(6, Math.round(decimals) || 0));
+      let str = Math.abs(v).toFixed(d);
+      if (separator) {
+        const [i, f] = str.split('.');
+        str = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f !== undefined ? '.' + f : '');
+      }
+      return (v < 0 ? '-' : '') + str;
+    }
+
+    // Apply an additive offset from `mod` to a runtime property. Runtime
+    // position/rotation/opacity persist between frames (drag, physics, ...), so
+    // the offset applied on the previous frame is replaced instead of added
+    // again. Scale is reset every frame, so it is simply added.
+    offsetProp(sprite, mod, prop, offset) {
+      if (!isFinite(offset)) return;
+      const rt = sprite.runtime;
+      if (prop.startsWith('filter_')) { ModuleEngine.setProp(sprite, prop, offset); return; }
+      if (prop === 'scale' || prop === 'scaleX' || prop === 'scaleY') {
+        if (prop !== 'scaleY') rt.scaleX += offset;
+        if (prop !== 'scaleX') rt.scaleY += offset;
+        return;
+      }
+      rt._offs = rt._offs || {};
+      const key = mod.id + ':' + prop;
+      const prev = rt._offs[key] || 0;
+      rt[prop] = (rt[prop] || 0) + offset - prev; // opacity is clamped by the renderer
+      rt._offs[key] = offset;
+    }
+
+    // Queue a navigation (used to switch sections in the middle of a fade).
+    queueNavigation(at, sprite, opts) {
+      this._pendingNavs.push({ at, sprite, opts });
+    }
+
+    // ---------------- Audio ----------------
+    static audioContext() {
+      const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
+      if (!AC) return null;
+      if (!ModuleEngine._audioCtx) {
+        const ac = new AC();
+        // Everything the document plays goes through one master node with an
+        // analyser so audio_reactive can listen to it.
+        const master = ac.createGain();
+        const analyser = ac.createAnalyser();
+        analyser.fftSize = 1024;
+        master.connect(analyser);
+        analyser.connect(ac.destination);
+        ModuleEngine._audioCtx = ac;
+        ModuleEngine._master = master;
+        ModuleEngine._docAnalyser = analyser;
+      }
+      return ModuleEngine._audioCtx;
+    }
+
+    // Call from a user gesture (pointer down / key) so browsers allow audio.
+    static resumeAudio() {
+      try {
+        // Create (or resume) inside a user gesture so browsers allow sound.
+        const ac = ModuleEngine.audioContext();
+        if (ac && ac.state === 'suspended') ac.resume();
+      } catch (_) {}
+    }
+
+    static requestMicrophone() {
+      if (ModuleEngine._micState) return;
+      ModuleEngine._micState = 'pending';
+      try {
+        const ac = ModuleEngine.audioContext();
+        if (!ac || !navigator.mediaDevices?.getUserMedia) { ModuleEngine._micState = 'unavailable'; return; }
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+          const src = ac.createMediaStreamSource(stream);
+          const an = ac.createAnalyser();
+          an.fftSize = 1024;
+          src.connect(an); // not connected to the speakers (no feedback)
+          ModuleEngine._micAnalyser = an;
+          ModuleEngine._micState = 'on';
+        }).catch(() => { ModuleEngine._micState = 'denied'; });
+      } catch (_) { ModuleEngine._micState = 'unavailable'; }
+    }
+
+    // RMS level 0..1 of the microphone or of the document's own audio.
+    static audioLevel(source) {
+      const an = source === 'microphone' ? ModuleEngine._micAnalyser : ModuleEngine._docAnalyser;
+      if (!an) return 0;
+      const buf = ModuleEngine._levelBuf && ModuleEngine._levelBuf.length === an.fftSize
+        ? ModuleEngine._levelBuf : (ModuleEngine._levelBuf = new Float32Array(an.fftSize));
+      an.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      return Math.min(1, Math.sqrt(sum / buf.length) * 3);
+    }
+
+    // Built-in synthesizer for synth_sfx (Web Audio, no files).
+    static playSynth(sound, volume = 0.6) {
+      try {
+        const ac = ModuleEngine.audioContext();
+        if (!ac) return;
+        if (ac.state === 'suspended') ac.resume();
+        const now = ac.currentTime;
+        const out = ac.createGain();
+        out.gain.value = Math.max(0, Math.min(1, volume));
+        out.connect(ModuleEngine._master);
+        const tone = (type, f0, f1, t0, dur, peak = 0.6) => {
+          const o = ac.createOscillator(), g = ac.createGain();
+          o.type = type;
+          o.frequency.setValueAtTime(f0, now + t0);
+          o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), now + t0 + dur);
+          g.gain.setValueAtTime(0.0001, now + t0);
+          g.gain.exponentialRampToValueAtTime(peak, now + t0 + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + t0 + dur);
+          o.connect(g); g.connect(out);
+          o.start(now + t0); o.stop(now + t0 + dur + 0.02);
+        };
+        if (sound === 'click') tone('square', 1800, 900, 0, 0.03, 0.3);
+        else if (sound === 'ding') { tone('sine', 1320, 1318, 0, 0.35); tone('sine', 990, 988, 0.12, 0.45); }
+        else if (sound === 'switch') { tone('square', 600, 600, 0, 0.025, 0.25); tone('square', 900, 900, 0.05, 0.025, 0.25); }
+        else if (sound === 'boop') tone('sine', 520, 260, 0, 0.18);
+        else if (sound === 'whoosh') {
+          const len = Math.floor(ac.sampleRate * 0.35);
+          const buf = ac.createBuffer(1, len, ac.sampleRate);
+          const d = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / len);
+          const src = ac.createBufferSource(), f = ac.createBiquadFilter();
+          f.type = 'bandpass'; f.frequency.setValueAtTime(400, now); f.frequency.exponentialRampToValueAtTime(3000, now + 0.35);
+          src.buffer = buf; src.connect(f); f.connect(out); src.start(now);
+        }
+        else tone('sine', 900, 200, 0, 0.12); // pop
+      } catch (_) { /* audio unavailable */ }
+    }
+
+    // Shared "when to play" logic for synth_sfx / audio_clip.
+    shouldFire(sprite, mod, p, key = 'trigger') {
+      const rt = sprite.runtime;
+      const trig = p[key] || 'click';
+      let fire = false;
+      if (trig === 'always') {
+        fire = true;
+      } else if (trig === 'click') {
+        fire = this.bus.mouse.clicked && this.isPointInside(this.bus.mouse.pressX, this.bus.mouse.pressY, sprite);
+      } else if (trig === 'hover') {
+        const key = '_sndHover_' + mod.id;
+        fire = rt.isHovered && !rt[key];
+        rt[key] = rt.isHovered;
+      } else if (trig === 'trigger') {
+        const key = '_sndTrig_' + mod.id;
+        const on = !!(rt.isTriggered || rt.wasTriggered || this.bus.activeTriggerTargets.has(sprite.id));
+        fire = on && !rt[key];
+        rt[key] = on;
+      } else if (trig === 'signal') {
+        const sName = p.listenSignal || '';
+        const sig = sName ? this.bus.signals.get(sName) : null;
+        const key = '_sndSig_' + mod.id;
+        if (sig && sig.time !== rt[key] && this.bus.time - sig.time <= 0.35) { fire = true; rt[key] = sig.time; }
+      }
+      return fire;
     }
 
     stop() {
@@ -2880,47 +4274,127 @@
       if (href.startsWith('#')) {
         const targetId = href.slice(1);
         const targetSp = this.doc.layers.flatMap(l => l.sprites).find(s => s.anchorId === targetId || s.id === targetId);
-        if (targetSp && window.jspenApp?.renderer) {
-          window.jspenApp.renderer.panY = -(targetSp.y - 120);
-          window.jspenApp.renderCanvas();
-        }
+        if (targetSp && typeof this.onNavigateAnchor === 'function') this.onNavigateAnchor(targetSp);
       } else {
-        window.open(href, target);
+        const safeHref = safeUrl(href);
+        if (safeHref) window.open(safeHref, target);
       }
+    }
+
+    // ---- Trigger conditions -------------------------------------------------
+    // condition  : what starts the module (click, hover, key, signal, ...).
+    // conditionMode: how long it then runs
+    //   while    - only while the condition is true (a click / signal is a
+    //              single instant, a hover or held key lasts)
+    //   latch    - starts on the event and keeps running
+    //   toggle   - each event switches it on / off
+    //   duration - runs for conditionDuration seconds after each event
+    //   auto     - latch for animations started by an instant event
+    //              (click / signal), otherwise while (a trigger already
+    //              lasts for its own active window)
+    static instantCondition(cond) { return cond === 'on_click' || cond === 'on_signal'; }
+
+    // Modules that animate over time (vs. one-shot actions such as sounds,
+    // signals or counters). Kept as a list: exports do not ship the registry.
+    static continuousModule(type) {
+      return ['photoshop_filter', 'substance_mask', 'tween_interpolator', 'path_follower', 'mouse_tilt_3d', 'particle_emitter',
+        'motion_wave', 'pulse_scale', 'shake_vibrate', 'orbit_spin', 'wall_bounce', 'rainbow_shift', 'timeline_keyframes',
+        'duration_delay', 'step_sequencer', 'stagger_domino', 'scroll_progress', 'entrance_animation', 'typewriter',
+        'count_up', 'magnetic', 'cursor_fx', 'physics_body', 'audio_reactive', 'follow_target', 'look_at'].includes(type);
+    }
+
+    static conditionSignal(mod) {
+      const p = mod.params || {};
+      return p.condSignal || p.listenSignal || p.inputSignal || '*';
+    }
+
+    static resolveConditionMode(mod) {
+      const p = mod.params || {};
+      const m = p.conditionMode || 'auto';
+      if (m !== 'auto') return m;
+      return ModuleEngine.instantCondition(p.condition) && ModuleEngine.continuousModule(mod.type) ? 'latch' : 'while';
     }
 
     evaluateCondition(mod, sprite, bus) {
       const cond = mod.params?.condition || 'always';
       if (cond === 'always') return true;
+      const raw = this.rawCondition(mod, sprite, bus, cond);
+      const mode = ModuleEngine.resolveConditionMode(mod);
+      const rt = sprite.runtime;
+      rt._cond = rt._cond || {};
+      const st = rt._cond[mod.id] || (rt._cond[mod.id] = { on: false, prev: false, until: -1, sig: null });
+      // Rising edge; for signals a new emission counts even while still fresh.
+      let fired = raw && !st.prev;
+      if (cond === 'on_signal') {
+        const t = bus.signalTime ? bus.signalTime(ModuleEngine.conditionSignal(mod)) : null;
+        fired = t !== null && t !== st.sig;
+        if (t !== null) st.sig = t;
+      }
+      st.prev = raw;
+      let out;
+      if (mode === 'latch') { if (fired) st.on = true; out = st.on; }
+      else if (mode === 'toggle') { if (fired) st.on = !st.on; out = st.on; }
+      else if (mode === 'duration') {
+        if (fired) st.until = bus.time + Math.max(0.05, Number(mod.params?.conditionDuration) || 1);
+        out = bus.time < st.until;
+      } else out = raw;
+      st.active = out;
+      st.lastFired = fired ? bus.time : st.lastFired;
+      return out;
+    }
+
+    rawCondition(mod, sprite, bus, cond) {
       if (cond === 'on_click') return bus.mouse.clicked && sprite.runtime.isHovered;
       if (cond === 'on_hover') return sprite.runtime.isHovered;
       if (cond === 'key_press') {
-        const targetK = mod.params?.targetKey || 'Space';
+        const targetK = mod.params?.condKey || mod.params?.targetKey || 'Space';
         return !!bus.keyState[targetK];
       }
       if (cond === 'timeline_active') {
-        const sf = mod.params?.startFrame || 0;
-        const ef = mod.params?.endFrame || this.doc.totalFrames;
+        const sf = Number(mod.params?.condStartFrame ?? mod.params?.startFrame) || 0;
+        const ef = Number(mod.params?.condEndFrame ?? mod.params?.endFrame) || this.doc.totalFrames;
         return this.doc.currentFrame >= sf && this.doc.currentFrame <= ef;
       }
       if (cond === 'on_trigger') {
-        if (sprite.runtime && sprite.runtime.isTriggered) return true;
+        if (sprite.runtime && (sprite.runtime.isTriggered || sprite.runtime.wasTriggered)) return true;
         if (bus.activeTriggerTargets && bus.activeTriggerTargets.has(sprite.id)) return true;
         if (mod.params?.triggerId && bus.activeTriggers && bus.activeTriggers.has(mod.params.triggerId)) return true;
         return false;
       }
-      if (cond === 'on_signal') {
-        const sName = mod.params?.listenSignal || mod.params?.inputSignal || '*';
-        return bus.hasSignal(sName);
-      }
+      if (cond === 'on_signal') return bus.hasSignal(ModuleEngine.conditionSignal(mod));
       if (cond === 'on_toggle') {
         return sprite.runtime && sprite.runtime.toggleState !== false;
       }
       return true;
     }
 
-    update(dt, mw, ms, isDown, clicked) {
+    // pressPos: document coords where the button went down (a click can be
+    // processed a frame after the pointer already moved on).
+    update(dt, mw, ms, isDown, clicked, pressPos = null) {
       if (!this.active) return;
+      this._frame = (this._frame || 0) + 1;
+      // Trigger flags live for one frame (kept one more as wasTriggered so
+      // modules evaluated earlier in the next frame still see them).
+      for (const layer of this.doc.layers) {
+        for (const sp of layer.sprites) {
+          if (!sp.runtime) continue;
+          sp.runtime.wasTriggered = !!sp.runtime.isTriggered;
+          sp.runtime.isTriggered = false;
+        }
+      }
+      this.bus.hideCursor = false;
+      if (this.bus.fade && this.bus.time + dt - this.bus.fade.start > this.bus.fade.duration) this.bus.fade = null;
+      if (this._pendingNavs.length) {
+        const due = this._pendingNavs.filter(n => n.at <= this.bus.time);
+        this._pendingNavs = this._pendingNavs.filter(n => n.at > this.bus.time);
+        for (const n of due) if (typeof this.onNavigateAnchor === 'function') this.onNavigateAnchor(n.sprite, n.opts);
+      }
+
+      // Wheel delta accumulated by the host since the last frame.
+      this.bus.scroll.deltaY = this._pendingWheel || 0;
+      this._pendingWheel = 0;
+      this.bus.mouse.pressX = pressPos ? pressPos.x : mw.x;
+      this.bus.mouse.pressY = pressPos ? pressPos.y : mw.y;
       this.bus.time += dt;
       const prevX = this.bus.mouse.x, prevY = this.bus.mouse.y;
       this.bus.mouse.x = mw.x; this.bus.mouse.y = mw.y;
@@ -2939,14 +4413,20 @@
       this.bus.activeTriggers.clear();
       this.bus.activeTriggerTargets.clear();
 
+      // Scale is a per-frame effect (pulse modules / pulse triggers set it every
+      // frame they are active); reset it so it returns to rest when they stop.
+      for (const layer of this.doc.layers) {
+        for (const sprite of layer.sprites) {
+          if (!sprite.runtime) continue;
+          sprite.runtime.scaleX = sprite.scaleX;
+          sprite.runtime.scaleY = sprite.scaleY;
+        }
+      }
+
       // Free dragging
       if (this.draggedSprite) {
-        if (this.bus.mouse.isDown) {
-          this.draggedSprite.runtime.x = this.bus.mouse.x - this.dragOffset.x;
-          this.draggedSprite.runtime.y = this.bus.mouse.y - this.dragOffset.y;
-        } else {
-          this.draggedSprite = null;
-        }
+        if (this.bus.mouse.isDown) this.applyDragPosition(this.bus.mouse.x, this.bus.mouse.y);
+        else this.endDrag(this.bus.mouse.x, this.bus.mouse.y);
       }
 
       // Update particles
@@ -3039,12 +4519,25 @@
         for (const sprite of layer.sprites) {
           if (!sprite.visible) continue;
 
-          for (const mod of (sprite.modules || [])) {
+          // Module stack context: modules run top to bottom; timing modules can
+          // close the gate for the modules below them, settings modules
+          // (loop_mode, easing_presets) configure them, and value modules pass
+          // a number down the stack (ctx.value).
+          const ctx = { value: 0, loopMode: null, easing: null, gateOpen: true, index: layer.sprites.indexOf(sprite) };
+          const rest = { x: sprite.runtime.x, y: sprite.runtime.y, rotation: sprite.runtime.rotation,
+            scaleX: sprite.runtime.scaleX, scaleY: sprite.runtime.scaleY, opacity: sprite.runtime.opacity };
+
+          // Layer modules (added with the layer's +fx) apply to every sprite of
+          // the layer, before the sprite's own modules.
+          const stack = (layer.modules && layer.modules.length) ? [...layer.modules, ...(sprite.modules || [])] : (sprite.modules || []);
+          for (const mod of stack) {
             if (!mod.enabled) continue;
-            if (this.activeModuleIds && !this.activeModuleIds.has(mod.id)) continue;
+            if (this.disabledModuleIds && this.disabledModuleIds.has(mod.id)) continue;
+            if (!ctx.gateOpen) continue;
             if (!this.evaluateCondition(mod, sprite, this.bus)) continue;
 
             const p = mod.params || {};
+            const clock = this.moduleClock(sprite, mod);
 
             switch (mod.type) {
               case 'path_follower': {
@@ -3137,11 +4630,80 @@
               }
 
               case 'draggable':
-                if (this.bus.mouse.clicked && !this.draggedSprite && sprite.runtime.isHovered) {
+                if (this.bus.mouse.clicked && !this.draggedSprite &&
+                    this.isPointInside(this.bus.mouse.pressX, this.bus.mouse.pressY, sprite)) {
                   this.draggedSprite = sprite;
-                  this.dragOffset = { x: this.bus.mouse.x - sprite.runtime.x, y: this.bus.mouse.y - sprite.runtime.y };
+                  this.dragParams = p;
+                  this.dragOffset = { x: this.bus.mouse.pressX - sprite.runtime.x, y: this.bus.mouse.pressY - sprite.runtime.y };
+                  this.bus.emitSignal('drag_start', sprite.id);
                 }
                 break;
+
+              case 'hover_proximity': {
+                // Hover or within detectionRadius of the sprite edge: scale up and signal.
+                const radius = Math.max(0, parseFloat(p.detectionRadius) || 0);
+                const hw = (sprite.width * (sprite.scaleX || 1)) / 2 + radius;
+                const hh = (sprite.height * (sprite.scaleY || 1)) / 2 + radius;
+                const near = sprite.runtime.isHovered ||
+                  (Math.abs(this.bus.mouse.x - sprite.runtime.x) <= hw && Math.abs(this.bus.mouse.y - sprite.runtime.y) <= hh);
+                const target = near ? (parseFloat(p.scaleOnHover) || 1) : 1;
+                const cur = sprite.runtime._hoverScale || 1;
+                const next = cur + (target - cur) * Math.min(1, dt * 12);
+                sprite.runtime._hoverScale = next;
+                sprite.runtime.scaleX *= next;
+                sprite.runtime.scaleY *= next;
+                if (near && !sprite.runtime._wasNear) this.bus.emitSignal('hover_enter', sprite.id);
+                if (!near && sprite.runtime._wasNear) this.bus.emitSignal('hover_exit', sprite.id);
+                sprite.runtime._wasNear = near;
+                sprite.runtime.isTriggered = sprite.runtime.isTriggered || near;
+                break;
+              }
+
+              case 'click_gesture': {
+                // click / double_click / long_press on the sprite -> signal + short trigger pulse.
+                const rt = sprite.runtime;
+                const gesture = p.gestureType || 'click';
+                const hold = parseFloat(p.activeDuration) || 0.2;
+                let fired = false;
+                if (this.bus.mouse.clicked && rt.isHovered) {
+                  if (gesture === 'click') fired = true;
+                  if (gesture === 'double_click') {
+                    fired = rt._lastClickTime !== undefined && (this.bus.time - rt._lastClickTime) < 0.35;
+                    rt._lastClickTime = fired ? undefined : this.bus.time;
+                  }
+                  rt._pressStart = this.bus.time;
+                  rt._longFired = false;
+                }
+                if (gesture === 'long_press' && this.bus.mouse.isDown && rt.isHovered && rt._pressStart !== undefined &&
+                    !rt._longFired && (this.bus.time - rt._pressStart) >= 0.5) {
+                  fired = true;
+                  rt._longFired = true;
+                }
+                if (!this.bus.mouse.isDown) rt._pressStart = undefined;
+                if (fired) {
+                  rt._gestureUntil = this.bus.time + hold;
+                  this.bus.emitSignal(p.signalName || ('gesture_' + gesture), sprite.id);
+                }
+                if (rt._gestureUntil !== undefined && this.bus.time <= rt._gestureUntil) {
+                  rt.isTriggered = true;
+                  this.bus.activeTriggerTargets.add(sprite.id);
+                }
+                break;
+              }
+
+              case 'keyboard_trigger': {
+                // Arrow keys / WASD move the sprite; any configured key emits a signal.
+                const speed = parseFloat(p.moveSpeed) || 5;
+                const k = this.bus.keyState;
+                const step = speed * 60 * dt;
+                if (k.ArrowLeft || k.KeyA) sprite.runtime.x -= step;
+                if (k.ArrowRight || k.KeyD) sprite.runtime.x += step;
+                if (k.ArrowUp || k.KeyW) sprite.runtime.y -= step;
+                if (k.ArrowDown || k.KeyS) sprite.runtime.y += step;
+                const tk = p.targetKey || 'ArrowRight';
+                if (k[tk]) this.bus.emitSignal('key_' + tk, sprite.id);
+                break;
+              }
 
               case 'screen_trigger':
                 // Already evaluated in Phase 1
@@ -3232,7 +4794,7 @@
                       sprite.runtime.counterValue = p.startVal || 0;
                       this.bus.emitSignal('counter_max', sprite.id);
                     }
-                    if (sprite.type === 'text') sprite.text = String(sprite.runtime.counterValue);
+                    if (sprite.type === 'text') { sprite.text = String(sprite.runtime.counterValue); sprite._wrapCache = null; }
                     this.bus.emitSignal('counter_tick', sprite.id, sprite.runtime.counterValue);
                   }
                 }
@@ -3251,7 +4813,10 @@
                 const mode = p.trackMode || 'spring';
                 const st = parseFloat(p.stiffness !== undefined ? p.stiffness : 0.1);
                 const dp = parseFloat(p.damping !== undefined ? p.damping : 0.8);
-                const maxS = parseFloat(p.maxSpeed !== undefined ? p.maxSpeed : 15);
+                // constantSpeed is px/sec (registry); maxSpeed is the legacy px/frame cap.
+                const maxS = p.constantSpeed !== undefined ? parseFloat(p.constantSpeed) * dt : parseFloat(p.maxSpeed !== undefined ? p.maxSpeed : 15);
+                const axis = p.followAxis || 'both';
+                const baseX = sprite.runtime.x, baseY = sprite.runtime.y;
                 const ox = parseFloat(p.offsetX || 0);
                 const oy = parseFloat(p.offsetY || 0);
                 const destX = tx + ox, destY = ty + oy;
@@ -3262,7 +4827,7 @@
                   sprite.runtime.x = destX;
                   sprite.runtime.y = destY;
                 } else if (mode === 'lerp') {
-                  const factor = Math.min(1, Math.max(0, st * 2));
+                  const factor = Math.min(1, Math.max(0, p.smoothSpeed !== undefined ? parseFloat(p.smoothSpeed) : st * 2));
                   sprite.runtime.x += dx * factor;
                   sprite.runtime.y += dy * factor;
                 } else if (mode === 'constant') {
@@ -3272,7 +4837,8 @@
                     sprite.runtime.y += (dy / dist) * step;
                   }
                 } else if (mode === 'orbit') {
-                  const spd = parseFloat(p.orbitSpeed || 2);
+                  // orbitSpeed is degrees per second
+                  const spd = parseFloat(p.orbitSpeed || 90) * Math.PI / 180;
                   const rad = parseFloat(p.orbitRadius || 80);
                   const angle = this.bus.time * spd;
                   sprite.runtime.x = tx + Math.cos(angle) * rad;
@@ -3283,6 +4849,9 @@
                   sprite.runtime.x += sprite.runtime.vx;
                   sprite.runtime.y += sprite.runtime.vy;
                 }
+
+                if (axis === 'x_only') sprite.runtime.y = baseY;
+                else if (axis === 'y_only') sprite.runtime.x = baseX;
 
                 if (p.rotateToTarget) {
                   sprite.runtime.rotation = Math.atan2(dy, dx) * 180 / Math.PI;
@@ -3321,6 +4890,7 @@
                   default: res = valA + valB; break;
                 }
                 p.outputResult = res;
+                ctx.value = res;
 
                 const tgt = p.targetParam || 'none';
                 if (tgt === 'x') sprite.runtime.x = res;
@@ -3399,9 +4969,13 @@
               }
 
               case 'shake_vibrate': {
+                // Jitter around the current position without accumulating drift.
                 const intensity = parseFloat(p.intensity || 8);
-                sprite.runtime.x += (Math.random() - 0.5) * intensity;
-                sprite.runtime.y += (Math.random() - 0.5) * intensity;
+                const prev = sprite.runtime._shake || { x: 0, y: 0 };
+                const next = { x: (Math.random() - 0.5) * intensity, y: (Math.random() - 0.5) * intensity };
+                sprite.runtime.x += next.x - prev.x;
+                sprite.runtime.y += next.y - prev.y;
+                sprite.runtime._shake = next;
                 break;
               }
 
@@ -3440,6 +5014,582 @@
                 break;
               }
 
+              // ---------------- Web interaction modules ----------------
+              case 'scroll_progress': {
+                const prog = p.range === 'element' ? this.elementProgress(sprite) : this.scrollProgress();
+                const e = ModuleEngine.ease(p.easing || 'linear', prog);
+                const from = parseFloat(p.fromValue) || 0;
+                const to = parseFloat(p.toValue);
+                const val = from + ((isFinite(to) ? to : from) - from) * e;
+                const prop = p.property || 'y';
+                if (p.outputMode === 'absolute') ModuleEngine.setProp(sprite, prop, val);
+                else this.offsetProp(sprite, mod, prop, val);
+                ctx.value = prog;
+                break;
+              }
+
+              case 'entrance_animation': {
+                const rt = sprite.runtime;
+                const start = this.startTime(sprite, mod, p, p.once === false);
+                const dur = Math.max(0.01, parseFloat(p.duration) || 0.7);
+                const t = start === null ? -1 : this.bus.time - start - (parseFloat(p.delay) || 0);
+                const prog = t < 0 ? 0 : ModuleEngine.ease(p.easing || 'easeOutCubic', Math.min(1, t / dur));
+                const inv = 1 - prog;
+                const dist = parseFloat(p.distance);
+                const d = isFinite(dist) ? dist : 40;
+                let ox = 0, oy = 0, orot = 0;
+                switch (p.effect) {
+                  case 'fade_down': oy = -d * inv; break;
+                  case 'fade_in': break;
+                  case 'slide_left': ox = -d * inv; break;
+                  case 'slide_right': ox = d * inv; break;
+                  case 'zoom_in': rt.scaleX *= 0.6 + 0.4 * prog; rt.scaleY *= 0.6 + 0.4 * prog; break;
+                  case 'zoom_out': rt.scaleX *= 1.4 - 0.4 * prog; rt.scaleY *= 1.4 - 0.4 * prog; break;
+                  case 'rotate_in': orot = -15 * inv; oy = d * 0.5 * inv; break;
+                  default: oy = d * inv; // fade_up
+                }
+                this.offsetProp(sprite, mod, 'x', ox);
+                this.offsetProp(sprite, mod, 'y', oy);
+                this.offsetProp(sprite, mod, 'rotation', orot);
+                this.offsetProp(sprite, mod, 'opacity', -(sprite.opacity ?? 1) * inv);
+                ctx.value = prog;
+                break;
+              }
+
+              case 'state_style': {
+                const rt = sprite.runtime, m = this.bus.mouse;
+                if (!rt._ssBase) {
+                  const lbl = (sprite.modules || []).find(x => x.type === 'text_label' && x.enabled !== false);
+                  rt._ssBase = { fill: sprite.fill, stroke: sprite.stroke, textColor: sprite.textColor, label: lbl ? lbl.params?.color : undefined };
+                }
+                const hovered = !!rt.isHovered && !this.draggedSprite;
+                const pressed = hovered && m.isDown && this.isPointInside(m.pressX, m.pressY, sprite);
+                const k = Math.min(1, dt / Math.max(0.01, parseFloat(p.transition) || 0.15));
+                rt._ssH = (rt._ssH || 0) + ((hovered ? 1 : 0) - (rt._ssH || 0)) * k;
+                rt._ssP = (rt._ssP || 0) + ((pressed ? 1 : 0) - (rt._ssP || 0)) * k;
+                const h = rt._ssH, pr = rt._ssP, base = rt._ssBase;
+                const mix = ModuleEngine.mixColor;
+                if (p.hoverFill || p.pressFill) sprite.fill = mix(mix(base.fill, p.hoverFill, p.hoverFill ? h : 0), p.pressFill, p.pressFill ? pr : 0);
+                if (p.hoverStroke) sprite.stroke = mix(base.stroke, p.hoverStroke, h);
+                if (p.hoverTextColor) {
+                  const lbl = (sprite.modules || []).find(x => x.type === 'text_label' && x.enabled !== false);
+                  if (lbl) lbl.params.color = mix(base.label || '#ffffff', p.hoverTextColor, h);
+                  else if (sprite.type === 'text') sprite.fill = mix(base.fill, p.hoverTextColor, h);
+                  else sprite.textColor = mix(base.textColor || '#ffffff', p.hoverTextColor, h);
+                }
+                const hs = parseFloat(p.hoverScale), ps = parseFloat(p.pressScale);
+                let sc = 1 + ((isFinite(hs) ? hs : 1) - 1) * h;
+                sc += ((isFinite(ps) ? ps : sc) - sc) * pr;
+                rt.scaleX *= sc; rt.scaleY *= sc;
+                ctx.value = h;
+                break;
+              }
+
+              case 'count_up': {
+                const start = this.startTime(sprite, mod, p);
+                const from = parseFloat(p.from) || 0, to = parseFloat(p.to);
+                const dur = Math.max(0.01, parseFloat(p.duration) || 1.6);
+                const prog = start === null ? 0 : Math.min(1, (this.bus.time - start) / dur);
+                const v = from + ((isFinite(to) ? to : from) - from) * ModuleEngine.ease(p.easing || 'easeOutCubic', prog);
+                const shown = prog >= 1 ? (isFinite(to) ? to : from) : v;
+                ModuleEngine.setText(sprite, (p.prefix || '') + ModuleEngine.formatNumber(shown, p.decimals, p.separator !== false) + (p.suffix || ''));
+                ctx.value = shown;
+                break;
+              }
+
+              case 'typewriter': {
+                const rt = sprite.runtime;
+                if (rt._twFull === undefined) rt._twFull = ModuleEngine.getText(sprite);
+                const chars = Array.from(rt._twFull);
+                const start = this.startTime(sprite, mod, p);
+                const cps = Math.max(1, parseFloat(p.charsPerSec) || 14);
+                const t = start === null ? -1 : this.bus.time - start - (parseFloat(p.startDelay) || 0);
+                let n = 0, typing = false;
+                if (t >= 0) {
+                  const typeT = chars.length / cps, hold = Math.max(0, parseFloat(p.holdSec) || 0), delT = typeT / 2;
+                  if (p.loop) {
+                    const cyc = typeT + hold + delT + 0.4;
+                    const u = t % cyc;
+                    if (u < typeT) { n = Math.floor(u * cps); typing = true; }
+                    else if (u < typeT + hold) n = chars.length;
+                    else if (u < typeT + hold + delT) { n = Math.max(0, chars.length - Math.floor((u - typeT - hold) * cps * 2)); typing = true; }
+                    else n = 0;
+                  } else {
+                    n = Math.min(chars.length, Math.floor(t * cps));
+                    typing = n < chars.length;
+                  }
+                }
+                const blinkOn = typing || Math.floor(this.bus.time * 2) % 2 === 0;
+                const cursor = p.cursor && blinkOn ? p.cursor : '';
+                ModuleEngine.setText(sprite, chars.slice(0, n).join('') + cursor);
+                ctx.value = n;
+                break;
+              }
+
+              case 'magnetic': {
+                const rt = sprite.runtime, m = this.bus.mouse;
+                const radius = Math.max(1, parseFloat(p.radius) || 120);
+                // Measure from the position without this module's own pull.
+                const offs = rt._offs || {};
+                const dx = m.x - (rt.x - (offs[mod.id + ':x'] || 0)), dy = m.y - (rt.y - (offs[mod.id + ':y'] || 0));
+                const d = Math.hypot(dx, dy);
+                const str = Math.max(0, Math.min(1, parseFloat(p.strength) || 0));
+                const tx = d < radius ? dx * str : 0, ty = d < radius ? dy * str : 0;
+                const k = Math.max(0.01, Math.min(1, parseFloat(p.smoothing) || 0.18));
+                rt._magX = (rt._magX || 0) + (tx - (rt._magX || 0)) * k;
+                rt._magY = (rt._magY || 0) + (ty - (rt._magY || 0)) * k;
+                this.offsetProp(sprite, mod, 'x', rt._magX);
+                this.offsetProp(sprite, mod, 'y', rt._magY);
+                ctx.value = d < radius ? 1 - d / radius : 0;
+                break;
+              }
+
+              case 'cursor_fx': {
+                const rt = sprite.runtime, m = this.bus.mouse;
+                const inside = m.x > -1e8 && m.y > -1e8;
+                if (p.mode === 'cursor') {
+                  rt._isCursor = true;
+                  if (inside) {
+                    const lag = Math.max(0, Math.min(0.95, parseFloat(p.lag) || 0));
+                    if (rt._cx === undefined) { rt._cx = m.x; rt._cy = m.y; }
+                    rt._cx += (m.x - rt._cx) * (1 - lag);
+                    rt._cy += (m.y - rt._cy) * (1 - lag);
+                    rt.x = rt._cx; rt.y = rt._cy;
+                    this.bus.hideCursor = true;
+                  }
+                  // Hidden while the pointer is outside the canvas.
+                  this.offsetProp(sprite, mod, 'opacity', inside ? 0 : -(sprite.opacity ?? 1));
+                } else if (inside && Math.hypot(m.vx, m.vy) > 5 && this.bus.particles.length < 600) {
+                  this.bus.particles.push({
+                    x: m.x, y: m.y, vx: 0, vy: 0, color: p.color || '#e4e4e7',
+                    size: Math.max(0.5, parseFloat(p.size) || 5), life: 1, maxLife: Math.max(0.05, parseFloat(p.lifetime) || 0.5)
+                  });
+                }
+                break;
+              }
+
+              case 'property_binding': {
+                const src = p.targetSpriteId ? this.doc.findSpriteById(p.targetSpriteId) : null;
+                if (!src || src === sprite) break;
+                const v = ModuleEngine.getProp(src, p.sourceProperty || 'x');
+                if (!isFinite(v)) break;
+                const f = parseFloat(p.factor);
+                const out = v * (isFinite(f) ? f : 1) + (parseFloat(p.offset) || 0);
+                ModuleEngine.setProp(sprite, p.targetProperty || 'x', out);
+                ctx.value = out;
+                break;
+              }
+
+              case 'condition_branch': {
+                const rt = sprite.runtime;
+                const v = this.readInput(p.inputSource || 'stack', p, sprite, ctx, clock);
+                const th = parseFloat(p.threshold) || 0;
+                let ok;
+                switch (p.compare) {
+                  case '>': ok = v > th; break;
+                  case '<': ok = v < th; break;
+                  case '<=': ok = v <= th; break;
+                  case '==': ok = Math.abs(v - th) < 1e-9; break;
+                  case '!=': ok = Math.abs(v - th) >= 1e-9; break;
+                  default: ok = v >= th;
+                }
+                const key = '_if_' + mod.id;
+                if (rt[key] !== ok) {
+                  if (ok && p.signalTrue) this.bus.emitSignal(p.signalTrue, sprite.id, v);
+                  if (!ok && rt[key] !== undefined && p.signalFalse) this.bus.emitSignal(p.signalFalse, sprite.id, v);
+                  rt[key] = ok;
+                }
+                if (ok) { rt.isTriggered = true; }
+                if (!ok && p.gateBelow !== false) ctx.gateOpen = false;
+                ctx.value = ok ? 1 : 0;
+                break;
+              }
+
+              case 'global_variable': {
+                const vars = this.bus.vars, name = String(p.varName || 'var');
+                if (!vars.has(name)) {
+                  const iv = parseFloat(p.initialValue);
+                  vars.set(name, isFinite(iv) ? iv : 0);
+                }
+                if (p.action && p.action !== 'read' && this.shouldFire(sprite, mod, p, 'fireOn')) {
+                  const cur = Number(vars.get(name)) || 0;
+                  const val = parseFloat(p.value);
+                  const k = isFinite(val) ? val : 0;
+                  if (p.action === 'set') vars.set(name, k);
+                  else if (p.action === 'toggle') vars.set(name, cur ? 0 : 1);
+                  else vars.set(name, cur + k);
+                  this.bus.emitSignal('var_' + name, sprite.id, vars.get(name));
+                }
+                const value = Number(vars.get(name)) || 0;
+                if (p.displayTemplate) {
+                  const shown = Number.isInteger(value) ? String(value) : value.toFixed(2);
+                  ModuleEngine.setText(sprite, String(p.displayTemplate).split('{value}').join(shown));
+                }
+                ctx.value = value;
+                break;
+              }
+
+              case 'physics_body': {
+                const rt = sprite.runtime;
+                if (this.draggedSprite === sprite) {
+                  // Held by a draggable module: remember the throw velocity.
+                  const cap = 3000;
+                  rt.vx = Math.max(-cap, Math.min(cap, this.bus.mouse.vx));
+                  rt.vy = Math.max(-cap, Math.min(cap, this.bus.mouse.vy));
+                  rt._px = rt.x; rt._py = rt.y;
+                  break;
+                }
+                if (rt._px === undefined) { rt._px = rt.x; rt._py = rt.y; rt.vx = rt.vx || 0; rt.vy = rt.vy || 0; }
+                const g = parseFloat(p.gravity);
+                rt.vy += (isFinite(g) ? g : 900) * dt;
+                rt._px += rt.vx * dt;
+                rt._py += rt.vy * dt;
+                if (p.collideEdges !== false) {
+                  const hw = Math.abs(sprite.width * rt.scaleX) / 2, hh = Math.abs(sprite.height * rt.scaleY) / 2;
+                  const W = this.doc.width || 800, H = this.doc.height || 600;
+                  const bounce = Math.max(0, Math.min(1, parseFloat(p.bounce) || 0));
+                  if (rt._py + hh > H) {
+                    rt._py = H - hh;
+                    rt.vy = Math.abs(rt.vy) < 40 ? 0 : -Math.abs(rt.vy) * bounce;
+                    const fr = Math.max(0, Math.min(1, parseFloat(p.friction) || 0));
+                    rt.vx *= Math.pow(1 - fr, dt * 60);
+                    if (Math.abs(rt.vx) < 2) rt.vx = 0;
+                  }
+                  if (rt._py - hh < 0) { rt._py = hh; rt.vy = Math.abs(rt.vy) * bounce; }
+                  if (rt._px - hw < 0) { rt._px = hw; rt.vx = Math.abs(rt.vx) * bounce; }
+                  if (rt._px + hw > W) { rt._px = W - hw; rt.vx = -Math.abs(rt.vx) * bounce; }
+                }
+                rt.x = rt._px; rt.y = rt._py;
+                ctx.value = Math.hypot(rt.vx, rt.vy);
+                break;
+              }
+
+              case 'audio_reactive': {
+                const rt = sprite.runtime;
+                const src = p.source === 'document' ? 'document' : 'microphone';
+                if (src === 'microphone') ModuleEngine.requestMicrophone();
+                else ModuleEngine.audioContext();
+                const raw = Math.min(1, ModuleEngine.audioLevel(src) * (parseFloat(p.sensitivity) || 1));
+                const k = 1 - Math.max(0, Math.min(0.98, parseFloat(p.smoothing) || 0));
+                rt._lvl = (rt._lvl || 0) + (raw - (rt._lvl || 0)) * k;
+                const lo = parseFloat(p.minValue) || 0, hi = parseFloat(p.maxValue);
+                const val = lo + ((isFinite(hi) ? hi : 1) - lo) * rt._lvl;
+                const prop = p.property || 'scale';
+                // Position properties move relative to the sprite's place.
+                if (prop === 'x' || prop === 'y') this.offsetProp(sprite, mod, prop, val);
+                else ModuleEngine.setProp(sprite, prop, val);
+                ctx.value = rt._lvl;
+                break;
+              }
+
+              case 'form_submit':
+                if (this.shouldFire(sprite, mod, Object.assign({}, p, { trigger: 'click' }))) this.submitForm(sprite, layer, p);
+                break;
+
+              case 'custom_script':
+                this.runScript(sprite, mod, p, ctx, clock, dt);
+                break;
+
+              case 'scene_transition': {
+                if (!this.shouldFire(sprite, mod, p, 'fireOn')) break;
+                const dur = Math.max(0.05, parseFloat(p.duration) || 0.6);
+                if (p.action === 'url') {
+                  this.navigateHyperlink(String(p.url || ''), '_blank');
+                  break;
+                }
+                const tgt = p.targetSpriteId ? this.doc.findSpriteById(p.targetSpriteId) : null;
+                if (!tgt) break;
+                if (p.transition === 'fade') {
+                  this.bus.fade = { start: this.bus.time, duration: dur };
+                  this.queueNavigation(this.bus.time + dur / 2, tgt, { smooth: false });
+                } else {
+                  if (typeof this.onNavigateAnchor === 'function') this.onNavigateAnchor(tgt, { smooth: p.transition !== 'instant', duration: dur });
+                }
+                this.bus.emitSignal('scene_change', sprite.id, tgt.id);
+                break;
+              }
+
+              case 'mouse_tilt_3d': {
+                // 2D approximation of a card tilt: rotate toward the pointer and
+                // squash the axis facing away (perspective foreshortening).
+                const rt = sprite.runtime;
+                const hw = Math.max(1, sprite.width / 2), hh = Math.max(1, sprite.height / 2);
+                let nx = 0, ny = 0;
+                if (rt.isHovered) {
+                  nx = Math.max(-1, Math.min(1, (this.bus.mouse.x - rt.x) / hw));
+                  ny = Math.max(-1, Math.min(1, (this.bus.mouse.y - rt.y) / hh));
+                }
+                const k = Math.min(1, dt * 10);
+                rt._tnx = (rt._tnx || 0) + (nx - (rt._tnx || 0)) * k;
+                rt._tny = (rt._tny || 0) + (ny - (rt._tny || 0)) * k;
+                const maxTilt = parseFloat(p.maxTilt) || 20;
+                const strength = 800 / Math.max(100, parseFloat(p.perspective) || 800);
+                rt.tiltAngle = rt._tnx * rt._tny * maxTilt * 0.25 * strength;
+                const squash = maxTilt / 300 * strength;
+                rt.scaleX *= 1 - Math.abs(rt._tnx) * squash;
+                rt.scaleY *= 1 - Math.abs(rt._tny) * squash;
+                break;
+              }
+
+              // ---------------- Sensors ----------------
+              case 'mouse_position': {
+                const rt = sprite.runtime;
+                const k = Math.max(0.01, Math.min(1, parseFloat(p.smoothFactor) || 0.15));
+                const tx = this.bus.mouse.x, ty = this.bus.mouse.y;
+                if (rt._mx === undefined) { rt._mx = tx; rt._my = ty; }
+                rt._mx += (tx - rt._mx) * k;
+                rt._my += (ty - rt._my) * k;
+                const speed = Math.hypot(this.bus.mouse.vx, this.bus.mouse.vy);
+                rt._mspeed = (rt._mspeed || 0) + (speed - (rt._mspeed || 0)) * k;
+                const rel = p.coordinateMode !== 'absolute';
+                rt.mouseX = rel ? rt._mx - rt.x : rt._mx;
+                rt.mouseY = rel ? rt._my - rt.y : rt._my;
+                p.outputX = rt.mouseX; p.outputY = rt.mouseY; p.outputSpeed = rt._mspeed;
+                ctx.value = rt._mspeed;
+                if (speed > 20 && p.signalName) this.bus.emitSignal(p.signalName, sprite.id, { x: rt.mouseX, y: rt.mouseY });
+                break;
+              }
+
+              case 'scroll_wheel': {
+                const rt = sprite.runtime;
+                const lo = parseFloat(p.minVal) || 0;
+                const hi = p.maxVal !== undefined ? parseFloat(p.maxVal) : 100;
+                if (rt._wheel === undefined) rt._wheel = Math.max(lo, Math.min(hi, parseFloat(p.startVal) || lo));
+                const dy = this.bus.scroll.deltaY || 0;
+                if (dy && rt.isHovered) {
+                  rt._wheel = Math.max(lo, Math.min(hi, rt._wheel - dy * 0.05 * (parseFloat(p.sensitivity) || 1)));
+                  this.bus.emitSignal(dy < 0 ? 'wheel_up' : 'wheel_down', sprite.id, rt._wheel);
+                }
+                p.outputValue = rt._wheel;
+                ctx.value = rt._wheel;
+                break;
+              }
+
+              case 'collision_detector': {
+                const rt = sprite.runtime;
+                const box = sp => {
+                  const w = Math.abs(sp.width * (sp.runtime.scaleX ?? sp.scaleX ?? 1)) / 2;
+                  const h = Math.abs(sp.height * (sp.runtime.scaleY ?? sp.scaleY ?? 1)) / 2;
+                  return { x: sp.runtime.x, y: sp.runtime.y, w, h };
+                };
+                let targets;
+                if (p.targetSpriteId) targets = [this.doc.findSpriteById(p.targetSpriteId)].filter(Boolean);
+                else if (p.targetLayerId) targets = (this.doc.getLayer(p.targetLayerId)?.sprites || []).slice();
+                else targets = this.doc.layers.filter(l => l.visible).flatMap(l => l.sprites);
+                const a = box(sprite);
+                let hit = null;
+                for (const t of targets) {
+                  if (!t || t === sprite || !t.visible || t.type === 'screen_trigger' || t.runtime.visible === false) continue;
+                  const b = box(t);
+                  const ox = (a.w + b.w) - Math.abs(a.x - b.x);
+                  const oy = (a.h + b.h) - Math.abs(a.y - b.y);
+                  if (ox > 0 && oy > 0) { hit = { t, ox, oy, b }; break; }
+                }
+                if (hit) {
+                  rt.isTriggered = true;
+                  this.bus.activeTriggerTargets.add(sprite.id);
+                  if (!rt._colliding) this.bus.emitSignal(p.signalName || 'collision', sprite.id, hit.t.id);
+                  if (p.bounceBack !== false) {
+                    if (hit.ox < hit.oy) {
+                      rt.x += a.x < hit.b.x ? -hit.ox : hit.ox;
+                      if (rt.vx) rt.vx = Math.abs(rt.vx) * (a.x < hit.b.x ? -1 : 1);
+                    } else {
+                      rt.y += a.y < hit.b.y ? -hit.oy : hit.oy;
+                      if (rt.vy) rt.vy = Math.abs(rt.vy) * (a.y < hit.b.y ? -1 : 1);
+                    }
+                  }
+                }
+                rt._colliding = !!hit;
+                break;
+              }
+
+              case 'viewport_visibility': {
+                const rt = sprite.runtime;
+                const top = this.bus.scroll?.scrollY || 0;
+                const vh = this.doc.viewportHeight || this.doc.height || 900;
+                const hh = Math.abs(sprite.height * (rt.scaleY || 1)) / 2;
+                let visible = (rt.y + hh >= top) && (rt.y - hh <= top + vh);
+                if (p.triggerOnce && rt._seenOnce) visible = true;
+                if (visible && !rt._wasVisible) this.bus.emitSignal(p.signalName || 'visible', sprite.id);
+                if (visible) { rt._seenOnce = true; rt.isTriggered = true; this.bus.activeTriggerTargets.add(sprite.id); }
+                rt._wasVisible = visible;
+                break;
+              }
+
+              case 'timer_interval': {
+                const rt = sprite.runtime;
+                const iv = Math.max(0.05, parseFloat(p.intervalSec) || 1);
+                const t = p.autoStart === false ? clock : this.bus.time;
+                const ticks = Math.floor(t / iv);
+                if (rt._ticks === undefined) rt._ticks = p.autoStart === false ? 0 : ticks;
+                if (ticks > rt._ticks) {
+                  rt._ticks = ticks;
+                  rt._tickCount = (rt._tickCount || 0) + 1;
+                  this.bus.emitSignal(p.signalName || 'timer_tick', sprite.id, rt._tickCount);
+                  rt.isTriggered = true;
+                }
+                ctx.value = rt._tickCount || 0;
+                break;
+              }
+
+              // ---------------- Logic ----------------
+              case 'distance_rope': {
+                const rt = sprite.runtime;
+                let tx = this.bus.mouse.x, ty = this.bus.mouse.y;
+                const tgt = p.targetSpriteId ? this.doc.findSpriteById(p.targetSpriteId)
+                  : (p.targetLayerId ? this.doc.getLayer(p.targetLayerId)?.primarySprite : null);
+                if (tgt) { tx = tgt.runtime.x; ty = tgt.runtime.y; }
+                const maxD = Math.max(0, parseFloat(p.maxDistance) || 0);
+                const dx = rt.x - tx, dy = rt.y - ty;
+                const d = Math.hypot(dx, dy);
+                if (d > maxD && d > 0) {
+                  rt.x = tx + dx / d * maxD;
+                  rt.y = ty + dy / d * maxD;
+                }
+                ctx.value = Math.min(d, maxD);
+                break;
+              }
+
+              case 'value_remapper': {
+                const rt = sprite.runtime;
+                let v = this.readInput(p.inputSource, p, sprite, ctx, clock);
+                if (!isFinite(v)) v = 0;
+                const inMin = parseFloat(p.inMin) || 0, inMax = parseFloat(p.inMax);
+                const outMin = parseFloat(p.outMin) || 0, outMax = parseFloat(p.outMax);
+                let t = (isFinite(inMax) && inMax !== inMin) ? (v - inMin) / (inMax - inMin) : 0;
+                if (p.clamp !== false) t = Math.max(0, Math.min(1, t));
+                const out = outMin + t * ((isFinite(outMax) ? outMax : 1) - outMin);
+                p.outputResult = out;
+                ctx.value = out;
+                const prop = p.outputProperty || 'none';
+                if (prop !== 'none') {
+                  if (p.outputMode === 'offset') this.offsetProp(sprite, mod, prop, out);
+                  else ModuleEngine.setProp(sprite, prop, out);
+                }
+                break;
+              }
+
+              case 'node_math': {
+                const v = ctx.value, f = parseFloat(p.factor);
+                const k = isFinite(f) ? f : 1;
+                let r;
+                switch (p.op) {
+                  case 'add': r = v + k; break;
+                  case 'subtract': r = v - k; break;
+                  case 'divide': r = k !== 0 ? v / k : 0; break;
+                  case 'power': r = Math.pow(v, k); break;
+                  case 'min': r = Math.min(v, k); break;
+                  case 'max': r = Math.max(v, k); break;
+                  case 'clamp': r = Math.max(0, Math.min(k, v)); break;
+                  case 'modulo': r = k !== 0 ? v % k : 0; break;
+                  default: r = v * k;
+                }
+                ctx.value = r + (parseFloat(p.offset) || 0);
+                p.outputResult = ctx.value;
+                break;
+              }
+
+              case 'node_merge': {
+                const w = parseFloat(p.weight);
+                const k = isFinite(w) ? w : 1;
+                if (p.blendMode === 'value') {
+                  ctx.value *= k;
+                } else {
+                  // Scale the transform changes made by the modules above by `weight`.
+                  const rt = sprite.runtime;
+                  for (const key of ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity']) {
+                    rt[key] = rest[key] + (rt[key] - rest[key]) * k;
+                  }
+                  rt.opacity = Math.max(0, Math.min(1, rt.opacity));
+                }
+                break;
+              }
+
+              // ---------------- Motion / timing ----------------
+              case 'tween_interpolator': {
+                const prop = p.property || 'x';
+                const from = ModuleEngine.getProp(sprite, prop, true) ?? 0;
+                const to = parseFloat(p.toValue);
+                const prog = ModuleEngine.loopProgress(clock, parseFloat(p.duration) || 0, ctx.loopMode || 'once');
+                const e = ModuleEngine.ease(ctx.easing || p.easing || 'easeOutCubic', prog);
+                const val = from + ((isFinite(to) ? to : from) - from) * e;
+                ModuleEngine.setProp(sprite, prop, val);
+                ctx.value = val;
+                break;
+              }
+
+              case 'duration_delay': {
+                const delay = Math.max(0, parseFloat(p.delay) || 0);
+                const dur = Math.max(0, parseFloat(p.duration) || 0);
+                let t = clock;
+                if (ctx.loopMode === 'infinite' && dur > 0) t = t % (delay + dur);
+                else if (ctx.loopMode === 'pingpong' && dur > 0) { const c = delay + dur; const f = t % (2 * c); t = f > c ? 2 * c - f : f; }
+                ctx.gateOpen = t >= delay && (dur === 0 || t <= delay + dur);
+                break;
+              }
+
+              case 'stagger_domino': {
+                const delay = Math.max(0, ctx.index) * Math.max(0, parseFloat(p.staggerDelay) || 0);
+                ctx.gateOpen = clock >= delay;
+                break;
+              }
+
+              case 'step_sequencer': {
+                const rt = sprite.runtime;
+                const n = Math.max(1, Math.round(parseFloat(p.stepCount) || 1));
+                const iv = Math.max(0.05, parseFloat(p.stepInterval) || 0.5);
+                const raw = Math.floor(clock / iv);
+                let step;
+                if ((ctx.loopMode || 'infinite') === 'once') step = Math.min(n - 1, raw);
+                else if (ctx.loopMode === 'pingpong' && n > 1) { const f = raw % (2 * n - 2); step = f < n ? f : 2 * n - 2 - f; }
+                else step = raw % n;
+                if (step !== rt.step) {
+                  rt.step = step;
+                  this.bus.emitSignal((p.signalPrefix || 'step_') + step, sprite.id, step);
+                }
+                ctx.value = step;
+                break;
+              }
+
+              case 'easing_presets':
+                ctx.easing = p.curve || 'easeOutCubic';
+                break;
+
+              case 'loop_mode':
+                ctx.loopMode = p.mode || 'infinite';
+                break;
+
+              // ---------------- Audio ----------------
+              case 'synth_sfx':
+                if (this.shouldFire(sprite, mod, p)) ModuleEngine.playSynth(p.sound || 'pop', p.volume !== undefined ? parseFloat(p.volume) : 0.6);
+                break;
+
+              case 'audio_clip': {
+                if (!this.shouldFire(sprite, mod, p)) break;
+                const url = String(p.audioUrl || '').trim();
+                const ok = safeUrl(url) || /^data:audio\//i.test(url);
+                if (!url || !ok || typeof Audio === 'undefined') break;
+                const rt = sprite.runtime;
+                if (!rt._audio || rt._audioSrc !== url) {
+                  rt._audio = new Audio(url);
+                  rt._audioSrc = url;
+                  // Same-origin / data: audio is routed through the analyser so
+                  // audio_reactive can follow it (cross-origin audio would be muted).
+                  try {
+                    const sameOrigin = /^data:/i.test(url) || new URL(url, location.href).origin === location.origin;
+                    const ac = sameOrigin ? ModuleEngine.audioContext() : null;
+                    if (ac) ac.createMediaElementSource(rt._audio).connect(ModuleEngine._master);
+                  } catch (_) {}
+                }
+                ModuleEngine.resumeAudio();
+                rt._audio.volume = Math.max(0, Math.min(1, p.volume !== undefined ? parseFloat(p.volume) : 0.8));
+                rt._audio.loop = !!p.loop;
+                try { rt._audio.currentTime = 0; } catch (_) {}
+                const pr = rt._audio.play();
+                if (pr && pr.catch) pr.catch(() => {});
+                break;
+              }
+
               case 'particle_emitter': {
                 if (Math.random() < (p.rate || 10) * dt) {
                   this.bus.particles.push({
@@ -3460,7 +5610,8 @@
     }
 
     isPointInside(wx, wy, sprite) {
-      const rad = (-sprite.rotation * Math.PI) / 180;
+      const rot = sprite.runtime && sprite.runtime.rotation !== undefined ? sprite.runtime.rotation : sprite.rotation;
+      const rad = (-(rot || 0) * Math.PI) / 180;
       const dx = wx - sprite.runtime.x, dy = wy - sprite.runtime.y;
       const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
       const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
@@ -3474,158 +5625,546 @@
   // 9. Photoshop JS Exporter (Pure Vanilla HTML5 Canvas 2D)
   // ==========================================================================
   class PhotoshopJSExporter {
-    static generateJS(doc, activeModuleIds = null) {
-      const docData = JSON.stringify(doc.toJSON(), null, 2);
+    // The exported player embeds the studio's own model and renderer classes
+    // (Sprite, Layer, DocumentModel, PhotoshopCanvas) via their source text, so
+    // the output is drawn by exactly the same code as the studio canvas:
+    // shapes, paths, brush strokes, text and text_label modules, gradients,
+    // images, filters, masks and timeline keyframes.
+    static getRuntimeSource(withEngine = true) {
+      const parts = [safeUrl, Sprite, Layer, DocumentModel, PhotoshopCanvas];
+      if (withEngine) parts.push(FormRuntime, ModuleEngine);
+      let src = parts.map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
+      if (!withEngine) {
+        // Documents without interactive modules: a small stand-in with only the
+        // hit-testing and link navigation the player needs.
+        const P = ModuleEngine.prototype;
+        const methods = [P.pickSprite, P.getClickLink, P.isPointInside, P.navigateHyperlink].map(f => f.toString()).join('\n');
+        src += '\nclass ModuleEngine {\n' +
+          'constructor(doc) { this.doc = doc; this.active = false; this.disabledModuleIds = null; this.draggedSprite = null; this.onNavigateAnchor = null;' +
+          ' this.bus = { particles: [], fade: null, hideCursor: false, keyState: {}, scroll: {}, mouse: {} }; }\n' +
+          'start() { this.active = true; }\nupdate() {}\nendDrag() {}\nwantsWheel() { return false; }\naddWheel() {}\nstatic resumeAudio() {}\n' +
+          PhotoshopJSExporter.compactSource(methods) + '\n}';
+      }
+      return src;
+    }
+
+    // Runtime for the HTML/CSS website export: the studio's ModuleEngine drives
+    // the exported DOM elements (one per sprite, matched by data-sid). Each
+    // frame applies runtime transforms, opacity, colours, text and filters;
+    // particles and the scene fade are drawn on an overlay canvas.
+    static webRuntimeScript(doc, disabledModuleIds) {
+      const data = jsonForScript(doc.toJSON());
+      const disabled = jsonForScript(disabledModuleIds ? [...disabledModuleIds] : []);
+      const engineSrc = [safeUrl, Sprite, Layer, DocumentModel, FormRuntime, ModuleEngine].map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
+      const player = function () {
+        const artboard = document.getElementById('webArtboard');
+        if (!artboard) return;
+        const model = new DocumentModel();
+        model.loadFromData(DOC_DATA, false);
+        model.selectedSpriteIds = new Set();
+        const startView = (window.JSPenView && window.JSPenView.current) || 'desktop';
+        if (startView !== 'desktop' && model.hasView(startView)) model.switchView(startView);
+        model.setFrame(0);
+        for (const l of model.layers) l.resetRuntime();
+        const engine = new ModuleEngine(model);
+        engine.disabledModuleIds = new Set(DISABLED_MODULE_IDS);
+        engine.start();
+        // Form inputs are part of the exported markup: bind them by data-sid.
+        engine.forms = new FormRuntime(engine, {
+          container: artboard,
+          place: () => null,
+          existing: sp => artboard.querySelector('[data-sid="' + CSS.escape(sp.id) + '"]')
+        });
+
+        // Rest position of each element = the sprite's values in the current view.
+        const base = new Map();
+        const captureBase = () => { base.clear(); for (const l of model.layers) for (const s of l.sprites) base.set(s.id, { x: s.x, y: s.y, opacity: s.opacity }); };
+        captureBase();
+        const cssFilter = sp => {
+          const out = [];
+          const srcs = [];
+          if (sp.filters) srcs.push(sp.filters);
+          for (const m of sp.modules || []) if (m.enabled !== false && m.showInRender !== false && m.type === 'photoshop_filter' && m.params) srcs.push(m.params);
+          for (const f of srcs) {
+            if (f.blur) out.push('blur(' + Math.max(0, f.blur) + 'px)');
+            if (f.brightness !== undefined && f.brightness !== 100) out.push('brightness(' + Math.max(0, f.brightness) + '%)');
+            if (f.contrast !== undefined && f.contrast !== 100) out.push('contrast(' + Math.max(0, f.contrast) + '%)');
+            if (f.saturate !== undefined && f.saturate !== 100) out.push('saturate(' + Math.max(0, f.saturate) + '%)');
+            if (f.grayscale) out.push('grayscale(' + Math.max(0, Math.min(100, f.grayscale)) + '%)');
+            if (f.sepia) out.push('sepia(' + Math.max(0, Math.min(100, f.sepia)) + '%)');
+            if (f.hueRotate) out.push('hue-rotate(' + f.hueRotate + 'deg)');
+            if (f.invert) out.push('invert(' + Math.max(0, Math.min(100, f.invert)) + '%)');
+            if (f.opacity !== undefined && f.opacity !== 100) out.push('opacity(' + Math.max(0, Math.min(100, f.opacity)) + '%)');
+          }
+          return out.join(' ');
+        };
+        const labelOf = sp => (sp.modules || []).find(m => m.type === 'text_label' && m.enabled !== false);
+        const snapshot = sp => {
+          const lbl = labelOf(sp);
+          return { fill: sp.fill, stroke: sp.stroke, color: lbl ? lbl.params && lbl.params.color : sp.textColor,
+            text: ModuleEngine.getText(sp), filter: cssFilter(sp) };
+        };
+        const transformOf = (sp, b) => {
+          const rt = sp.runtime;
+          return 'translate(' + (rt.x - b.x) + 'px,' + (rt.y - b.y) + 'px) rotate(' + (rt.rotation + (rt.tiltAngle || 0)) +
+            'deg) scale(' + rt.scaleX + ',' + rt.scaleY + ')';
+        };
+        const items = [];
+        for (const layer of model.layers) {
+          for (const sp of layer.sprites) {
+            const el = artboard.querySelector('[data-sid="' + CSS.escape(sp.id) + '"]');
+            const b = base.get(sp.id);
+            if (!el || !b) continue;
+            const hasText = sp.type === 'text' || !!labelOf(sp) || !!sp.text;
+            items.push({ sp, el, b, textEl: hasText && !el.querySelector('img,svg') ? el : null,
+              snap: snapshot(sp), transform: transformOf(sp, b), opacity: null, hidden: false });
+          }
+        }
+
+        // Overlay for particles and the scene fade.
+        const old = document.getElementById('jspenFx');
+        if (old) old.remove(); // a saved copy of this page may contain the previous overlay
+        const fx = document.createElement('canvas');
+        fx.id = 'jspenFx';
+        fx.width = model.width; fx.height = model.height;
+        fx.style.cssText = 'position:absolute;left:0;top:0;width:' + model.width + 'px;height:' + model.height + 'px;pointer-events:none;z-index:2147483000;';
+        artboard.appendChild(fx);
+        const fxCtx = fx.getContext('2d');
+        let fxDirty = false;
+
+        const scaleOf = r => (artboard.offsetWidth ? r.width / artboard.offsetWidth : 1);
+        engine.onNavigateAnchor = (sp, opts) => {
+          const r = artboard.getBoundingClientRect();
+          window.scrollTo({ top: window.scrollY + r.top + (sp.y - sp.height / 2) * scaleOf(r), behavior: opts && opts.smooth === false ? 'auto' : 'smooth' });
+        };
+
+        const pointer = { mw: { x: -1e9, y: -1e9 }, ms: { x: 0, y: 0 }, isDown: false, clicked: false, press: null };
+        const toDoc = e => {
+          const r = artboard.getBoundingClientRect(), s = scaleOf(r) || 1;
+          return { x: (e.clientX - r.left) / s, y: (e.clientY - r.top) / s, sx: e.clientX - r.left, sy: e.clientY - r.top };
+        };
+        window.addEventListener('pointermove', e => { const p = toDoc(e); pointer.mw = { x: p.x, y: p.y }; pointer.ms = { x: p.sx, y: p.sy }; });
+        document.addEventListener('mouseleave', () => { if (!pointer.isDown) pointer.mw = { x: -1e9, y: -1e9 }; });
+        artboard.addEventListener('pointerdown', e => {
+          if (e.button !== 0) return;
+          ModuleEngine.resumeAudio();
+          const p = toDoc(e);
+          pointer.mw = { x: p.x, y: p.y }; pointer.isDown = true; pointer.clicked = true; pointer.press = { x: p.x, y: p.y };
+          const hit = engine.pickSprite(p.x, p.y);
+          if (hit && (hit.modules || []).some(m => m.enabled !== false && m.type === 'draggable')) e.preventDefault();
+        });
+        window.addEventListener('pointerup', e => {
+          pointer.isDown = false;
+          const p = toDoc(e);
+          pointer.mw = { x: p.x, y: p.y };
+          engine.endDrag(p.x, p.y);
+        });
+        artboard.addEventListener('wheel', e => {
+          const p = toDoc(e);
+          if (engine.wantsWheel(p.x, p.y)) { e.preventDefault(); engine.addWheel(e.deltaY); }
+        }, { passive: false });
+        window.addEventListener('keydown', e => { engine.bus.keyState[e.code] = true; engine.bus.keyState[e.key] = true; });
+        window.addEventListener('keyup', e => { delete engine.bus.keyState[e.code]; delete engine.bus.keyState[e.key]; });
+        window.addEventListener('blur', () => { engine.bus.keyState = {}; pointer.isDown = false; });
+
+        const hasKeyframes = model.layers.some(l => l.sprites.some(s => s.keyframes && Object.keys(s.keyframes).some(k => Array.isArray(s.keyframes[k]) && s.keyframes[k].length > 0)));
+
+        // Elements driven by the runtime must not use the static CSS transition
+        // (it would make every frame lag ~0.2s behind, e.g. while dragging).
+        const own = it => { if (!it.owned) { it.el.style.transition = 'none'; it.owned = true; } };
+        const apply = () => {
+          for (const it of items) {
+            const sp = it.sp, rt = sp.runtime, el = it.el;
+            const t0 = transformOf(sp, it.b), o0 = Math.max(0, Math.min(1, rt.opacity)), s0 = snapshot(sp), p0 = it.snap;
+            if (t0 !== it.transform || (o0 !== it.opacity && (it.opacity !== null || o0 !== (it.b.opacity ?? 1))) ||
+                s0.fill !== p0.fill || s0.stroke !== p0.stroke || s0.color !== p0.color || s0.filter !== p0.filter) own(it);
+            const t = t0;
+            // important: responsive view rules use !important for positions
+            if (t !== it.transform) { el.style.setProperty('transform', t, 'important'); it.transform = t; }
+            const o = o0;
+            if (o !== it.opacity) { if (it.opacity !== null || o !== (it.b.opacity ?? 1)) el.style.setProperty('opacity', String(o), 'important'); it.opacity = o; }
+            const hidden = rt.visible === false || sp.visible === false;
+            if (hidden !== it.hidden) { el.style.visibility = hidden ? 'hidden' : ''; it.hidden = hidden; }
+            const s = s0, prev = p0;
+            if (s.fill !== prev.fill) {
+              if (sp.type === 'text') el.style.color = s.fill;
+              else if (sp.fillType !== 'linear-gradient') el.style.background = s.fill;
+            }
+            if (s.stroke !== prev.stroke && sp.strokeWidth > 0) el.style.borderColor = s.stroke;
+            if (s.color !== prev.color && s.color) el.style.color = s.color;
+            if (s.text !== prev.text && it.textEl) it.textEl.textContent = s.text;
+            if (s.filter !== prev.filter) el.style.filter = s.filter;
+            it.snap = s;
+          }
+          artboard.style.cursor = engine.bus.hideCursor ? 'none' : '';
+          const parts = engine.bus.particles, fade = engine.bus.fade;
+          if (parts.length || fade || fxDirty) {
+            fxCtx.clearRect(0, 0, fx.width, fx.height);
+            for (const p of parts) {
+              fxCtx.globalAlpha = Math.max(0, p.life);
+              fxCtx.fillStyle = p.color;
+              fxCtx.beginPath(); fxCtx.arc(p.x, p.y, p.size || 3, 0, Math.PI * 2); fxCtx.fill();
+            }
+            if (fade) {
+              const t = Math.max(0, Math.min(1, (engine.bus.time - fade.start) / fade.duration));
+              fxCtx.globalAlpha = 1 - Math.abs(2 * t - 1);
+              fxCtx.fillStyle = '#000000';
+              fxCtx.fillRect(0, 0, fx.width, fx.height);
+            }
+            fxCtx.globalAlpha = 1;
+            fxDirty = parts.length > 0 || !!fade;
+          }
+        };
+
+        let last = performance.now(), frameAcc = 0;
+        const step = (dt) => {
+          if (hasKeyframes && model.fps > 0) {
+            frameAcc += dt;
+            const iv = 1 / model.fps;
+            while (frameAcc >= iv) { frameAcc -= iv; model.stepFrame(1); }
+          }
+          const r = artboard.getBoundingClientRect(), s = scaleOf(r) || 1;
+          engine.bus.scroll.scrollY = Math.max(0, -r.top / s);
+          model.viewportHeight = window.innerHeight / s;
+          engine.update(dt, pointer.mw, pointer.ms, pointer.isDown, pointer.clicked, pointer.press);
+          pointer.clicked = false;
+          engine.forms.sync(model);
+          apply();
+        };
+        // Responsive view changes (window resize / preview toolbar).
+        window.addEventListener('jspen-view', e => {
+          const v = e.detail;
+          if (!model.hasView(v) && v !== 'desktop') return;
+          model.switchView(v);
+          for (const l of model.layers) l.resetRuntime();
+          captureBase();
+          engine.start();
+          for (const it of items) {
+            it.b = base.get(it.sp.id) || it.b;
+            it.el.style.transform = ''; it.el.style.opacity = ''; it.el.style.visibility = '';
+            it.transform = transformOf(it.sp, it.b); it.opacity = null; it.hidden = false; it.owned = false;
+            it.el.style.transition = '';
+          }
+        });
+
+        // First frame right away so entrance animations start hidden (no flash).
+        step(0);
+        const loop = now => {
+          const dt = Math.min((now - last) / 1000, 0.1);
+          last = now;
+          step(dt);
+          requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+        window.JSPenWebRuntime = { model, engine };
+      };
+      const code = '(function () {\n  \'use strict\';\n  const DOC_DATA = ' + data + ';\n  const DISABLED_MODULE_IDS = ' + disabled + ';\n' +
+        engineSrc + '\n  (' + player.toString() + ')();\n})();';
+      return code.replace(/<\/script/gi, '<\\/script');
+    }
+
+    // Does a document need the module engine at runtime? In the DOM website
+    // export (forDom) plain click links are real <a> elements and need none.
+    static needsEngine(doc, disabledModuleIds, forDom = false) {
+      const dis = disabledModuleIds || new Set();
+      const layers = doc.layers || [];
+      const passive = m => m.type === 'text_label' || m.type === 'substance_mask' ||
+        (forDom && m.type === 'hyperlink' && (m.params?.trigger || 'click') === 'click');
+      return layers.some(l => (l.sprites || []).some(s => s.type === 'screen_trigger' || s.type === 'form_field' || (!forDom && !!s.linkUrl) ||
+        (s.modules || []).some(m => m.enabled !== false && !passive(m) && !dis.has(m.id))));
+    }
+
+    static hasKeyframes(doc) {
+      return (doc.layers || []).some(l => (l.sprites || []).some(s => s.keyframes &&
+        Object.keys(s.keyframes).some(k => Array.isArray(s.keyframes[k]) && s.keyframes[k].length > 0)));
+    }
+
+    // Strip whole-line comments and indentation from embedded class sources
+    // (never inside multi-line template literals).
+    static compactSource(src) {
+      const out = [];
+      let inTemplate = false;
+      for (const line of src.split('\n')) {
+        const ticks = (line.replace(/\\`/g, '').match(/`/g) || []).length;
+        if (inTemplate) {
+          out.push(line);
+        } else {
+          const t = line.trim();
+          if (t && !t.startsWith('//')) out.push(t);
+        }
+        if (ticks % 2 === 1) inTemplate = !inTemplate;
+      }
+      return out.join('\n');
+    }
+
+    // Text and links of a document for accessible / indexable fallback content.
+    static fallbackItems(doc) {
+      const items = [];
+      for (const l of doc.layers || []) {
+        if (l.visible === false) continue;
+        for (const s of l.sprites || []) {
+          if (s.visible === false || s.type === 'screen_trigger') continue;
+          const lbl = (s.modules || []).find(m => m.type === 'text_label' && m.enabled !== false);
+          const text = String((s.type !== 'text' && lbl ? lbl.params?.text : s.text) || '').trim();
+          const link = (s.modules || []).find(m => m.type === 'hyperlink' && m.enabled !== false);
+          const href = safeUrl((link ? link.params?.url : s.linkUrl) || '');
+          if (!text && !href) continue;
+          items.push({ y: s.y || 0, x: s.x || 0, text: text || s.name || href, href: href && !href.startsWith('#') ? href : '' });
+        }
+      }
+      items.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+      return items.map(({ text, href }) => ({ text, href }));
+    }
+
+
+    // disabledModuleIds: modules disconnected from the Node Graph OUTPUT
+    // (defaults to the studio's current node graph).
+    static generateJS(doc, disabledModuleIds = undefined) {
+      const docData = jsonForScript(doc.toJSON(), 2);
+      if (disabledModuleIds === undefined) {
+        disabledModuleIds = (typeof window !== 'undefined' && window.jspenApp?.nodeEditor)
+          ? window.jspenApp.nodeEditor.getDisabledModuleIds() : null;
+      }
+      const disabledData = jsonForScript(disabledModuleIds ? [...disabledModuleIds] : []);
+      // Plain click links are handled by the small stand-in engine.
+      const withEngine = PhotoshopJSExporter.needsEngine(doc.toJSON(), disabledModuleIds, true);
+      const fallbackData = jsonForScript(PhotoshopJSExporter.fallbackItems(doc.toJSON()));
       return `/**
- * JSPen Studio - Zero-Discrepancy Vanilla Canvas 2D Engine
- * Exported pure JavaScript: 0 external dependencies!
+ * JSPen Studio - Exported Vanilla Canvas 2D Player
+ * Uses the same rendering engine as the studio. No external dependencies.
+ * Expects a <canvas id="viewportCanvas"> (or any <canvas>) on the page.
  */
-(function() {
+(function () {
   'use strict';
-  const doc = ${docData};
-  const canvas = document.getElementById('viewportCanvas') || document.querySelector('canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  canvas.width = doc.width;
-  canvas.height = doc.height;
+  const DOC_DATA = ${docData};
+  const DISABLED_MODULE_IDS = ${disabledData};
+  const FALLBACK = ${fallbackData};
 
-  const bus = {
-    mouse: { x: 0, y: 0, vx: 0, vy: 0, isDown: false, clicked: false },
-    time: 0
-  };
-  let prevX = 0, prevY = 0, frameAcc = 0;
-  let currentFrame = 0;
+  // ---- JSPen engine (identical to the studio) ----
+${this.getRuntimeSource(withEngine)}
 
-  for (const l of doc.layers) {
-    for (const s of l.sprites) {
-      s.runtime = { x: s.x, y: s.y, rotation: s.rotation, scaleX: s.scaleX, scaleY: s.scaleY, opacity: s.opacity, vx: 0, vy: 0 };
+  // ---- Player ----
+  class JSPenPlayerCanvas extends PhotoshopCanvas {
+    centerArtboard() { this.panX = 0; this.panY = 0; this.zoom = 1; }
+
+    drawSprite(ctx, sprite) {
+      // Editor-only helpers are not part of the output.
+      if (sprite.type === 'screen_trigger') return;
+      super.drawSprite(ctx, sprite);
+      // Images load asynchronously: redraw once they are ready.
+      const img = sprite._imgObj;
+      if (img && !img._jspenHooked) {
+        img._jspenHooked = true;
+        img.addEventListener('load', () => player.requestDraw());
+      }
     }
   }
 
-  canvas.addEventListener('mousemove', e => {
-    const r = canvas.getBoundingClientRect();
-    bus.mouse.x = (e.clientX - r.left) * (canvas.width / r.width);
-    bus.mouse.y = (e.clientY - r.top) * (canvas.height / r.height);
+  const canvas = document.getElementById('viewportCanvas') || document.querySelector('canvas');
+  if (!canvas) return;
+
+  // Accessible / indexable fallback: the document's text and links inside the
+  // canvas (exposed to screen readers, not painted).
+  if (!canvas.firstElementChild && FALLBACK.length) {
+    const box = document.createElement('div');
+    for (const item of FALLBACK) {
+      const el = document.createElement(item.href ? 'a' : 'p');
+      el.textContent = item.text;
+      if (item.href) el.href = item.href;
+      box.appendChild(el);
+    }
+    canvas.appendChild(box);
+  }
+  if (!canvas.getAttribute('aria-label')) canvas.setAttribute('aria-label', DOC_DATA.name || 'JSPen');
+
+  const model = new DocumentModel();
+  model.loadFromData(DOC_DATA, false);
+  model.selectedSpriteIds = new Set();
+
+  const renderer = new JSPenPlayerCanvas(canvas, model);
+  renderer.showRulers = false;
+  const ctx = renderer.ctx;
+  // Uploaded fonts: redraw (and re-wrap text) once they are loaded.
+  PhotoshopCanvas.loadDocumentFonts(model.fonts, () => {
+    for (const l of model.layers) for (const s of l.sprites) s._wrapCache = null;
+    player.requestDraw();
   });
-  canvas.addEventListener('mousedown', () => { bus.mouse.isDown = true; bus.mouse.clicked = true; });
-  window.addEventListener('mouseup', () => { bus.mouse.isDown = false; });
 
-  let lastTime = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-  function loop(now) {
-    const dt = Math.min((now - lastTime) / 1000, 0.1);
-    lastTime = now;
-    bus.time += dt;
-    bus.mouse.vx = (bus.mouse.x - prevX) / (dt || 0.016);
-    bus.mouse.vy = (bus.mouse.y - prevY) / (dt || 0.016);
-    prevX = bus.mouse.x; prevY = bus.mouse.y;
+  const hasKeyframes = model.layers.some(l => l.sprites.some(s =>
+    s.keyframes && Object.keys(s.keyframes).some(k => Array.isArray(s.keyframes[k]) && s.keyframes[k].length > 0)));
 
-    // Timeline stepping
-    frameAcc += dt;
-    const interval = 1 / doc.fps;
-    while (frameAcc >= interval) {
-      frameAcc -= interval;
-      currentFrame = (currentFrame + 1) % doc.totalFrames;
-    }
+  // ---- Interactions: the studio's module engine ----
+  const engine = new ModuleEngine(model);
+  engine.disabledModuleIds = new Set(DISABLED_MODULE_IDS);
+  const hasModules = model.layers.some(l => l.sprites.some(s => s.type === 'screen_trigger' || s.type === 'form_field' ||
+    (s.modules || []).some(m => m.enabled !== false && m.type !== 'text_label' && !engine.disabledModuleIds.has(m.id))));
+  const interactive = hasModules || model.layers.some(l => l.sprites.some(s => s.linkUrl));
+  renderer.moduleEngine = engine;
+  renderer.mode = 'preview';
+  engine.start();
 
-    // Render Clean Canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!doc.transparentBackground) {
-      ctx.fillStyle = doc.backgroundColor;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
-    for (const l of doc.layers) {
-      if (!l.visible) continue;
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, Math.min(1, l.opacity));
-      if (l.blendMode) ctx.globalCompositeOperation = l.blendMode;
-
-      for (const s of l.sprites) {
-        if (!s.visible) continue;
-        ctx.save();
-        ctx.translate(s.runtime.x, s.runtime.y);
-        ctx.rotate((s.runtime.rotation * Math.PI) / 180);
-        ctx.scale(s.runtime.scaleX, s.runtime.scaleY);
-        ctx.globalAlpha = Math.max(0, Math.min(1, s.runtime.opacity));
-
-        const hw = s.width / 2, hh = s.height / 2;
-        ctx.fillStyle = s.fill || '#38bdf8';
-        ctx.strokeStyle = s.stroke || '#0284c7';
-        ctx.lineWidth = s.strokeWidth || 0;
-
-        if (s.type === 'rect' || s.type === 'bevel_rect') {
-          ctx.beginPath();
-          const cr = s.cornerRadius || 0, bv = s.bevel || 0;
-          if (cr > 0 && bv > 0) {
-            const b = Math.min(bv, hw, hh);
-            const r = Math.min(cr, b * 0.5);
-            ctx.moveTo(-hw + b + r, -hh);
-            ctx.arcTo(hw - b, -hh, hw, -hh + b, r);
-            ctx.arcTo(hw, -hh + b, hw, hh - b, r);
-            ctx.arcTo(hw, hh - b, hw - b, hh, r);
-            ctx.arcTo(hw - b, hh, -hw + b, hh, r);
-            ctx.arcTo(-hw + b, hh, -hw, hh - b, r);
-            ctx.arcTo(-hw, hh - b, -hw, -hh + b, r);
-            ctx.arcTo(-hw, -hh + b, -hw + b, -hh, r);
-            ctx.arcTo(-hw + b, -hh, hw - b, -hh, r);
-          } else if (cr > 0) {
-            ctx.roundRect(-hw, -hh, s.width, s.height, cr);
-          } else {
-            ctx.rect(-hw, -hh, s.width, s.height);
-          }
-          if (s.fill !== 'transparent') ctx.fill();
-          if (s.strokeWidth > 0) ctx.stroke();
-        } else if (s.type === 'circle') {
-          ctx.beginPath();
-          ctx.ellipse(0, 0, Math.max(1, hw), Math.max(1, hh), 0, 0, Math.PI * 2);
-          if (s.fill !== 'transparent') ctx.fill();
-          if (s.strokeWidth > 0) ctx.stroke();
-        } else if (s.type === 'star') {
-          const outerR = Math.min(hw, hh);
-          const innerR = outerR * (s.starInnerRatio || 0.45);
-          const points = s.starPoints || 5;
-          const totalPts = points * 2;
-          const step = Math.PI / points;
-          ctx.beginPath();
-          for (let i = 0; i < totalPts; i++) {
-            const r = (i % 2 === 0) ? outerR : innerR;
-            const a = i * step - Math.PI / 2;
-            const px = Math.cos(a) * r;
-            const py = Math.sin(a) * r;
-            if (i === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-          }
-          ctx.closePath();
-          if (s.fill !== 'transparent') ctx.fill();
-          if (s.strokeWidth > 0) ctx.stroke();
-        } else if (s.type === 'path' && s.pathPoints) {
-          ctx.beginPath();
-          ctx.moveTo(s.pathPoints[0].x, s.pathPoints[0].y);
-          for (let i = 1; i < s.pathPoints.length; i++) {
-            const p = s.pathPoints[i];
-            if (p.type === 'C') ctx.bezierCurveTo(p.cp1x, p.cp1y, p.cp2x, p.cp2y, p.x, p.y);
-            else ctx.lineTo(p.x, p.y);
-          }
-          if (s.isClosedPath || s.pathClosed) {
-            const last = s.pathPoints[s.pathPoints.length - 1];
-            const first = s.pathPoints[0];
-            if (last && first && (last.type === 'C' || first.type === 'C')) {
-              ctx.bezierCurveTo(last.cp2x ?? last.x, last.cp2y ?? last.y, first.cp1x ?? first.x, first.cp1y ?? first.y, first.x, first.y);
-            }
-            ctx.closePath();
-          }
-          if (s.fill && s.fill !== 'transparent' && s.fillType !== 'none') ctx.fill();
-          if (s.strokeWidth > 0) ctx.stroke();
-        }
-        ctx.restore();
+  // Form fields: real inputs placed over the canvas.
+  if (typeof FormRuntime !== 'undefined' && model.layers.some(l => l.sprites.some(s => s.type === 'form_field'))) {
+    const holder = canvas.parentElement || document.body;
+    if (getComputedStyle(holder).position === 'static') holder.style.position = 'relative';
+    engine.forms = new FormRuntime(engine, {
+      container: holder,
+      place: (sp) => {
+        const rt = sp.runtime;
+        if (rt.visible === false) return null;
+        const cr = canvas.getBoundingClientRect(), hr = holder.getBoundingClientRect();
+        const k = cr.width / model.width;
+        const w = sp.width * rt.scaleX * k, h = sp.height * rt.scaleY * k;
+        return { x: cr.left - hr.left + holder.scrollLeft + rt.x * k - w / 2, y: cr.top - hr.top + holder.scrollTop + rt.y * k - h / 2, w, h, scale: k };
       }
+    });
+  }
+
+  // Document coordinates of a pointer event (the canvas may be scaled by CSS).
+  const toDoc = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const sx = r.width ? model.width / r.width : 1;
+    const sy = r.height ? model.height / r.height : 1;
+    return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy, sx: e.clientX - r.left, sy: e.clientY - r.top };
+  };
+  const pointer = { mw: { x: -1e9, y: -1e9 }, ms: { x: 0, y: 0 }, isDown: false, clicked: false, downAt: null };
+
+  // #anchor links scroll the page to the target sprite.
+  engine.onNavigateAnchor = (sp, opts = { smooth: true }) => {
+    const r = canvas.getBoundingClientRect();
+    const scale = r.height / model.height;
+    window.scrollTo({ top: window.scrollY + r.top + (sp.y - sp.height / 2) * scale, behavior: opts.smooth === false ? 'auto' : 'smooth' });
+  };
+
+  if (interactive) {
+    canvas.style.touchAction = 'none';
+    canvas.addEventListener('pointermove', e => {
+      const p = toDoc(e);
+      pointer.mw = { x: p.x, y: p.y }; pointer.ms = { x: p.sx, y: p.sy };
+      const link = engine.getClickLink(engine.pickSprite(p.x, p.y));
+      canvas.style.cursor = engine.bus.hideCursor ? 'none' : (link ? 'pointer' : (engine.draggedSprite ? 'grabbing' : 'default'));
+    });
+    canvas.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      ModuleEngine.resumeAudio();
+      const p = toDoc(e);
+      pointer.mw = { x: p.x, y: p.y }; pointer.ms = { x: p.sx, y: p.sy };
+      pointer.isDown = true; pointer.clicked = true; pointer.downAt = { x: p.x, y: p.y }; pointer.press = { x: p.x, y: p.y };
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    const release = () => { pointer.isDown = false; };
+    canvas.addEventListener('pointerup', e => {
+      release();
+      // Treat as a click only when the pointer did not travel (not a drag).
+      const p = toDoc(e);
+      pointer.mw = { x: p.x, y: p.y };
+      engine.endDrag(p.x, p.y);
+      const d = pointer.downAt;
+      pointer.downAt = null;
+      if (!d || Math.hypot(p.x - d.x, p.y - d.y) > 6) return;
+      const link = engine.getClickLink(engine.pickSprite(p.x, p.y));
+      if (link) engine.navigateHyperlink(link.href, link.target);
+    });
+    canvas.addEventListener('pointercancel', release);
+    canvas.addEventListener('wheel', e => {
+      const p = toDoc(e);
+      if (engine.wantsWheel(p.x, p.y)) { e.preventDefault(); engine.addWheel(e.deltaY); }
+    }, { passive: false });
+    canvas.addEventListener('pointerleave', () => { if (!pointer.isDown) pointer.mw = { x: -1e9, y: -1e9 }; });
+    window.addEventListener('keydown', e => { engine.bus.keyState[e.code] = true; engine.bus.keyState[e.key] = true; });
+    window.addEventListener('keyup', e => { delete engine.bus.keyState[e.code]; delete engine.bus.keyState[e.key]; });
+    window.addEventListener('blur', () => { engine.bus.keyState = {}; pointer.isDown = false; });
+  }
+
+  const player = {
+    dirty: true,
+    requestDraw() { this.dirty = true; },
+    resize() {
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width = Math.round(model.width * dpr);
+      canvas.height = Math.round(model.height * dpr);
+      canvas.style.width = model.width + 'px';
+      canvas.style.aspectRatio = model.width + ' / ' + model.height;
+      this.dpr = dpr;
+      this.dirty = true;
+    },
+    draw() {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      if (!model.transparentBackground) {
+        ctx.fillStyle = model.backgroundColor;
+        ctx.fillRect(0, 0, model.width, model.height);
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, model.width, model.height);
+      ctx.clip();
+      for (const layer of model.layers) {
+        if (layer.visible) renderer.drawLayer(ctx, layer);
+      }
+      renderer.drawParticles(ctx);
+      renderer.drawScreenFade(ctx);
       ctx.restore();
+      this.dirty = false;
     }
-    bus.mouse.clicked = false;
+  };
+
+  // Responsive views: pick the layout for the available width.
+  const pickView = () => {
+    const w = (canvas.parentElement && canvas.parentElement.clientWidth) || window.innerWidth;
+    if (model.hasView('mobile') && w <= 600) return 'mobile';
+    if (model.hasView('tablet') && w <= 1024) return 'tablet';
+    return 'desktop';
+  };
+  const useView = (v) => {
+    if (v === (model.activeView || 'desktop')) return false;
+    model.switchView(v);
+    for (const l of model.layers) l.resetRuntime();
+    if (engine.active) engine.start();
+    return true;
+  };
+  useView(pickView());
+  player.resize();
+  model.setFrame(0);
+  for (const l of model.layers) l.resetRuntime();
+  window.addEventListener('resize', () => {
+    const changed = useView(pickView());
+    if (changed || Math.max(1, window.devicePixelRatio || 1) !== player.dpr) player.resize();
+  });
+
+  let last = performance.now();
+  let frameAcc = 0;
+  function loop(now) {
+    const dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+    if (hasKeyframes && model.fps > 0) {
+      frameAcc += dt;
+      const interval = 1 / model.fps;
+      while (frameAcc >= interval) {
+        frameAcc -= interval;
+        model.stepFrame(1);
+        player.dirty = true;
+      }
+    }
+    if (hasModules) {
+      // Scroll position of the canvas inside the page, in document units.
+      const r = canvas.getBoundingClientRect();
+      const scale = r.height ? model.height / r.height : 1;
+      engine.bus.scroll.scrollY = Math.max(0, -r.top * scale);
+      model.viewportHeight = window.innerHeight * scale;
+      engine.update(dt, pointer.mw, pointer.ms, pointer.isDown, pointer.clicked, pointer.press);
+      pointer.clicked = false;
+      if (engine.forms) engine.forms.sync(model);
+      if (engine.bus.hideCursor) canvas.style.cursor = 'none';
+      player.dirty = true;
+    }
+    if (player.dirty) player.draw();
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-})();`;
+})();
+`;
     }
 
     static generateHTML(doc) {
@@ -3634,15 +6173,19 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>${doc.name || 'JSPen Output'}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(doc.name || 'JSPen Output')}</title>
   <style>
-    body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; }
-    canvas { box-shadow: 0 10px 40px rgba(0,0,0,0.8); }
+    html, body { margin: 0; min-height: 100%; background: #000; }
+    body { display: flex; align-items: flex-start; justify-content: center; overflow: auto; }
+    canvas { display: block; max-width: 100%; height: auto; letter-spacing: normal; box-shadow: 0 10px 40px rgba(0,0,0,0.8); }
   </style>
 </head>
 <body>
-  <canvas id="viewportCanvas"></canvas>
-  <script>${jsCode}<\/script>
+  <canvas id="viewportCanvas" aria-label="${escapeHtml(doc.name || 'JSPen')}">${PhotoshopJSExporter.fallbackItems(doc.toJSON()).map(i => i.href
+    ? `<a href="${escapeHtml(i.href)}">${escapeHtml(i.text)}</a>`
+    : `<p>${escapeHtml(i.text)}</p>`).join('')}</canvas>
+  <script>${jsCode.replace(/<\/script/gi, '<\\/script')}<\/script>
 </body>
 </html>`;
     }
@@ -3683,8 +6226,8 @@
           <button class="ps-color-reset" id="btnResetCol" title="리셋 (D)">◲</button>
           <button class="ps-color-swap" id="btnSwapCol" title="스왑 (X)">⇄</button>
           <div class="ps-swatch-box">
-            <input type="color" class="ps-swatch ps-swatch-fg" id="colFg" value="${this.tools.doc.foregroundColor}">
-            <input type="color" class="ps-swatch ps-swatch-bg" id="colBg" value="${this.tools.doc.backgroundColorSecondary}">
+            <input type="color" class="ps-swatch ps-swatch-fg" id="colFg" value="${escapeHtml(this.tools.doc.foregroundColor)}">
+            <input type="color" class="ps-swatch ps-swatch-bg" id="colBg" value="${escapeHtml(this.tools.doc.backgroundColorSecondary)}">
           </div>
         </div>
       `;
@@ -3747,8 +6290,8 @@
         html += `
           <div class="ps-option-group">
             <label class="ps-option-label">두께:</label>
-            <input type="range" class="ps-slider" id="optBrushSize" min="1" max="40" value="${this.tools.brushSize}">
-            <span class="ps-val-tag" id="valBrushSize">${this.tools.brushSize}px</span>
+            <input type="range" class="ps-slider" id="optBrushSize" min="1" max="40" value="${escapeHtml(this.tools.brushSize)}">
+            <span class="ps-val-tag" id="valBrushSize">${escapeHtml(this.tools.brushSize)}px</span>
           </div>
           <div class="ps-stabilizer-group">
             <button class="ps-stabilizer-btn ${this.tools.brushStabilize ? 'active' : ''}" id="btnToggleStab">
@@ -3772,7 +6315,7 @@
       } else if (t === 'bucket') {
         html += `
           <div class="ps-option-group">
-            <span class="ps-option-label">클릭한 스프라이트에 전경색(${this.tools.doc.foregroundColor}) 채우기</span>
+            <span class="ps-option-label">클릭한 스프라이트에 전경색(${escapeHtml(this.tools.doc.foregroundColor)}) 채우기</span>
           </div>
         `;
       } else if (t === 'shape') {
@@ -3892,22 +6435,22 @@
 
         <div class="ps-layer-list">
           ${reversedLayers.length === 0 ? '<div class="ps-empty-layers">레이어가 없습니다. 상단 + 레이어를 클릭하세요.</div>' : reversedLayers.map(l => `
-            <div class="ps-layer-group ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-layer-id="${l.id}">
+            <div class="ps-layer-group ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-layer-id="${escapeHtml(l.id)}">
               <!-- Layer Container Row (Entire row clickable to select layer) -->
-              <div class="ps-layer-row ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-act="select-layer" data-layer-id="${l.id}" draggable="true">
+              <div class="ps-layer-row ${l.id === this.doc.selectedLayerId ? 'selected' : ''}" data-act="select-layer" data-layer-id="${escapeHtml(l.id)}" draggable="true">
                 <button class="ps-layer-fold-btn" data-act="fold-layer" title="접기/펼치기">${l.expanded ? '▼' : '▶'}</button>
                 <button class="ps-layer-vis-btn ${l.visible ? '' : 'muted'}" data-act="vis-layer" title="레이어 가시성">${l.visible ? '●' : '○'}</button>
                 <div class="ps-layer-color-tag"></div>
 
                 ${this.renamingId === l.id ? `
-                  <input type="text" class="ps-layer-title-input" value="${l.name}" autofocus>
+                  <input type="text" class="ps-layer-title-input" value="${escapeHtml(l.name)}" autofocus>
                 ` : `
-                  <span class="ps-layer-title" data-act="select-layer" title="더블 클릭하여 이름 변경">${l.name}</span>
+                  <span class="ps-layer-title" data-act="select-layer" title="더블 클릭하여 이름 변경">${escapeHtml(l.name)}</span>
                 `}
 
-                <span class="ps-layer-count-badge">${l.sprites.length}개</span>
-                <button class="ps-btn-layer-add-sp" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+스프라이트</button>
-                <button class="ps-btn-layer-add-sp" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#e4e4e7;color:#e4e4e7;">+트리거</button>
+                <span class="ps-layer-count-badge">${escapeHtml(l.sprites.length)}개</span>
+                <button class="ps-btn-layer-add-sp" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+</button>
+                <button class="ps-btn-layer-add-sp" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#e4e4e7;color:#e4e4e7;">⚡</button>
                 <button class="ps-btn-add-module ${(l.modules && l.modules.length > 0) ? 'has-modules' : ''}" data-act="add-layer-mod" title="레이어 모듈 추가">+fx</button>
                 <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
                 <button class="ps-btn-del-item" data-act="delete-layer" title="레이어 삭제">✕</button>
@@ -3921,7 +6464,7 @@
                     const isFolded = s.collapsed === true;
                     return `
                     <div class="ps-sprite-item-wrap">
-                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : (this.doc.selectedSpriteIds && this.doc.selectedSpriteIds.has(s.id) ? 'multi-selected' : '')}" data-act="select-sprite" data-sprite-id="${s.id}" data-layer-id="${l.id}" draggable="true">
+                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : (this.doc.selectedSpriteIds && this.doc.selectedSpriteIds.has(s.id) ? 'multi-selected' : '')}" data-act="select-sprite" data-sprite-id="${escapeHtml(s.id)}" data-layer-id="${escapeHtml(l.id)}" draggable="true">
                         <button class="ps-sp-fold-btn" data-act="toggle-sprite-fold" title="모듈 접기/펼치기" style="${hasMods ? '' : 'visibility:hidden;'}">
                           ${isFolded ? '▶' : '▼'}
                         </button>
@@ -3930,17 +6473,17 @@
                         <span class="ps-sp-icon">${s.type === 'rect' ? '▭' : (s.type === 'circle' ? '○' : (s.type === 'text' ? 'T' : (s.type === 'path' ? '⟿' : '✎')))}</span>
                         
                         ${this.renamingId === s.id ? `
-                          <input type="text" class="ps-layer-title-input" value="${s.name}" autofocus>
+                          <input type="text" class="ps-layer-title-input" value="${escapeHtml(s.name)}" autofocus>
                         ` : `
-                          <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${s.name}</span>
+                          <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${escapeHtml(s.name)}</span>
                         `}
 
                         <button class="ps-sp-link-btn ${s.linkGroup ? 'active' : ''}" data-act="toggle-link" title="${s.linkGroup ? '스프라이트 링크 해제 (현재 그룹: ' + s.linkGroup + ')' : '다른 스프라이트와 링크하기'}">
-                          ${s.linkGroup ? `[LINK]${s.linkGroup}` : '[LINK]'}
+                          ${s.linkGroup ? `[LINK]${escapeHtml(s.linkGroup)}` : '[LINK]'}
                         </button>
 
                         <button class="ps-btn-add-module ${hasMods ? 'has-modules' : ''}" data-act="add-sprite-mod" title="모듈 추가">
-                          +fx ${hasMods ? `<span class="mod-count">${s.modules.length}</span>` : ''}
+                          +fx ${hasMods ? `<span class="mod-count">${escapeHtml(s.modules.length)}</span>` : ''}
                         </button>
                         <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
                         <button class="ps-btn-del-item" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
@@ -3950,10 +6493,11 @@
                       ${(hasMods && !isFolded) ? `
                         <div class="ps-layer-sub-modules">
                           ${s.modules.map((m, mIdx) => `
-                            <div class="ps-layer-module-row ${m.id === this.doc.selectedModuleId ? 'selected-mod' : ''}" data-mod-id="${m.id}" data-sprite-id="${s.id}" data-mod-idx="${mIdx}" draggable="true">
+                            <div class="ps-layer-module-row ${m.id === this.doc.selectedModuleId ? 'selected-mod' : ''}" data-mod-id="${escapeHtml(m.id)}" data-sprite-id="${escapeHtml(s.id)}" data-mod-idx="${mIdx}" draggable="true">
                               <span class="mod-indent">↳</span>
                               <span class="mod-badge">${MODULE_REGISTRY[m.type]?.icon || 'MOD'}</span>
-                              <span class="mod-name" data-act="select-mod" title="클릭하여 모듈 설정">${m.name}</span>
+                              <span class="mod-name" data-act="select-mod" title="클릭하여 모듈 설정">${escapeHtml(m.name)}</span>
+                              <span class="mod-cond mod-cond-${escapeHtml((m.params && m.params.condition) || 'always')}" title="${escapeHtml(InspectorPanelUI.conditionSummary(m))}">${escapeHtml(InspectorPanelUI.conditionShort(m))}</span>
                               <button class="mod-toggle ${m.enabled ? 'active' : ''}" data-act="toggle-mod" title="모듈 활성/비활성">${m.enabled ? 'ON' : 'OFF'}</button>
                               <button class="mod-del" data-act="del-mod" title="모듈 삭제">×</button>
                             </div>
@@ -4010,7 +6554,20 @@
     initEventsOnce() {
       // 1. Single click delegation on persistent container
       this.el.addEventListener('click', e => {
-
+        // Double-click on a name starts renaming. The first click re-renders the
+        // panel (selection), so the native dblclick never fires; use e.detail.
+        if (e.detail === 2) {
+          const titleEl = e.target.closest('.ps-layer-title, .ps-sprite-title');
+          if (titleEl) {
+            const spriteItem = e.target.closest('[data-sprite-id]');
+            const layerGroup = e.target.closest('[data-layer-id]');
+            this.renamingId = spriteItem ? spriteItem.dataset.spriteId : layerGroup?.dataset.layerId;
+            this.render();
+            const inp = this.el.querySelector('.ps-layer-title-input');
+            if (inp) { inp.focus(); inp.select(); }
+            return;
+          }
+        }
 
         if (e.target.closest('#btnNewLayer')) {
           const l = new Layer({ name: `레이어 ${this.doc.layers.length + 1}` });
@@ -4329,7 +6886,7 @@
       modal.innerHTML = `
         <div class="ps-module-modal">
           <div class="ps-modal-header">
-            <div class="ps-modal-title">${isLayer ? '레이어 모듈 장착' : '스프라이트 모듈 장착'} (${target.name})</div>
+            <div class="ps-modal-title">${isLayer ? '레이어 모듈 장착' : '스프라이트 모듈 장착'} (${escapeHtml(target.name)})</div>
             <button class="ps-modal-close" id="closeModal">✕</button>
           </div>
           <div class="mod-category-tabs">
@@ -4341,6 +6898,7 @@
             <button class="mod-category-tab ${this.activeCategory==='sensor'?'active':''}" data-cat="sensor">감지 & 제스처</button>
             <button class="mod-category-tab ${this.activeCategory==='logic'?'active':''}" data-cat="logic">연결 & 로직</button>
             <button class="mod-category-tab ${this.activeCategory==='timing'?'active':''}" data-cat="timing">타이밍</button>
+            <button class="mod-category-tab ${this.activeCategory==='audio'?'active':''}" data-cat="audio">오디오</button>
           </div>
           <div class="ps-module-grid" id="modalModGrid"></div>
         </div>
@@ -4359,11 +6917,11 @@
         grid.innerHTML = keys.map(k => {
           const m = MODULE_REGISTRY[k];
           return `
-            <div class="ps-module-card" data-key="${k}">
+            <div class="ps-module-card" data-key="${escapeHtml(k)}">
               <div class="ps-mod-badge">${m.icon}</div>
               <div class="ps-mod-info">
-                <div class="ps-mod-name">${m.name}</div>
-                <div class="ps-mod-desc">${m.description}</div>
+                <div class="ps-mod-name">${escapeHtml(m.name)}</div>
+                <div class="ps-mod-desc">${escapeHtml(m.description)}</div>
               </div>
             </div>
           `;
@@ -4430,9 +6988,9 @@
       } else if (selectedSprite) {
         contentHtml = this.renderSpriteInspector(selectedSprite);
       } else if (selectedLayer) {
-        contentHtml = this.renderLayerInspector(selectedLayer);
+        contentHtml = this.renderCanvasSection() + this.renderLayerInspector(selectedLayer);
       } else {
-        contentHtml = '<div class="ps-empty-layers">선택된 레이어나 스프라이트가 없습니다.</div>';
+        contentHtml = this.renderCanvasSection() + '<div class="ps-empty-layers">선택된 레이어나 스프라이트가 없습니다.</div>';
       }
 
       this.el.innerHTML = `
@@ -4450,6 +7008,7 @@
       `;
 
       this.bindScrubbing();
+      this.bindCanvasSection();
       this.bindInputs(selectedSprite, selectedMod, selectedLayer);
     }
 
@@ -4458,18 +7017,60 @@
       return sprite.modules.find(m => m.id === this.doc.selectedModuleId) || null;
     }
 
+    // Canvas (artboard) size: free W/H inputs. The artboard edges can also be
+    // dragged on the canvas (handles on the right / bottom / corner).
+    renderCanvasSection() {
+      const mode = this.canvasMode || 'keep';
+      const view = this.doc.activeView && this.doc.activeView !== 'desktop' ? ` (${this.doc.activeView === 'mobile' ? '모바일' : '태블릿'} 화면)` : '';
+      return `
+        <div class="ps-prop-section" id="canvasSizeSection">
+          <div class="ps-prop-header" style="justify-content:space-between;">
+            <span style="font-weight:700;color:#e4e4e7;">캔버스 크기${view}</span>
+            <span class="ps-val-tag">${this.doc.width}×${this.doc.height}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:auto 1fr auto 1fr;gap:6px;align-items:center;margin:8px 0 6px;">
+            <label for="inpCanvasW" style="font-size:11px;color:#a1a1aa;">가로 W</label>
+            <input type="number" class="ps-input" id="inpCanvasW" min="50" max="10000" step="1" value="${this.doc.width}" style="width:100%;min-width:0;">
+            <label for="inpCanvasH" style="font-size:11px;color:#a1a1aa;">세로 H</label>
+            <input type="number" class="ps-input" id="inpCanvasH" min="50" max="20000" step="1" value="${this.doc.height}" style="width:100%;min-width:0;">
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">작업물 처리:</label>
+            <select class="ps-select" id="inpCanvasMode">
+              <option value="keep" ${mode === 'keep' ? 'selected' : ''}>그대로 두기</option>
+              <option value="fit" ${mode === 'fit' ? 'selected' : ''}>비율 유지하며 맞추기</option>
+              <option value="stretch" ${mode === 'stretch' ? 'selected' : ''}>캔버스에 맞춰 늘리기</option>
+            </select>
+          </div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;line-height:1.5;margin-top:4px;">값을 입력하고 Enter. 캔버스 오른쪽·아래 가장자리의 손잡이를 끌어도 바뀝니다 (Shift: 10px 단위).</div>
+        </div>`;
+    }
+
+    bindCanvasSection() {
+      const wEl = this.el.querySelector('#inpCanvasW'), hEl = this.el.querySelector('#inpCanvasH');
+      if (!wEl || !hEl) return;
+      this.el.querySelector('#inpCanvasMode')?.addEventListener('change', e => { this.canvasMode = e.target.value; });
+      const apply = () => {
+        const w = Math.round(parseFloat(wEl.value)), h = Math.round(parseFloat(hEl.value));
+        if (!(w >= 50 && h >= 50)) { wEl.value = this.doc.width; hEl.value = this.doc.height; return; }
+        window.jspenApp?.setCanvasSize(Math.min(10000, w), Math.min(20000, h), this.canvasMode || 'keep');
+      };
+      wEl.addEventListener('change', apply);
+      hEl.addEventListener('change', apply);
+    }
+
     // 1. Layer Inspector (Pure layer properties only - No sprite or module properties)
     renderLayerInspector(layer) {
       if (!layer) return '<div class="ps-empty-layers">선택된 레이어가 없습니다.</div>';
       return `
         <div class="ps-prop-section">
           <div class="ps-prop-header" style="justify-content:space-between;">
-            <span style="font-weight:700;color:#e4e4e7;">레이어: ${layer.name}</span>
+            <span style="font-weight:700;color:#e4e4e7;">레이어: ${escapeHtml(layer.name)}</span>
             <span class="ps-val-tag">레이어</span>
           </div>
           <div class="ps-prop-row" style="margin-top:8px;">
             <label class="ps-prop-label">레이어 이름:</label>
-            <input type="text" class="ps-input" id="inpLayerName" value="${layer.name}">
+            <input type="text" class="ps-input" id="inpLayerName" value="${escapeHtml(layer.name)}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">투명도 (Opacity):</label>
@@ -4511,16 +7112,16 @@
         <!-- Sprite Header -->
         <div class="ps-prop-section">
           <div class="ps-prop-header" style="justify-content:space-between;">
-            <span style="font-weight:700;color:#e4e4e7;">스프라이트: ${sprite.name}</span>
-            <span class="ps-val-tag">${layerName ? layerName : sprite.type}</span>
+            <span style="font-weight:700;color:#e4e4e7;">스프라이트: ${escapeHtml(sprite.name)}</span>
+            <span class="ps-val-tag">${escapeHtml(layerName ? layerName : sprite.type)}</span>
           </div>
           <div class="ps-prop-row" style="margin-top:6px;">
             <label class="ps-prop-label">이름:</label>
-            <input type="text" class="ps-input" id="inpSpriteName" value="${sprite.name}">
+            <input type="text" class="ps-input" id="inpSpriteName" value="${escapeHtml(sprite.name)}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">유형 (Type):</label>
-            <span class="ps-val-tag" style="padding:2px 6px;">${sprite.type}</span>
+            <span class="ps-val-tag" style="padding:2px 6px;">${escapeHtml(sprite.type)}</span>
           </div>
         </div>
 
@@ -4550,7 +7151,7 @@
             </div>
             <div class="blender-scrub-group">
               <span class="blender-scrub-label">Opac</span>
-              <input type="number" class="blender-scrub-input" id="inpOpacity" step="0.05" min="0" max="1" value="${sprite.opacity}">
+              <input type="number" class="blender-scrub-input" id="inpOpacity" step="0.05" min="0" max="1" value="${escapeHtml(sprite.opacity)}">
             </div>
           </div>
         </div>
@@ -4601,7 +7202,7 @@
             <label class="ps-prop-label">채우기 색상:</label>
             <div class="ps-color-picker-wrap">
               <input type="color" class="ps-color-picker" id="inpFill" value="${sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#71717a'}">
-              <span class="ps-val-tag">${sprite.fill || '#71717a'}</span>
+              <span class="ps-val-tag">${escapeHtml(sprite.fill || '#71717a')}</span>
             </div>
           </div>
           `}
@@ -4609,25 +7210,25 @@
             <label class="ps-prop-label">테두리 색상:</label>
             <div class="ps-color-picker-wrap">
               <input type="color" class="ps-color-picker" id="inpStroke" value="${sprite.stroke && sprite.stroke.startsWith('#') ? sprite.stroke : '#0284c7'}">
-              <span class="ps-val-tag">${sprite.stroke || 'none'}</span>
+              <span class="ps-val-tag">${escapeHtml(sprite.stroke || 'none')}</span>
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">선 두께 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpStrokeWidth" min="0" max="100" value="${sprite.strokeWidth || 0}">
+              <input type="number" class="blender-scrub-input" id="inpStrokeWidth" min="0" max="100" value="${escapeHtml(sprite.strokeWidth || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">코너 라운딩 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpCornerRadius" min="0" max="500" value="${sprite.cornerRadius || 0}">
+              <input type="number" class="blender-scrub-input" id="inpCornerRadius" min="0" max="500" value="${escapeHtml(sprite.cornerRadius || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">베벨 수치:</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpBevelChamfer" min="0" max="500" value="${sprite.bevelChamfer || 0}">
+              <input type="number" class="blender-scrub-input" id="inpBevelChamfer" min="0" max="500" value="${escapeHtml(sprite.bevelChamfer || 0)}">
             </div>
           </div>
         </div>
@@ -4639,13 +7240,21 @@
 ${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">텍스트 내용:</label>
-            <input type="text" class="ps-input" id="inpText" value="${sprite.text || ''}">
+            <input type="text" class="ps-input" id="inpText" value="${escapeHtml(sprite.text || '')}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">글자 크기 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpFontSize" min="1" max="200" value="${sprite.fontSize || 32}">
+              <input type="number" class="blender-scrub-input" id="inpFontSize" min="1" max="200" value="${escapeHtml(sprite.fontSize || 32)}">
             </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">글꼴:</label>
+            <select class="ps-select" id="inpFontFamily">
+              ${(window.jspenApp ? window.jspenApp.fontChoices() : [['', '기본 글꼴']]).map(([v, l]) => `<option value="${escapeHtml(v)}" ${((sprite.fontFamily === 'Pretendard, sans-serif' ? '' : sprite.fontFamily) || '') === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+              ${(sprite.fontFamily && sprite.fontFamily !== 'Pretendard, sans-serif') && !(window.jspenApp ? window.jspenApp.fontChoices() : []).some(([v]) => v === sprite.fontFamily) ? `<option value="${escapeHtml(sprite.fontFamily)}" selected>${escapeHtml(sprite.fontFamily)}</option>` : ''}
+            </select>
+            <button class="btn btn-secondary btn-sm" data-act-font-upload title="글꼴 파일(.ttf/.otf/.woff/.woff2)을 문서에 추가" style="margin-left:4px;padding:2px 6px;">+</button>
           </div>` : `
           <div class="ps-prop-row" style="margin-top:6px;">
             <button class="btn btn-secondary btn-sm" id="btnQuickAddTextMod" style="width:100%;font-size:11px;padding:4px 8px;display:flex;align-items:center;justify-content:center;gap:4px;" title="스프라이트 안에 텍스트 라벨 모듈을 추가합니다">
@@ -4661,6 +7270,52 @@ ${sprite.type === 'text' ? `
               <option value="right" ${sprite.textAlign === 'right' ? 'selected' : ''}>오른쪽 정렬</option>
             </select>
           </div>
+        </div>
+        ` : ''}
+
+        ${sprite.type === 'form_field' ? (() => { const fs = FormRuntime.fieldSpec(sprite); return `
+        <!-- Form Field Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">폼 입력칸 (Form Field)</div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">종류:</label>
+            <select class="ps-select" data-form-prop="kind">
+              ${[['text', '텍스트'], ['email', '이메일'], ['tel', '전화번호'], ['number', '숫자'], ['textarea', '여러 줄'], ['checkbox', '체크박스'], ['select', '선택 목록']]
+                .map(([v, l]) => `<option value="${v}" ${fs.kind === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+          </div>
+          <div class="ps-prop-row"><label class="ps-prop-label">이름 (전송 키):</label><input type="text" class="ps-input" data-form-prop="name" value="${escapeHtml(fs.name)}"></div>
+          <div class="ps-prop-row"><label class="ps-prop-label">안내 문구:</label><input type="text" class="ps-input" data-form-prop="placeholder" value="${escapeHtml(fs.placeholder)}"></div>
+          ${fs.kind === 'checkbox' ? `<div class="ps-prop-row"><label class="ps-prop-label">라벨:</label><input type="text" class="ps-input" data-form-prop="label" value="${escapeHtml(fs.label)}"></div>` : ''}
+          ${fs.kind === 'select' ? `<div class="ps-prop-row"><label class="ps-prop-label">선택지 (쉼표로 구분):</label><input type="text" class="ps-input" data-form-prop="options" value="${escapeHtml(fs.options.join(', '))}"></div>` : ''}
+          <div class="ps-prop-row"><label class="ps-prop-label">기본값:</label><input type="text" class="ps-input" data-form-prop="value" value="${escapeHtml(fs.value)}"></div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">필수 입력:</label>
+            <select class="ps-select" data-form-prop="required"><option value="false" ${!fs.required ? 'selected' : ''}>아니요</option><option value="true" ${fs.required ? 'selected' : ''}>예</option></select>
+          </div>
+          <div class="ps-prop-row" style="font-size:10.5px;color:#71717a;">입력값은 전역 변수 <code>form.${escapeHtml(fs.name)}</code> 으로도 읽을 수 있습니다.</div>
+        </div>`; })() : ''}
+
+        ${sprite.type === 'image' ? `
+        <!-- Image Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">이미지 (Image)</div>
+          <div class="ps-prop-row">
+            <button class="btn btn-secondary btn-sm" id="btnReplaceImage" style="width:100%;">이미지 교체...</button>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">맞춤 방식:</label>
+            <select class="ps-select" id="inpImageFit">
+              <option value="cover" ${(sprite.imageFit || 'cover') === 'cover' ? 'selected' : ''}>채우기 (잘라서 꽉 채움)</option>
+              <option value="contain" ${sprite.imageFit === 'contain' ? 'selected' : ''}>전체 보이기 (여백 허용)</option>
+              <option value="fill" ${sprite.imageFit === 'fill' ? 'selected' : ''}>늘리기 (비율 무시)</option>
+            </select>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">대체 텍스트:</label>
+            <input type="text" class="ps-input" id="inpImageAlt" placeholder="화면 낭독기·검색엔진용 설명" value="${escapeHtml(sprite.alt || '')}">
+          </div>
+          ${sprite.naturalWidth ? `<div class="ps-prop-row"><button class="btn btn-secondary btn-sm" id="btnImageNatural" style="width:100%;">원본 비율로 (${escapeHtml(sprite.naturalWidth)} × ${escapeHtml(sprite.naturalHeight)})</button></div>` : ''}
         </div>
         ` : ''}
 
@@ -4680,7 +7335,7 @@ ${sprite.type === 'text' ? `
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">신호 이름:</label>
-            <input type="text" class="ps-input" id="inpTriggerSignalName" value="${sprite.signalName || 'signal_1'}">
+            <input type="text" class="ps-input" id="inpTriggerSignalName" value="${escapeHtml(sprite.signalName || 'signal_1')}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">발동 액션:</label>
@@ -4720,19 +7375,27 @@ ${sprite.type === 'text' ? `
         typeSpecificHtml = `
           <div class="ps-prop-row" style="align-items:flex-start;">
             <label class="ps-prop-label">텍스트 내용:</label>
-            <textarea class="ps-input" data-param-key="text" rows="3" style="resize:vertical;font-family:inherit;min-height:54px;">${params.text || ''}</textarea>
+            <textarea class="ps-input" data-param-key="text" rows="3" style="resize:vertical;font-family:inherit;min-height:54px;">${escapeHtml(params.text || '')}</textarea>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">글자 크기 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="fontSize" min="8" max="160" value="${params.fontSize || 16}">
+              <input type="number" class="blender-scrub-input" data-param-key="fontSize" min="8" max="160" value="${escapeHtml(params.fontSize || 16)}">
             </div>
+          </div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">글꼴:</label>
+            <select class="ps-select" data-param-key="fontFamily">
+              ${(window.jspenApp ? window.jspenApp.fontChoices() : [['', '기본 글꼴']]).map(([v, l]) => `<option value="${escapeHtml(v)}" ${(params.fontFamily || '') === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+              ${params.fontFamily && !(window.jspenApp ? window.jspenApp.fontChoices() : []).some(([v]) => v === params.fontFamily) ? `<option value="${escapeHtml(params.fontFamily)}" selected>${escapeHtml(params.fontFamily)}</option>` : ''}
+            </select>
+            <button class="btn btn-secondary btn-sm" data-act-font-upload title="글꼴 파일(.ttf/.otf/.woff/.woff2)을 문서에 추가" style="margin-left:4px;padding:2px 6px;">+</button>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">글자 색상:</label>
             <div class="ps-color-picker-wrap">
               <input type="color" class="ps-color-picker" data-param-key="color" value="${params.color && params.color.startsWith('#') ? params.color : '#ffffff'}">
-              <span class="ps-val-tag">${params.color || '#ffffff'}</span>
+              <span class="ps-val-tag">${escapeHtml(params.color || '#ffffff')}</span>
             </div>
           </div>
           <div class="ps-prop-row">
@@ -4781,7 +7444,7 @@ ${sprite.type === 'text' ? `
             <label class="ps-prop-label">주행 경로 (Path):</label>
             <select class="ps-select" data-param-key="pathSpriteId">
               <option value="">-- 경로 스프라이트 선택 --</option>
-              ${pathSprites.map(p => `<option value="${p.id}" ${(params.pathSpriteId || params.pathLayerId) === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
+              ${pathSprites.map(p => `<option value="${escapeHtml(p.id)}" ${(params.pathSpriteId || params.pathLayerId) === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
             </select>
           </div>
           <div class="ps-prop-row">
@@ -4833,7 +7496,7 @@ ${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">페더 / 흐림 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="feather" min="0" max="50" value="${params.feather || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="feather" min="0" max="50" value="${escapeHtml(params.feather || 0)}">
             </div>
           </div>
           <div class="ps-prop-row" id="rowSubMaskTarget" style="${(params.maskType === 'clip' || params.maskType === 'invert') ? '' : 'display:none;'}">
@@ -4841,7 +7504,7 @@ ${sprite.type === 'text' ? `
             <select class="ps-select" data-param-key="targetSpriteId">
               <option value="">(바로 아래 스프라이트에 클리핑)</option>
               ${allSprites.map(s => `
-                <option value="${s.id}" ${params.targetSpriteId === s.id ? 'selected' : ''}>${s.name} [${s.type}]</option>
+                <option value="${escapeHtml(s.id)}" ${params.targetSpriteId === s.id ? 'selected' : ''}>${escapeHtml(s.name)} [${escapeHtml(s.type)}]</option>
               `).join('')}
             </select>
           </div>
@@ -4859,7 +7522,7 @@ ${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">가우시안 블러 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="blur" min="0" max="60" value="${params.blur || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="blur" min="0" max="60" value="${escapeHtml(params.blur || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
@@ -4883,25 +7546,25 @@ ${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">흑백 (Grayscale %):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="grayscale" min="0" max="100" value="${params.grayscale || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="grayscale" min="0" max="100" value="${escapeHtml(params.grayscale || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">세피아 (Sepia %):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="sepia" min="0" max="100" value="${params.sepia || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="sepia" min="0" max="100" value="${escapeHtml(params.sepia || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">색조 회전 (Hue deg):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="hueRotate" min="0" max="360" value="${params.hueRotate || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="hueRotate" min="0" max="360" value="${escapeHtml(params.hueRotate || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">색상 반전 (Invert %):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="invert" min="0" max="100" value="${params.invert || 0}">
+              <input type="number" class="blender-scrub-input" data-param-key="invert" min="0" max="100" value="${escapeHtml(params.invert || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
@@ -4922,7 +7585,7 @@ ${sprite.type === 'text' ? `
         typeSpecificHtml = `
           <div class="ps-prop-row">
             <label class="ps-prop-label">이동 링크 URL:</label>
-            <input type="text" class="ps-input" data-param-key="url" placeholder="https://... 또는 #section" value="${params.url || ''}">
+            <input type="text" class="ps-input" data-param-key="url" placeholder="https://... 또는 #section" value="${escapeHtml(params.url || '')}">
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">열기 방식 (Target):</label>
@@ -4934,7 +7597,7 @@ ${sprite.type === 'text' ? `
           
           <div class="ps-prop-row">
             <label class="ps-prop-label">인페이지 앵커 ID:</label>
-            <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${params.anchorId || ''}">
+            <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${escapeHtml(params.anchorId || '')}">
           </div>
           <div class="ps-prop-row" style="margin-top:6px;">
             <button class="btn btn-secondary btn-sm" id="btnTestModDetailLink" style="width:100%;justify-content:center;color:#e4e4e7;border-color:#e4e4e7;gap:6px;" ${!params.url ? 'disabled' : ''}>
@@ -4956,31 +7619,61 @@ ${sprite.type === 'text' ? `
           <div class="ps-prop-row">
             <label class="ps-prop-label">진폭 (Amplitude px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="amplitude" min="1" max="100" value="${params.amplitude || 10}">
+              <input type="number" class="blender-scrub-input" data-param-key="amplitude" min="1" max="100" value="${escapeHtml(params.amplitude || 10)}">
             </div>
           </div>
           <div class="ps-prop-row">
             <label class="ps-prop-label">주파수 (Hz):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" data-param-key="frequency" min="0.1" max="5" step="0.1" value="${params.frequency || 1}">
+              <input type="number" class="blender-scrub-input" data-param-key="frequency" min="0.1" max="5" step="0.1" value="${escapeHtml(params.frequency || 1)}">
             </div>
           </div>
         `;
       } else {
         typeSpecificHtml = `
-          ${Object.keys(params).filter(k => k !== 'condition' && k !== 'targetSpriteId' && k !== 'targetModuleId').map(key => `
+          ${Object.keys(params).filter(k => !['condition', 'conditionMode', 'conditionDuration', 'condKey', 'condSignal', 'condStartFrame', 'condEndFrame', 'targetModuleId', 'outputResult'].includes(k)).map(key => {
+            const opts = def.paramOptions && def.paramOptions[key];
+            const label = (def.paramLabels && def.paramLabels[key]) || key;
+            if (key === 'targetSpriteId' || key === 'messageSpriteId') {
+              return `
             <div class="ps-prop-row">
-              <label class="ps-prop-label">${key}:</label>
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <select class="ps-select" data-param-key="${key}">
+                <option value="">${key === 'messageSpriteId' ? '(표시 안 함)' : (mod.type === 'distance_rope' || mod.type === 'follow_target' ? '(마우스 커서)' : '(모든 스프라이트)')}</option>
+                ${allSprites.filter(sp => sp.id !== (sprite && sprite.id)).map(sp => `<option value="${escapeHtml(sp.id)}" ${params[key] === sp.id ? 'selected' : ''}>${escapeHtml(sp.name)}</option>`).join('')}
+              </select>
+            </div>`;
+            }
+            if (opts) {
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <select class="ps-select" data-param-key="${escapeHtml(key)}">
+                ${opts.map(([v, l]) => `<option value="${escapeHtml(v)}" ${String(params[key]) === String(v) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+              </select>
+            </div>`;
+            }
+            if (def.paramTypes && def.paramTypes[key] === 'code') {
+              return `
+            <div class="ps-prop-row" style="flex-direction:column;align-items:stretch;gap:4px;">
+              <label class="ps-prop-label">${escapeHtml(label)}: <span style="color:#71717a;font-weight:400;">(api.self, api.find(), api.mouse, api.time, api.vars, api.emit() …)</span></label>
+              <textarea class="ps-input jspen-code-input" data-param-key="${escapeHtml(key)}" data-param-type="code" rows="10" spellcheck="false"
+                style="font-family:Consolas,'Courier New',monospace;font-size:11px;line-height:1.45;white-space:pre;tab-size:2;resize:vertical;min-height:140px;">${escapeHtml(params[key] || '')}</textarea>
+            </div>`;
+            }
+            return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
               ${typeof params[key] === 'boolean' ? `
-                <select class="ps-select" data-param-key="${key}">
+                <select class="ps-select" data-param-key="${escapeHtml(key)}">
                   <option value="true" ${params[key] ? 'selected' : ''}>true</option>
                   <option value="false" ${!params[key] ? 'selected' : ''}>false</option>
                 </select>
               ` : `
-                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" class="ps-input" data-param-key="${key}" value="${params[key]}">
+                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" ${typeof params[key] === 'number' ? 'step="any"' : ''} class="ps-input" data-param-key="${escapeHtml(key)}" value="${escapeHtml(params[key])}">
               `}
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
         `;
       }
 
@@ -4990,14 +7683,14 @@ ${sprite.type === 'text' ? `
           <div class="ps-prop-header" style="justify-content:space-between; align-items:center;">
             <div style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;">
               <span class="ps-val-tag" style="background:#0f172a;color:#e4e4e7;padding:2px 6px;font-weight:bold;">${def.icon || 'MOD'}</span>
-              <span style="font-weight:700;color:#f1f5f9;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${mod.name}</span>
+              <span style="font-weight:700;color:#f1f5f9;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(mod.name)}</span>
             </div>
             
           </div>
 
           <div class="ps-prop-row" style="margin-top:8px;">
             <label class="ps-prop-label">소속 스프라이트:</label>
-            <span class="ps-val-tag">${sprite ? sprite.name : '없음'}</span>
+            <span class="ps-val-tag">${escapeHtml(sprite ? sprite.name : '없음')}</span>
           </div>
 
           <div class="ps-prop-row">
@@ -5008,18 +7701,9 @@ ${sprite.type === 'text' ? `
             </select>
           </div>
 
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">발동 조건 (Trigger):</label>
-            <select class="ps-select" id="modCond">
-              <option value="always" ${params.condition === 'always' ? 'selected' : ''}>항상 작동 (Always)</option>
-              <option value="on_click" ${params.condition === 'on_click' ? 'selected' : ''}>클릭 시 (Click)</option>
-              <option value="on_hover" ${params.condition === 'on_hover' ? 'selected' : ''}>호버 시 (Hover)</option>
-              <option value="on_trigger" ${params.condition === 'on_trigger' ? 'selected' : ''}>화면 트리거 감지 시 (On Trigger)</option>
-              <option value="on_signal" ${params.condition === 'on_signal' ? 'selected' : ''}>신호 수신 시 (On Signal)</option>
-              <option value="key_press" ${params.condition === 'key_press' ? 'selected' : ''}>키보드 입력 시 (Key Press)</option>
-            </select>
-          </div>
         </div>
+
+        ${this.renderConditionSection(mod)}
 
         <!-- Parameter Section -->
         <div class="ps-prop-section">
@@ -5038,6 +7722,168 @@ ${sprite.type === 'text' ? `
           </div>
         </div>
       `;
+    }
+
+    // "언제 작동하나요?" - the module's trigger condition, the fields that
+    // condition needs, how long it then runs, and a plain-language summary.
+    static conditionInfo() {
+      return {
+        always: ['항상', '미리보기(Ctrl+Space)를 시작하면 바로 작동합니다.'],
+        on_hover: ['마우스를 올렸을 때', '마우스 포인터가 이 스프라이트 위에 있을 때 작동합니다.'],
+        on_click: ['클릭했을 때', '이 스프라이트를 클릭하면 작동합니다.'],
+        key_press: ['키를 눌렀을 때', '지정한 키보드 키를 누르면 작동합니다.'],
+        on_signal: ['신호를 받았을 때', '다른 모듈이나 화면 트리거가 보낸 신호를 받으면 작동합니다.'],
+        on_trigger: ['화면 트리거가 가리킬 때', '화면 트리거 스프라이트의 "연결 모듈 실행" 대상이 이 스프라이트일 때 작동합니다.'],
+        on_toggle: ['토글이 켜져 있을 때', '이 스프라이트의 토글 스위치 모듈이 켜짐 상태일 때 작동합니다.'],
+        timeline_active: ['타임라인 구간 안에서', '타임라인 재생 위치가 지정한 프레임 구간 안에 있을 때 작동합니다.']
+      };
+    }
+
+    // Compact badge text for the layers panel.
+    static conditionShort(mod) {
+      const p = mod.params || {};
+      const c = p.condition || 'always';
+      const base = { always: '항상', on_hover: '호버', on_click: '클릭', key_press: `키 ${String(p.condKey || p.targetKey || 'Space').replace(/^Key/, '')}`,
+        on_signal: `신호 ${ModuleEngine.conditionSignal(mod) === '*' ? '*' : ModuleEngine.conditionSignal(mod)}`, on_trigger: '트리거', on_toggle: '토글', timeline_active: '구간' }[c] || c;
+      if (c === 'always') return base;
+      const mode = ModuleEngine.resolveConditionMode(mod);
+      return base + ({ while: '', latch: '→계속', toggle: '→켜기/끄기', duration: `→${Math.max(0.05, Number(p.conditionDuration) || 1)}초` }[mode] || '');
+    }
+
+    static conditionModes() {
+      return {
+        auto: '자동 (권장)',
+        while: '조건이 맞는 동안만',
+        latch: '한 번 발동하면 계속',
+        toggle: '발동할 때마다 켜기/끄기',
+        duration: '발동 후 정해진 시간 동안'
+      };
+    }
+
+    // Plain-language summary: "클릭하면 → 계속 작동" etc.
+    static conditionSummary(mod) {
+      const p = mod.params || {};
+      const cond = p.condition || 'always';
+      if (cond === 'always') return '미리보기를 시작하면 바로, 계속 작동합니다.';
+      const mode = ModuleEngine.resolveConditionMode(mod);
+      const instant = ModuleEngine.instantCondition(cond);
+      const what = {
+        on_hover: '마우스를 올리면', on_click: '클릭하면', key_press: `'${p.condKey || p.targetKey || 'Space'}' 키를 누르면`,
+        on_signal: ModuleEngine.conditionSignal(mod) === '*' ? '아무 신호나 받으면' : `'${ModuleEngine.conditionSignal(mod)}' 신호를 받으면`,
+        on_trigger: '화면 트리거가 발동하면', on_toggle: '토글이 켜지면', timeline_active: '타임라인이 구간에 들어오면'
+      }[cond] || '조건이 맞으면';
+      const how = {
+        while: instant ? '그 순간(한 프레임)만 작동합니다. 한 번 실행되는 동작(소리, 신호, 링크 등)에 알맞습니다.'
+          : (cond === 'on_hover' ? '올려 둔 동안만 작동합니다.' : cond === 'key_press' ? '누르고 있는 동안만 작동합니다.' : '그동안만 작동합니다.'),
+        latch: '작동을 시작해 계속 유지합니다.',
+        toggle: '켜지고, 다시 발동하면 꺼집니다.',
+        duration: `${Math.max(0.05, Number(p.conditionDuration) || 1)}초 동안 작동합니다.`
+      }[mode];
+      return `${what} ${how}`;
+    }
+
+    knownSignals() {
+      const out = new Set(['drag_start', 'drag_end', 'hover_enter', 'hover_exit', 'form_success', 'form_error']);
+      for (const l of this.doc.layers) {
+        for (const sp of l.sprites) {
+          if (sp.signalName) out.add(sp.signalName);
+          for (const m of [...(sp.modules || []), ...(l.modules || [])]) {
+            for (const [k, v] of Object.entries(m.params || {})) {
+              if (typeof v === 'string' && v && /signal/i.test(k) && !/^(condSignal|listenSignal|inputSignal)$/.test(k)) out.add(v);
+            }
+          }
+        }
+      }
+      return [...out].filter(Boolean).slice(0, 60);
+    }
+
+    renderConditionSection(mod) {
+      const p = mod.params || {};
+      const cond = p.condition || 'always';
+      const info = InspectorPanelUI.conditionInfo();
+      const modes = InspectorPanelUI.conditionModes();
+      const mode = p.conditionMode || 'auto';
+      const resolved = ModuleEngine.resolveConditionMode(mod);
+      let extra = '';
+      if (cond === 'key_press') {
+        extra = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">키:</label>
+            <input type="text" class="ps-input" id="modCondKey" readonly title="클릭한 뒤 원하는 키를 누르세요" value="${escapeHtml(p.condKey || p.targetKey || 'Space')}" style="cursor:pointer;">
+          </div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;margin:-2px 0 4px;">칸을 클릭한 뒤 원하는 키를 누르면 등록됩니다.</div>`;
+      } else if (cond === 'on_signal') {
+        const sig = p.condSignal || p.listenSignal || p.inputSignal || '';
+        extra = `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">받을 신호 이름:</label>
+            <input type="text" class="ps-input" id="modCondSignal" list="modCondSignalList" placeholder="비우면 아무 신호나" value="${escapeHtml(sig === '*' ? '' : sig)}">
+            <datalist id="modCondSignalList">${this.knownSignals().map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
+          </div>`;
+      } else if (cond === 'timeline_active') {
+        extra = `
+          <div class="ps-prop-row" style="gap:6px;">
+            <label class="ps-prop-label">프레임 구간:</label>
+            <input type="number" class="ps-input" id="modCondStart" min="0" step="1" value="${escapeHtml(p.condStartFrame ?? p.startFrame ?? 0)}" style="width:64px;">
+            <span style="color:#71717a;">~</span>
+            <input type="number" class="ps-input" id="modCondEnd" min="0" step="1" value="${escapeHtml(p.condEndFrame ?? p.endFrame ?? (this.doc.totalFrames || 0))}" style="width:64px;">
+          </div>`;
+      }
+      const modeRow = cond === 'always' ? '' : `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">작동 방식:</label>
+            <select class="ps-select" id="modCondMode">
+              ${Object.entries(modes).map(([k, label]) => `<option value="${k}" ${mode === k ? 'selected' : ''}>${escapeHtml(k === 'auto' ? `자동: ${modes[resolved]}` : label)}</option>`).join('')}
+            </select>
+          </div>
+          ${resolved === 'duration' ? `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">작동 시간 (초):</label>
+            <input type="number" class="ps-input" id="modCondDuration" min="0.05" step="0.1" value="${escapeHtml(p.conditionDuration || 1)}">
+          </div>` : ''}`;
+      return `
+        <div class="ps-prop-section" id="modCondSection" style="border-left:3px solid #a78bfa;">
+          <div class="ps-prop-header">언제 작동하나요? (발동 조건)</div>
+          <div class="ps-prop-row" style="margin-top:6px;">
+            <label class="ps-prop-label">발동 조건:</label>
+            <select class="ps-select" id="modCond">
+              ${Object.entries(info).map(([k, [label]]) => `<option value="${k}" ${cond === k ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#a1a1aa;margin:-2px 0 6px;line-height:1.5;">${escapeHtml((info[cond] || info.always)[1])}</div>
+          ${extra}
+          ${modeRow}
+          <div class="jspen-cond-summary" id="modCondSummary" style="margin-top:6px;padding:7px 9px;border-radius:6px;background:#1e1b4b;color:#e0e7ff;font-size:11px;line-height:1.5;">
+            ▶ ${escapeHtml(InspectorPanelUI.conditionSummary(mod))}
+          </div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;margin-top:6px;line-height:1.5;">Ctrl+Space로 미리보기를 켜면 왼쪽 아래 상태창에서 각 모듈이 작동 중인지 볼 수 있습니다.</div>
+        </div>`;
+    }
+
+    bindConditionSection(mod) {
+      const q = sel => this.el.querySelector(sel);
+      const set = (patch, rerender = true) => {
+        mod.params = Object.assign(mod.params || {}, patch);
+        this.doc.saveState();
+        if (rerender) this.render();
+        if (this.cb.onUpdate) this.cb.onUpdate();
+      };
+      q('#modCond')?.addEventListener('change', e => set({ condition: e.target.value }));
+      q('#modCondMode')?.addEventListener('change', e => set({ conditionMode: e.target.value }));
+      q('#modCondDuration')?.addEventListener('change', e => set({ conditionDuration: Math.max(0.05, parseFloat(e.target.value) || 1) }));
+      q('#modCondSignal')?.addEventListener('change', e => set({ condSignal: e.target.value.trim() || '*' }));
+      q('#modCondStart')?.addEventListener('change', e => set({ condStartFrame: Math.max(0, parseInt(e.target.value, 10) || 0) }));
+      q('#modCondEnd')?.addEventListener('change', e => set({ condEndFrame: Math.max(0, parseInt(e.target.value, 10) || 0) }));
+      const keyEl = q('#modCondKey');
+      if (keyEl) {
+        keyEl.addEventListener('focus', () => { keyEl.value = '키를 누르세요…'; });
+        keyEl.addEventListener('blur', () => { keyEl.value = mod.params.condKey || mod.params.targetKey || 'Space'; });
+        keyEl.addEventListener('keydown', e => {
+          e.preventDefault(); e.stopPropagation();
+          if (e.key === 'Tab') return;
+          set({ condKey: e.code || e.key });
+        });
+      }
     }
 
     bindScrubbing() {
@@ -5106,13 +7952,8 @@ ${sprite.type === 'text' ? `
           if (this.cb.onUpdate) this.cb.onUpdate();
         });
 
-        // Condition
-        this.el.querySelector('#modCond')?.addEventListener('change', e => {
-          if (!mod.params) mod.params = {};
-          mod.params.condition = e.target.value;
-          this.doc.saveState();
-          if (this.cb.onUpdate) this.cb.onUpdate();
-        });
+        // Condition ("언제 작동하나요?")
+        this.bindConditionSection(mod);
 
         // Move Up
         this.el.querySelector('#modDetailMoveUp')?.addEventListener('click', () => {
@@ -5167,12 +8008,25 @@ ${sprite.type === 'text' ? `
 
         // Test Link button
         this.el.querySelector('#btnTestModDetailLink')?.addEventListener('click', () => {
-          if (mod.params?.url) {
-            window.open(mod.params.url, mod.params.target || '_blank');
+          const safeHref = safeUrl(mod.params?.url);
+          if (safeHref) {
+            window.open(safeHref, mod.params.target || '_blank');
+          } else if (mod.params?.url) {
+            StudioToast.show('허용되지 않는 링크 형식입니다 (http, https, mailto, tel, # 만 지원).');
           }
         });
 
         // Parameters with data-param-key
+        this.el.querySelector('select[data-param-key="fontFamily"]')?.parentElement?.querySelector('[data-act-font-upload]')?.addEventListener('click', async () => {
+          const family = window.jspenApp ? await window.jspenApp.addFontFile() : null;
+          if (!family) return;
+          if (!mod.params) mod.params = {};
+          mod.params.fontFamily = family;
+          if (sprite) sprite._wrapCache = null;
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+
         this.el.querySelectorAll('[data-param-key]').forEach(input => {
           const key = input.dataset.paramKey;
           const onValChange = () => {
@@ -5200,6 +8054,24 @@ ${sprite.type === 'text' ? `
             if (this.cb.onCanvasRender) this.cb.onCanvasRender();
           };
 
+          if (input.dataset.paramType === 'code') {
+            // Code: keep typing cheap (no undo step per key); commit on blur.
+            input.addEventListener('input', () => {
+              if (!mod.params) mod.params = {};
+              mod.params[key] = input.value;
+              window.jspenApp?.trustScript(input.value); // written by the user here
+            });
+            input.addEventListener('keydown', e => {
+              if (e.key === 'Tab') {
+                e.preventDefault();
+                const a = input.selectionStart, b = input.selectionEnd;
+                input.setRangeText('  ', a, b, 'end');
+                mod.params[key] = input.value;
+              }
+            });
+            input.addEventListener('change', () => { mod.params[key] = input.value; window.jspenApp?.trustScript(input.value); this.doc.saveState(); });
+            return;
+          }
           input.addEventListener('input', onValChange);
           input.addEventListener('change', () => {
             onValChange();
@@ -5263,6 +8135,57 @@ ${sprite.type === 'text' ? `
           sprite.textAlign = e.target.value;
           this.doc.saveState();
           if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+        this.el.querySelector('#inpFontFamily')?.parentElement?.querySelector('[data-act-font-upload]')?.addEventListener('click', async () => {
+          const family = window.jspenApp ? await window.jspenApp.addFontFile() : null;
+          if (!family) return;
+          sprite.fontFamily = family;
+          sprite._wrapCache = null;
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
+        });
+        this.el.querySelector('#inpFontFamily')?.addEventListener('change', e => {
+          sprite.fontFamily = e.target.value || 'Pretendard, sans-serif';
+          sprite._wrapCache = null;
+          this.doc.saveState();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+        // Image
+        this.el.querySelector('#btnReplaceImage')?.addEventListener('click', async () => {
+          const f = await NativeBridge.pickFile('image/*', 'dataurl');
+          if (!f) return;
+          try {
+            const info = await App.prepareImage(f.data);
+            sprite.imageUrl = info.url;
+            sprite.naturalWidth = info.width; sprite.naturalHeight = info.height;
+            this.doc.saveState();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          } catch (err) { StudioToast.show(err.message); }
+        });
+        this.el.querySelectorAll('[data-form-prop]').forEach(inp => {
+          inp.addEventListener('change', () => {
+            sprite.form = sprite.form || {};
+            const k = inp.dataset.formProp;
+            sprite.form[k] = k === 'required' ? inp.value === 'true' : inp.value;
+            if (k === 'kind' && inp.value === 'checkbox') { sprite.height = 28; }
+            this.doc.saveState();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          });
+        });
+        this.el.querySelector('#inpImageFit')?.addEventListener('change', e => {
+          sprite.imageFit = e.target.value;
+          this.doc.saveState();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+        this.el.querySelector('#inpImageAlt')?.addEventListener('change', e => {
+          sprite.alt = e.target.value;
+          this.doc.saveState();
+        });
+        this.el.querySelector('#btnImageNatural')?.addEventListener('click', () => {
+          if (!sprite.naturalWidth) return;
+          sprite.height = Math.round(sprite.width * sprite.naturalHeight / sprite.naturalWidth);
+          this.doc.saveState();
+          if (this.cb.onUpdate) this.cb.onUpdate();
         });
 
         // Quick add text_label module
@@ -5452,8 +8375,8 @@ ${sprite.type === 'text' ? `
 
           <div class="tl-controls-center">
             <div class="tl-frame-box">
-              <input type="number" id="tlCurFrame" class="tl-frame-num" value="${current}" min="0" max="${total}">
-              <span style="color:#71717a;font-size:11px;margin:0 2px;">/</span><input type="number" id="tlTotalFrames" class="tl-frame-num" value="${total}" min="10" max="9999" style="width:52px;" title="타임라인 총 프레임 길이">
+              <input type="number" id="tlCurFrame" class="tl-frame-num" value="${escapeHtml(current)}" min="0" max="${escapeHtml(total)}">
+              <span style="color:#71717a;font-size:11px;margin:0 2px;">/</span><input type="number" id="tlTotalFrames" class="tl-frame-num" value="${escapeHtml(total)}" min="10" max="9999" style="width:52px;" title="타임라인 총 프레임 길이">
             </div>
             <select class="tl-select" id="tlFps">
               <option value="24" ${this.doc.fps === 24 ? 'selected' : ''}>24 fps</option>
@@ -5573,12 +8496,12 @@ ${sprite.type === 'text' ? `
 
       tree.innerHTML = `
         <div class="tl-track-row tl-track-parent selected">
-          <span class="tl-track-name">${sprite.name}</span>
+          <span class="tl-track-name">${escapeHtml(sprite.name)}</span>
         </div>
         ${PROPS.map(p => `
           <div class="tl-track-row tl-track-sub">
             <span class="tl-track-sub-indent">└</span>
-            <span class="tl-track-name">${p.label}</span>
+            <span class="tl-track-name">${escapeHtml(p.label)}</span>
           </div>
         `).join('')}
       `;
@@ -5854,11 +8777,15 @@ ${sprite.type === 'text' ? `
                 <button class="ps-dropdown-item" id="mNew">새 도큐먼트 <span class="shortcut">Ctrl+N</span></button>
                 <button class="ps-dropdown-item" id="mOpen">열기... <span class="shortcut">Ctrl+O</span></button>
                 <button class="ps-dropdown-item" id="mSave">프로젝트 저장 (.jspen) <span class="shortcut">Ctrl+S</span></button>
+                <button class="ps-dropdown-item" id="mSaveAs">다른 이름으로 저장... <span class="shortcut">Ctrl+Shift+S</span></button>
+                <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" id="mImportImage">이미지 가져오기... <span class="shortcut">Ctrl+Shift+I</span></button>
+                <button class="ps-dropdown-item" id="mAddFont">글꼴 파일 추가...</button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mSettings">환경 설정... <span class="shortcut">Ctrl+,</span></button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mWebPreview">새 창에서 웹 미리보기 <span class="shortcut">Alt+W</span></button>
-                <button class="ps-dropdown-item" id="mWebExport">웹사이트 (HTML/CSS/JS) 내보내기...</button>
+                <button class="ps-dropdown-item" id="mWebExport">웹사이트 (HTML) 내보내기...</button>
                 <div class="ps-dropdown-sep"></div>
                 <div style="padding:4px 8px;font-size:10px;color:#a1a1aa;font-weight:600;">웹 템플릿 삽입</div>
                 <button class="ps-dropdown-item" id="btnOpenTemplateGallery" style="color:#f4f4f5;font-weight:600;">📂 템플릿 갤러리 열기...</button>
@@ -5900,8 +8827,8 @@ ${sprite.type === 'text' ? `
             </div>
             <div class="ps-menu-item"><span>웹(W)</span>
               <div class="ps-dropdown-menu">
-                <button class="ps-dropdown-item" id="mWPreview">실시간 웹 미리보기 <span class="shortcut">Ctrl+Space</span></button>
-                <button class="ps-dropdown-item" id="mWExport">완성 웹사이트 (HTML 파일) 다운로드...</button>
+                <button class="ps-dropdown-item" id="mWPreview">새 창에서 웹 미리보기 <span class="shortcut">Alt+W</span></button>
+                <button class="ps-dropdown-item" id="mWExport">웹사이트 (HTML) 내보내기...</button>
                 <button class="ps-dropdown-item" id="mWCopy">HTML/CSS 소스 코드 복사</button>
                 <div class="ps-dropdown-sep"></div>
                 <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#e4e4e7;">웹 컴포넌트 템플릿 원클릭 삽입</div>
@@ -5912,7 +8839,16 @@ ${sprite.type === 'text' ? `
                 <button class="ps-dropdown-item" data-web-tpl="cta_banner">전환 유도 CTA 배너 (CTA)</button>
                 <button class="ps-dropdown-item" data-web-tpl="footer">하단 푸터 (Footer)</button>
                 <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">반응형 캔버스 규격 전환</div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#e4e4e7;">폼 요소 삽입</div>
+                <button class="ps-dropdown-item" data-form-kind="text">텍스트 입력칸</button>
+                <button class="ps-dropdown-item" data-form-kind="email">이메일 입력칸</button>
+                <button class="ps-dropdown-item" data-form-kind="textarea">여러 줄 입력칸</button>
+                <button class="ps-dropdown-item" data-form-kind="checkbox">체크박스</button>
+                <button class="ps-dropdown-item" data-form-kind="select">선택 목록</button>
+                <button class="ps-dropdown-item" data-form-kind="submit">전송 버튼</button>
+                <button class="ps-dropdown-item" data-form-kind="contact">[세트] 문의 폼 (이름·이메일·내용·전송)</button>
+                <div class="ps-dropdown-sep"></div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">캔버스 크기 변경 (현재 화면)</div>
                 <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="1080">데스크톱 Full HD (1920 × 1080)</button>
                 <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="900">맥북 / 노트북 (1440 × 900)</button>
                 <button class="ps-dropdown-item" data-preset-w="768" data-preset-h="1024">태블릿 iPad (768 × 1024)</button>
@@ -5953,12 +8889,16 @@ ${sprite.type === 'text' ? `
 
         <!-- Draggable Native Window Title Bar Region -->
         <div class="ps-menubar-drag-region" id="titleDragRegion">
-          ${this.doc.name} - JSPen Studio
+          ${escapeHtml(this.doc.name)} - JSPen Studio
         </div>
 
         <!-- Native Window Controls -->
         <div class="ps-menubar-right">
-          <div class="ps-window-controls">
+          <div class="jspen-view-switch" title="반응형 화면: 화면마다 위치·크기·글자 크기·표시 여부를 따로 지정합니다">
+            ${[['desktop', '데스크톱'], ['tablet', '태블릿'], ['mobile', '모바일']].map(([v, l]) =>
+              `<button class="jspen-view-btn ${(this.doc.activeView || 'desktop') === v ? 'active' : ''} ${v !== 'desktop' && !this.doc.hasView(v) ? 'is-new' : ''}" data-view="${v}">${l}</button>`).join('')}
+          </div>
+          <div class="ps-window-controls"${NativeBridge.isDesktop ? '' : ' style="display:none;"'}>
             <button class="ps-win-btn win-min" id="winMin" title="최소화">─</button>
             <button class="ps-win-btn win-max" id="winMax" title="최대화 / 이전 크기">□</button>
             <button class="ps-win-btn win-close" id="winClose" title="닫기">✕</button>
@@ -6004,17 +8944,22 @@ ${sprite.type === 'text' ? `
         });
       });
 
-      window.addEventListener('mousedown', e => {
-        if (!e.target?.closest || !e.target.closest('#topMenuBar')) {
-          closeAllMenus();
-        }
-      });
-
-      window.addEventListener('keydown', e => {
-        if (e.key === 'Escape') {
-          closeAllMenus();
-        }
-      });
+      // Global listeners are bound only once; render() runs many times
+      // (mode switch, docker toggles) and must not stack window listeners.
+      this._closeAllMenus = closeAllMenus;
+      if (!this._globalMenuListenersBound) {
+        this._globalMenuListenersBound = true;
+        window.addEventListener('mousedown', e => {
+          if (!e.target?.closest || !e.target.closest('#topMenuBar')) {
+            this._closeAllMenus?.();
+          }
+        });
+        window.addEventListener('keydown', e => {
+          if (e.key === 'Escape') {
+            this._closeAllMenus?.();
+          }
+        });
+      }
 
       // Photoshop Filter Menu Actions
       this.el.querySelectorAll('[data-filter-act]').forEach(btn => {
@@ -6068,19 +9013,16 @@ ${sprite.type === 'text' ? `
       // Window drag start
       this.el.querySelector('#titleDragRegion')?.addEventListener('mousedown', e => {
         if (e.button === 0) {
-          document.title = 'cmd:window_drag_start';
-          setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+          NativeBridge.send('window_drag_start');
         }
       });
 
       // Window controls
       this.el.querySelector('#winMin')?.addEventListener('click', () => {
-        document.title = 'cmd:window_min';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+        NativeBridge.send('window_min');
       });
       this.el.querySelector('#winMax')?.addEventListener('click', () => {
-        document.title = 'cmd:window_max';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+        NativeBridge.send('window_max');
       });
       
       this.el.querySelector('#mWebPreview')?.addEventListener('click', () => {
@@ -6110,12 +9052,7 @@ ${sprite.type === 'text' ? `
         btn.addEventListener('click', () => {
           const w = parseInt(btn.dataset.presetW, 10);
           const h = parseInt(btn.dataset.presetH, 10);
-          if (w && h) {
-            this.doc.width = w;
-            this.doc.height = h;
-            this.doc.saveState();
-            this.cb.onCanvasResize();
-          }
+          if (w && h) window.jspenApp?.resizeCanvasInteractive(w, h);
         });
       });
 
@@ -6128,20 +9065,13 @@ ${sprite.type === 'text' ? `
             if (!hStr) return;
             const w = parseInt(wStr, 10);
             const h = parseInt(hStr, 10);
-            if (w > 0 && h > 0) {
-              this.doc.width = w;
-              this.doc.height = h;
-              this.doc.saveState();
-              if (this.onAction) this.onAction('resize');
-              StudioToast.show(`캔버스 크기가 ${w}x${h}px로 변경되었습니다.`);
-            }
+            if (w > 0 && h > 0) window.jspenApp?.resizeCanvasInteractive(w, h);
           });
         });
       });
 
       this.el.querySelector('#winClose')?.addEventListener('click', () => {
-        document.title = 'cmd:window_close';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
+        NativeBridge.send('window_close');
       });
 
       this.el.querySelector('#btnOpenTemplateGallery')?.addEventListener('click', () => {
@@ -6164,19 +9094,19 @@ ${sprite.type === 'text' ? `
       this.el.querySelector('#mExp')?.addEventListener('click', () => this.cb.onExport());
       this.el.querySelector('#mSettings')?.addEventListener('click', () => this.cb.onOpenSettings());
       this.el.querySelector('#mNew')?.addEventListener('click', async () => {
-        const ok = await StudioModal.confirm('새 도큐먼트를 생성하시겠습니까? 저장되지 않은 작업은 유실됩니다.', '새 도큐먼트');
+        const ok = window.jspenApp && !window.jspenApp.isDirty()
+          ? true : await StudioModal.confirm('새 도큐먼트를 생성하시겠습니까? 저장되지 않은 작업은 유실됩니다.', '새 도큐먼트');
         if (ok) {
           location.reload();
         }
       });
-      this.el.querySelector('#mSave')?.addEventListener('click', () => {
-        document.title = 'cmd:save';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
-      });
-      this.el.querySelector('#mOpen')?.addEventListener('click', () => {
-        document.title = 'cmd:open';
-        setTimeout(() => { document.title = 'JSPen Studio'; }, 50);
-      });
+      this.el.querySelector('#mSave')?.addEventListener('click', () => window.jspenApp?.saveProject());
+      this.el.querySelector('#mSaveAs')?.addEventListener('click', () => window.jspenApp?.saveProject(true));
+      this.el.querySelectorAll('[data-view]').forEach(btn => btn.addEventListener('click', () => window.jspenApp?.setView(btn.dataset.view)));
+      this.el.querySelectorAll('[data-form-kind]').forEach(btn => btn.addEventListener('click', () => window.jspenApp?.insertFormElement(btn.dataset.formKind)));
+      this.el.querySelector('#mImportImage')?.addEventListener('click', () => window.jspenApp?.pickImage());
+      this.el.querySelector('#mAddFont')?.addEventListener('click', () => window.jspenApp?.addFontFile());
+      this.el.querySelector('#mOpen')?.addEventListener('click', () => window.jspenApp?.openProject());
 
       // Edit actions
       this.el.querySelector('#mUndo')?.addEventListener('click', () => {
@@ -6234,7 +9164,6 @@ ${sprite.type === 'text' ? `
       this.panStart = { x: 0, y: 0 };
       this.knifeCutting = false;
       this.knifePath = [];
-      this.sound = new SoundManager();
 
       this.syncFromDoc();
       this.bindEventsOnce();
@@ -6428,8 +9357,8 @@ ${sprite.type === 'text' ? `
       for (const ly of this.doc.layers) {
         for (const sp of ly.sprites) {
           const isSelected = curSel && curSel.id === sp.id;
-          const linkStr = sp.linkGroup ? ` ([링크그룹${sp.linkGroup})` : '';
-          options += `<option value="${sp.id}" ${isSelected ? 'selected' : ''}>${sp.name}${linkStr}</option>`;
+          const linkStr = sp.linkGroup ? ` ([링크그룹${escapeHtml(sp.linkGroup)})` : '';
+          options += `<option value="${escapeHtml(sp.id)}" ${isSelected ? 'selected' : ''}>${escapeHtml(sp.name)}${linkStr}</option>`;
         }
       }
       selEl.innerHTML = options || '<option value="">스프라이트 없음</option>';
@@ -6455,6 +9384,16 @@ ${sprite.type === 'text' ? `
         }
       }
       return activeMods;
+    }
+
+    // Module nodes present in the graph but not connected to OUTPUT.
+    getDisabledModuleIds() {
+      const active = this.getActiveModuleIds();
+      const disabled = new Set();
+      for (const n of this.nodes) {
+        if (n.modId && !active.has(n.modId)) disabled.add(n.modId);
+      }
+      return disabled;
     }
 
     evaluateParamWires() {
@@ -6512,15 +9451,15 @@ ${sprite.type === 'text' ? `
         const mainOutputs = n.outputs || [];
 
         return `
-          <div class="graph-node ${catClass} ${n.type === 'output_master' ? 'node-output' : ''} ${n.id === this.doc.selectedNodeId ? 'selected' : ''}" id="${n.id}" style="left:${n.x}px; top:${n.y}px;">
+          <div class="graph-node ${catClass} ${n.type === 'output_master' ? 'node-output' : ''} ${n.id === this.doc.selectedNodeId ? 'selected' : ''}" id="${escapeHtml(n.id)}" style="left:${escapeHtml(n.x)}px; top:${escapeHtml(n.y)}px;">
             <div class="graph-node-header">
               <span class="graph-node-title">
-                <span class="graph-node-badge">${n.badge}</span>
-                ${n.title}
+                <span class="graph-node-badge">${escapeHtml(n.badge)}</span>
+                ${escapeHtml(n.title)}
               </span>
               <div style="display:flex;align-items:center;gap:6px;">
                 <span style="font-size:9px;font-weight:700;color:${isActive ? '#e4e4e7' : '#52525b'};">${isActive ? '● ON' : '○ OFF'}</span>
-                ${n.type !== 'output_master' && n.type !== 'output_sprite' ? `<button class="graph-node-close" data-act="del-node" data-node-id="${n.id}">✕</button>` : ''}
+                ${n.type !== 'output_master' && n.type !== 'output_sprite' ? `<button class="graph-node-close" data-act="del-node" data-node-id="${escapeHtml(n.id)}">✕</button>` : ''}
               </div>
             </div>
             
@@ -6528,8 +9467,8 @@ ${sprite.type === 'text' ? `
               <div class="graph-ports-col graph-inputs">
                 ${mainInputs.map(p => `
                   <div class="graph-port-row">
-                    <div class="graph-port graph-port-input port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type || 'flow'})"></div>
-                    <span class="graph-port-label">${p.name}</span>
+                    <div class="graph-port graph-port-input port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}" title="${escapeHtml(p.name)} (${escapeHtml(p.type || 'flow')})"></div>
+                    <span class="graph-port-label">${escapeHtml(p.name)}</span>
                   </div>
                 `).join('')}
               </div>
@@ -6537,8 +9476,8 @@ ${sprite.type === 'text' ? `
               <div class="graph-ports-col graph-outputs">
                 ${mainOutputs.map(p => `
                   <div class="graph-port-row" style="justify-content:flex-end;">
-                    <span class="graph-port-label">${p.name}</span>
-                    <div class="graph-port graph-port-output port-${p.type || 'flow'}" data-node="${n.id}" data-port="${p.name}" data-type="${p.type || 'flow'}" title="${p.name} (${p.type || 'flow'})"></div>
+                    <span class="graph-port-label">${escapeHtml(p.name)}</span>
+                    <div class="graph-port graph-port-output port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}" title="${escapeHtml(p.name)} (${escapeHtml(p.type || 'flow')})"></div>
                   </div>
                 `).join('')}
               </div>
@@ -6578,12 +9517,12 @@ ${sprite.type === 'text' ? `
             </select>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${aConnected?'port-connected':''}" data-node="${n.id}" data-port="param_inputA" data-type="float" title="값 A 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${aConnected?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_inputA" data-type="float" title="값 A 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">값 A:</span>
             <input type="number" class="node-inline-input" data-node-ctrl="inputA" value="${n.params.inputA !== undefined ? n.params.inputA : (n.params.valA || 0)}" ${aConnected?'disabled style="opacity:0.6;"':''}>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${bConnected?'port-connected':''}" data-node="${n.id}" data-port="param_inputB" data-type="float" title="값 B 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${bConnected?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_inputB" data-type="float" title="값 B 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">값 B:</span>
             <input type="number" class="node-inline-input" data-node-ctrl="inputB" value="${n.params.inputB !== undefined ? n.params.inputB : (n.params.valB !== undefined ? n.params.valB : 1)}" ${bConnected?'disabled style="opacity:0.6;"':''}>
           </div>
@@ -6595,12 +9534,12 @@ ${sprite.type === 'text' ? `
         const brightConn = isConnected('param_brightness');
         return `
           <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${blurConn?'port-connected':''}" data-node="${n.id}" data-port="param_blur" data-type="float" title="블러 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${blurConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_blur" data-type="float" title="블러 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">블러(px):</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="blur" step="1" min="0" value="${n.params.blur || 0}" ${blurConn?'disabled style="opacity:0.6;"':''}>
+            <input type="number" class="node-inline-input" data-node-ctrl="blur" step="1" min="0" value="${escapeHtml(n.params.blur || 0)}" ${blurConn?'disabled style="opacity:0.6;"':''}>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${brightConn?'port-connected':''}" data-node="${n.id}" data-port="param_brightness" data-type="float" title="밝기 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${brightConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_brightness" data-type="float" title="밝기 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">밝기(%):</span>
             <input type="number" class="node-inline-input" data-node-ctrl="brightness" step="5" min="0" value="${n.params.brightness !== undefined ? n.params.brightness : 100}" ${brightConn?'disabled style="opacity:0.6;"':''}>
           </div>
@@ -6623,12 +9562,12 @@ ${sprite.type === 'text' ? `
             </select>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${stConn?'port-connected':''}" data-node="${n.id}" data-port="param_stiffness" data-type="float" title="강도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${stConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_stiffness" data-type="float" title="강도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">강도 (Stiffness):</span>
             <input type="number" class="node-inline-input" data-node-ctrl="stiffness" step="0.05" value="${n.params.stiffness !== undefined ? n.params.stiffness : 0.1}" ${stConn?'disabled style="opacity:0.6;"':''}>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${dpConn?'port-connected':''}" data-node="${n.id}" data-port="param_damping" data-type="float" title="감쇠 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${dpConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_damping" data-type="float" title="감쇠 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">감쇠 (Damping):</span>
             <input type="number" class="node-inline-input" data-node-ctrl="damping" step="0.05" value="${n.params.damping !== undefined ? n.params.damping : 0.8}" ${dpConn?'disabled style="opacity:0.6;"':''}>
           </div>
@@ -6640,12 +9579,12 @@ ${sprite.type === 'text' ? `
         const smConn = isConnected('param_smooth');
         return `
           <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${spdConn?'port-connected':''}" data-node="${n.id}" data-port="param_speed" data-type="float" title="속도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${spdConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_speed" data-type="float" title="속도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">속도:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="speed" step="0.1" value="${n.params.speed || 1}" ${spdConn?'disabled style="opacity:0.6;"':''}>
+            <input type="number" class="node-inline-input" data-node-ctrl="speed" step="0.1" value="${escapeHtml(n.params.speed || 1)}" ${spdConn?'disabled style="opacity:0.6;"':''}>
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${smConn?'port-connected':''}" data-node="${n.id}" data-port="param_smooth" data-type="float" title="스무딩 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${smConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_smooth" data-type="float" title="스무딩 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">스무딩:</span>
             <input type="number" class="node-inline-input" data-node-ctrl="smooth" step="0.05" min="0" max="1" value="${n.params.smooth || 0.15}" ${smConn?'disabled style="opacity:0.6;"':''}>
           </div>
@@ -6657,10 +9596,10 @@ ${sprite.type === 'text' ? `
         return `
           <div class="node-inline-control" style="margin-bottom:4px;">
             <span class="node-inline-label">색상:</span>
-            <input type="color" class="node-inline-color" data-node-ctrl="color" value="${n.params.color || '#d4d4d8'}">
+            <input type="color" class="node-inline-color" data-node-ctrl="color" value="${escapeHtml(n.params.color || '#d4d4d8')}">
           </div>
           <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${alpConn?'port-connected':''}" data-node="${n.id}" data-port="param_alpha" data-type="float" title="투명도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
+            <div class="graph-port graph-port-input port-float ${alpConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_alpha" data-type="float" title="투명도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
             <span class="node-inline-label" style="flex:1;">투명도:</span>
             <input type="number" class="node-inline-input" data-node-ctrl="alpha" step="0.1" min="0" max="1" value="${n.params.alpha !== undefined ? n.params.alpha : 1}" ${alpConn?'disabled style="opacity:0.6;"':''}>
           </div>
@@ -6691,7 +9630,7 @@ ${sprite.type === 'text' ? `
       const nodeEl = document.getElementById(nodeId);
       if (nodeEl) {
         // Exact port lookup by data-port
-        let portEl = nodeEl.querySelector(`.graph-port[data-port="${portName}"]`);
+        let portEl = nodeEl.querySelector(`.graph-port[data-port="${CSS.escape(String(portName))}"]`);
         if (!portEl) {
           portEl = nodeEl.querySelector(isOutput ? '.graph-port-output' : '.graph-port-input');
         }
@@ -6727,7 +9666,7 @@ ${sprite.type === 'text' ? `
         const d = this.calculateWirePath(p1.x, p1.y, p2.x, p2.y);
         const isAct = toN.id === 'output_master' || (toN.modId && activeMods.has(toN.modId)) || w.toPort?.startsWith('param_');
 
-        paths += `<path id="wire_${w.id}" d="${d}" class="graph-wire ${isAct ? 'wire-active' : ''}" data-wire-id="${w.id}" data-from="${w.fromNode}" data-to="${w.toNode}" title="클릭하여 연결 끊기" />`;
+        paths += `<path id="wire_${escapeHtml(w.id)}" d="${escapeHtml(d)}" class="graph-wire ${isAct ? 'wire-active' : ''}" data-wire-id="${escapeHtml(w.id)}" data-from="${escapeHtml(w.fromNode)}" data-to="${escapeHtml(w.toNode)}" title="클릭하여 연결 끊기" />`;
       }
 
       svg.innerHTML = paths;
@@ -6980,7 +9919,7 @@ ${sprite.type === 'text' ? `
             if (this.knifePath.length > 1) {
               const p1 = this.knifePath[0];
               const p2 = this.knifePath[this.knifePath.length - 1];
-              knifeSvg.innerHTML = `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" class="node-knife-line" />`;
+              knifeSvg.innerHTML = `<line x1="${escapeHtml(p1.x)}" y1="${escapeHtml(p1.y)}" x2="${escapeHtml(p2.x)}" y2="${escapeHtml(p2.y)}" class="node-knife-line" />`;
             }
           };
 
@@ -7173,13 +10112,13 @@ ${sprite.type === 'text' ? `
         Object.keys(cats).forEach(catKey => {
           const items = filtered.filter(p => p.cat === catKey);
           if (items.length > 0) {
-            html += `<div class="nsm-cat-title">${cats[catKey]}</div>`;
+            html += `<div class="nsm-cat-title">${escapeHtml(cats[catKey])}</div>`;
             items.forEach((item, idx) => {
               html += `
-                <div class="nsm-item ${idx === 0 && q ? 'highlighted' : ''}" data-type="${item.type}">
+                <div class="nsm-item ${idx === 0 && q ? 'highlighted' : ''}" data-type="${escapeHtml(item.type)}">
                   <div style="display:flex;flex-direction:column;gap:2px;">
-                    <div style="font-weight:700;color:#f4f4f5;font-size:11.5px;">${item.name}</div>
-                    <div style="font-size:10px;color:#71717a;">${item.desc}</div>
+                    <div style="font-weight:700;color:#f4f4f5;font-size:11.5px;">${escapeHtml(item.name)}</div>
+                    <div style="font-size:10px;color:#71717a;">${escapeHtml(item.desc)}</div>
                   </div>
                   <span class="nsm-badge">${item.icon}</span>
                 </div>
@@ -7412,14 +10351,14 @@ ${sprite.type === 'text' ? `
               const isRec = this.recordingId === s.id;
               return `
                 <tr style="border-bottom:1px solid #1f1f23;">
-                  <td style="padding:8px 10px;color:#e4e4e7;">${s.name}</td>
+                  <td style="padding:8px 10px;color:#e4e4e7;">${escapeHtml(s.name)}</td>
                   <td style="padding:8px 10px;">
                     <span class="shortcut-key-badge ${isRec ? 'recording' : ''}" style="${isRec ? 'background:#38bdf8;color:#000;font-weight:700;' : ''}">
-                      ${isRec ? '키 입력 대기 중 (ESC 취소)...' : s.key}
+                      ${isRec ? '키 입력 대기 중 (ESC 취소)...' : escapeHtml(s.key)}
                     </span>
                   </td>
                   <td style="padding:8px 10px;text-align:right;">
-                    <button class="btn btn-secondary btn-sm btn-edit-shortcut" data-id="${s.id}" style="font-size:10.5px;padding:2px 8px;">
+                    <button class="btn btn-secondary btn-sm btn-edit-shortcut" data-id="${escapeHtml(s.id)}" style="font-size:10.5px;padding:2px 8px;">
                       ${isRec ? '취소' : '수정'}
                     </button>
                   </td>
@@ -7503,8 +10442,8 @@ ${sprite.type === 'text' ? `
           ${this.pm.plugins.map(p => `
             <div class="plugin-card">
               <div class="plugin-info">
-                <span class="plugin-name">${p.name} <span style="font-size:10px;color:#71717a;">v${p.version||'1.0'}</span></span>
-                <span class="plugin-desc">${p.description||'커스텀 확장 플러그인'} (작성자: ${p.author||'Community'})</span>
+                <span class="plugin-name">${escapeHtml(p.name)} <span style="font-size:10px;color:#71717a;">v${escapeHtml(p.version||'1.0')}</span></span>
+                <span class="plugin-desc">${escapeHtml(p.description||'커스텀 확장 플러그인')} (작성자: ${escapeHtml(p.author||'Community')})</span>
               </div>
               <span style="font-size:11px;color:#22c55e;font-weight:700;">● 활성화됨</span>
             </div>
@@ -7610,8 +10549,7 @@ ${sprite.type === 'text' ? `
         });
       });
       this.el.querySelector('#btnDl').addEventListener('click', () => {
-        const b = new Blob([PhotoshopJSExporter.generateHTML(this.doc)], { type: 'text/html' });
-        const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'index.html'; a.click();
+        NativeBridge.downloadText('index.html', PhotoshopJSExporter.generateHTML(this.doc), 'text/html');
       });
       this.el.querySelector('#btnRun')?.addEventListener('click', () => {
         const win = window.open();
@@ -8433,22 +11371,18 @@ ${sprite.type === 'text' ? `
     }
 
     async fetchTemplateList() {
-      // 1. Try server API
-      try {
-        const res = await fetch('/api/templates');
-        if (res.ok) {
-          const list = await res.json();
+      // 1. Try server API (only available when served by server.js)
+      if (location.protocol !== 'file:') {
+        try {
+          const list = await NativeBridge.loadJSON('api/templates');
           if (Array.isArray(list) && list.length > 0) return list;
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
 
-      // 2. Try manifest.json
+      // 2. Try manifest.json (works for both http:// and the desktop file:// shell)
       try {
-        const res = await fetch('/templates/manifest.json');
-        if (res.ok) {
-          const manifest = await res.json();
-          if (Array.isArray(manifest) && manifest.length > 0) return manifest;
-        }
+        const manifest = await NativeBridge.loadJSON('templates/manifest.json');
+        if (Array.isArray(manifest) && manifest.length > 0) return manifest;
       } catch (_) {}
 
       // 3. Fallback bundled template list
@@ -8464,21 +11398,22 @@ ${sprite.type === 'text' ? `
     }
 
     async loadTemplateFile(filename) {
-      try {
-        let res = await fetch('/templates/' + filename);
-        if (!res.ok && filename.endsWith('.json')) {
-          res = await fetch('/templates/' + filename.replace(/\.json$/, '.jspen'));
-        } else if (!res.ok && !filename.includes('.')) {
-          res = await fetch('/templates/' + filename + '.jspen');
-        }
-        if (res.ok) {
-          return await res.json();
-        }
-      } catch (_) {}
+      const name = String(filename || '');
+      // Only plain file names inside templates/ are allowed.
+      if (!name || /[\\/]|\.\./.test(name)) return null;
+      const candidates = [name];
+      if (name.endsWith('.json')) candidates.push(name.replace(/\.json$/, '.jspen'));
+      else if (!name.includes('.')) candidates.push(name + '.jspen');
+      for (const c of candidates) {
+        try {
+          return await NativeBridge.loadJSON('templates/' + encodeURIComponent(c));
+        } catch (_) {}
+      }
       return null;
     }
 
     async show() {
+      this.app.endLivePreview?.();
       const templates = await this.fetchTemplateList();
       this.close();
 
@@ -8500,16 +11435,16 @@ ${sprite.type === 'text' ? `
           <div style="padding:14px;overflow-y:auto;flex:1;">
             <div class="tpl-grid">
               ${templates.map(t => `
-                <div class="tpl-card" data-tpl-file="${t.file}">
+                <div class="tpl-card" data-tpl-file="${escapeHtml(t.file)}">
                   <div>
-                    <div class="tpl-card-title">${t.title || t.file}</div>
-                    <div class="tpl-card-desc">${t.description || 'JSPen 모던 v11 프로젝트 템플릿입니다.'}</div>
+                    <div class="tpl-card-title">${escapeHtml(t.title || t.file)}</div>
+                    <div class="tpl-card-desc">${escapeHtml(t.description || 'JSPen 모던 v11 프로젝트 템플릿입니다.')}</div>
                   </div>
                   <div class="tpl-card-footer">
-                    <span class="tpl-card-meta">${t.layersCount ? `레이어 ${t.layersCount}개` : t.file}</span>
+                    <span class="tpl-card-meta">${t.layersCount ? `레이어 ${escapeHtml(t.layersCount)}개` : t.file}</span>
                     <div style="display:flex;gap:4px;">
-                      <button class="btn btn-secondary btn-sm btn-insert-tpl" data-tpl-file="${t.file}" style="font-size:11px;padding:2px 8px;">레이어 삽입</button>
-                      <button class="btn btn-primary btn-sm btn-open-tpl" data-tpl-file="${t.file}" style="font-size:11px;padding:2px 8px;">전체 열기</button>
+                      <button class="btn btn-secondary btn-sm btn-insert-tpl" data-tpl-file="${escapeHtml(t.file)}" style="font-size:11px;padding:2px 8px;">레이어 삽입</button>
+                      <button class="btn btn-primary btn-sm btn-open-tpl" data-tpl-file="${escapeHtml(t.file)}" style="font-size:11px;padding:2px 8px;">전체 열기</button>
                     </div>
                   </div>
                 </div>
@@ -8599,8 +11534,9 @@ ${sprite.type === 'text' ? `
         this.app.doc.saveState();
         this.app.refreshUI();
       } else {
-        // Load entire document
+        // Load entire document (a new, unsaved project)
         this.app.loadProjectFromJSON(docData);
+        this.app.setProjectPath('');
       }
     }
 
@@ -8612,12 +11548,97 @@ ${sprite.type === 'text' ? `
     }
   }
 
+  // ==========================================================================
+  // Live-preview status panel (studio only): which modules run right now,
+  // recent signals, the hovered sprite and held keys - so trigger conditions
+  // can be tested without guessing.
+  // ==========================================================================
+  class ModuleHud {
+    constructor(app) {
+      this.app = app;
+      this.last = 0;
+      let collapsed = false;
+      try { collapsed = localStorage.getItem('jspen.moduleHud') === 'collapsed'; } catch (e) { /* storage blocked */ }
+      const el = document.createElement('div');
+      el.className = 'jspen-module-hud' + (collapsed ? ' collapsed' : '');
+      el.innerHTML = '<div class="hud-head"><span>모듈 상태 · 미리보기</span><button type="button" class="hud-fold" title="접기/펼치기">' + (collapsed ? '▸' : '▾') + '</button></div><div class="hud-body"></div>';
+      el.querySelector('.hud-fold').addEventListener('mousedown', e => e.stopPropagation());
+      el.querySelector('.hud-fold').addEventListener('click', () => {
+        const c = el.classList.toggle('collapsed');
+        el.querySelector('.hud-fold').textContent = c ? '▸' : '▾';
+        try { localStorage.setItem('jspen.moduleHud', c ? 'collapsed' : 'open'); } catch (e) { /* storage blocked */ }
+      });
+      (app.canvas.parentElement || document.body).appendChild(el);
+      this.el = el;
+      this.body = el.querySelector('.hud-body');
+    }
+
+    rows() {
+      const eng = this.app.moduleEngine, doc = this.app.doc;
+      const selected = doc.selectedSpriteId;
+      const out = [];
+      for (const layer of doc.layers) {
+        for (const sp of layer.sprites) {
+          const stack = [...(layer.modules || []), ...(sp.modules || [])];
+          for (const mod of stack) {
+            const p = mod.params || {};
+            const cond = p.condition || 'always';
+            let state;
+            if (!layer.visible || sp.visible === false) state = 'hidden';
+            else if (!mod.enabled) state = 'off';
+            else if (eng.disabledModuleIds && eng.disabledModuleIds.has(mod.id)) state = 'graph';
+            else if (cond === 'always') state = 'on';
+            else {
+              const st = sp.runtime && sp.runtime._cond && sp.runtime._cond[mod.id];
+              state = st && st.active ? 'on' : 'wait';
+            }
+            const fired = sp.runtime && sp.runtime._cond && sp.runtime._cond[mod.id] && sp.runtime._cond[mod.id].lastFired;
+            out.push({ sp, mod, state, cond, recent: fired !== undefined && fired !== null && eng.bus.time - fired < 0.6,
+              rank: (sp.id === selected ? 0 : 2) + (cond === 'always' ? 1 : 0) });
+          }
+        }
+      }
+      return out.sort((a, b) => a.rank - b.rank);
+    }
+
+    update(force = false) {
+      const now = performance.now();
+      if (!force && now - this.last < 150) return;
+      this.last = now;
+      if (this.el.classList.contains('collapsed')) return;
+      const eng = this.app.moduleEngine;
+      const rows = this.rows();
+      const label = { on: '● 작동 중', wait: '○ 대기', off: 'OFF', graph: '노드 연결 끊김', hidden: '숨김' };
+      const shown = rows.slice(0, 12);
+      let html = shown.length ? '' : '<div class="hud-empty">모듈이 없습니다. 스프라이트의 +fx로 모듈을 추가하세요.</div>';
+      for (const r of shown) {
+        html += '<div class="hud-row hud-' + r.state + (r.recent ? ' hud-fired' : '') + '">' +
+          '<span class="hud-state">' + label[r.state] + '</span>' +
+          '<span class="hud-name">' + escapeHtml(r.sp.name) + ' › ' + escapeHtml(r.mod.name) + '</span>' +
+          '<span class="hud-cond">' + escapeHtml(InspectorPanelUI.conditionShort(r.mod)) + '</span></div>';
+      }
+      if (rows.length > shown.length) html += '<div class="hud-more">외 ' + (rows.length - shown.length) + '개 (선택한 스프라이트가 먼저 표시됩니다)</div>';
+      const t = eng.bus.time;
+      const sigs = [...eng.bus.signals.entries()].filter(([, v]) => t - v.time < 3).sort((a, b) => b[1].time - a[1].time).slice(0, 4);
+      html += '<div class="hud-sec">최근 신호: ' + (sigs.length ? sigs.map(([n, v]) => '<b>' + escapeHtml(n) + '</b> ' + (t - v.time).toFixed(1) + '초 전').join(', ') : '없음') + '</div>';
+      const hov = this.app.doc.layers.flatMap(l => l.sprites).find(sp => sp.runtime && sp.runtime.isHovered);
+      const keys = Object.keys(eng.bus.keyState || {}).filter(k => eng.bus.keyState[k] && /^(Key|Digit|Arrow|Space|Enter|Shift|Escape)/.test(k));
+      html += '<div class="hud-sec">마우스 위: ' + (hov ? '<b>' + escapeHtml(hov.name) + '</b>' : '없음') + ' · 누른 키: ' + (keys.length ? escapeHtml(keys.join(' ')) : '없음') + '</div>';
+      this.body.innerHTML = html;
+    }
+
+    destroy() { this.el.remove(); }
+  }
+
   class App {
     constructor() {
       this.canvas = document.getElementById('viewportCanvas');
       this.doc = new DocumentModel();
       this.renderer = new PhotoshopCanvas(this.canvas, this.doc);
       this.moduleEngine = new ModuleEngine(this.doc);
+      // Pointer state shared by the canvas handlers and the live-preview loop.
+      this.pointer = { ms: { x: 0, y: 0 }, mw: { x: -1e9, y: -1e9 }, isDown: false, clicked: false };
+      this._previewSnapshot = null;
       this.pluginManager = new PluginManager();
       this.isNodeMode = false;
 
@@ -8633,6 +11654,7 @@ ${sprite.type === 'text' ? `
         () => this.requestRender(),
         () => this.refreshUI()
       );
+      this.tools.onTextCreated = (sp, isNew) => this.editTextSprite(sp, isNew);
 
       // Setup UI Panels
       this.toolbox = new ToolboxUI(document.getElementById('leftToolbox'), this.tools, () => this.refreshUI());
@@ -8646,12 +11668,12 @@ ${sprite.type === 'text' ? `
       });
       this.timeline = new TimelineUI(document.getElementById('bottomTimeline'), this.doc, {
         onSeek: () => this.renderCanvas(),
-        onTogglePreview: () => this.openWebPreviewWindow(),
-        get isPreview() { return false; }
+        onTogglePreview: () => this.toggleModulePreview(),
+        get isPreview() { return !!window.jspenApp?.moduleEngine?.active; }
       });
       this.dockerManager = new KritaDockerManager(this);
       this.menuBar = new MenuBarUI(document.getElementById('topMenuBar'), this.doc, {
-        onExport: () => this.exportModal.show(),
+        onExport: () => { this.endLivePreview(); this.exportModal.show(); },
         onOpenSettings: () => this.settingsModal.show(),
         onToggleNodeMode: () => this.toggleNodeMode(),
         onResetLayout: () => this.resetLayout(),
@@ -8676,7 +11698,7 @@ ${sprite.type === 'text' ? `
       this.templateModal = new TemplateModalUI(this);
       this.nodeEditor = new NodeEditorUI(document.getElementById('nodeEditorContainer'), this.doc, {
         onUpdate: () => {
-          this.moduleEngine.activeModuleIds = this.nodeEditor.getActiveModuleIds();
+          this.moduleEngine.disabledModuleIds = this.nodeEditor.getDisabledModuleIds();
           this.renderCanvas();
         },
         onToggleNodeMode: () => this.toggleNodeMode()
@@ -8699,10 +11721,33 @@ ${sprite.type === 'text' ? `
       this.handleResize();
     }
 
+    // Actions that read or replace the document must not see the live
+    // preview's runtime changes (and must not be undone by its restore).
+    endLivePreview() {
+      if (this.moduleEngine && this.moduleEngine.active) this.toggleModulePreview(false);
+    }
+
     loadProjectFromJSON(jsonObjOrString) {
+      this.endLivePreview();
+      // Snapshot the current document so a broken file cannot leave it half-loaded.
+      const backup = this.doc.toJSON();
+      const backupHistory = this.doc.history.slice();
+      const backupHistoryIndex = this.doc.historyIndex;
       try {
         const data = typeof jsonObjOrString === 'string' ? JSON.parse(jsonObjOrString) : jsonObjOrString;
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+          throw new Error('프로젝트 데이터가 객체 형식이 아닙니다.');
+        }
+        if (data.layers !== undefined && !Array.isArray(data.layers)) {
+          throw new Error('layers 항목이 배열이 아닙니다.');
+        }
+        for (const l of (data.layers || [])) {
+          if (!l || typeof l !== 'object' || (l.sprites !== undefined && !Array.isArray(l.sprites))) {
+            throw new Error('레이어 데이터 형식이 올바르지 않습니다.');
+          }
+        }
         this.doc.loadFromData(data, true);
+        this.loadDocumentFonts();
         this.refreshUI();
         if (this.isNodeMode) {
           this.nodeEditor.syncFromDoc();
@@ -8710,12 +11755,278 @@ ${sprite.type === 'text' ? `
         }
         return true;
       } catch (err) {
-        console.error("Failed to load project:", err);
+        console.error('Failed to load project:', err);
+        try {
+          this.doc.loadFromData(backup, false);
+          this.doc.history = backupHistory;
+          this.doc.historyIndex = backupHistoryIndex;
+          this.refreshUI();
+        } catch (_) { /* keep whatever state we have */ }
+        StudioToast.show('프로젝트 파일을 불러오지 못했습니다: ' + (err && err.message ? err.message : err), 3500);
         return false;
       }
     }
 
+    // ---------------- Images ----------------
+    // Decode an image data URL; downscale anything larger than maxSide so the
+    // document (and its undo history) stays reasonable.
+    static prepareImage(dataUrl, maxSide = 2048) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.naturalWidth, h = img.naturalHeight, url = dataUrl;
+          if (Math.max(w, h) > maxSide) {
+            const k = maxSide / Math.max(w, h);
+            w = Math.round(w * k); h = Math.round(h * k);
+            const c = document.createElement('canvas'); c.width = w; c.height = h;
+            c.getContext('2d').drawImage(img, 0, 0, w, h);
+            url = /^data:image\/jpe?g/i.test(dataUrl) ? c.toDataURL('image/jpeg', 0.9) : c.toDataURL('image/png');
+          }
+          resolve({ url, width: w, height: h });
+        };
+        img.onerror = () => reject(new Error('이미지를 읽을 수 없습니다.'));
+        img.src = dataUrl;
+      });
+    }
+
+    // Insert an image sprite (centre of the view, or at a world point).
+    async insertImage(dataUrl, name = '이미지', at = null) {
+      this.endLivePreview();
+      if (!/^data:image\/(png|jpe?g|gif|webp|bmp|svg\+xml);/i.test(String(dataUrl))) {
+        StudioToast.show('지원하지 않는 이미지 형식입니다 (PNG, JPG, GIF, WebP, BMP, SVG).');
+        return null;
+      }
+      let info;
+      try { info = await App.prepareImage(dataUrl); } catch (e) { StudioToast.show(e.message); return null; }
+      const layer = this.doc.getSelectedLayer() || this.doc.layers[this.doc.layers.length - 1] || this.doc.addLayer({ name: '레이어 1' });
+      // Fit inside 60% of the artboard, never upscale.
+      const k = Math.min(1, (this.doc.width * 0.6) / info.width, (this.doc.height * 0.6) / info.height);
+      const r = this.renderer;
+      const center = at || r.screenToWorld(this.canvas.width / 2, this.canvas.height / 2);
+      const sp = layer.addSprite({
+        name: String(name || '이미지').replace(/\.[^.]+$/, '').slice(0, 40) || '이미지', type: 'image', imageUrl: info.url,
+        x: Math.round(center.x), y: Math.round(center.y), width: Math.max(1, Math.round(info.width * k)), height: Math.max(1, Math.round(info.height * k)),
+        naturalWidth: info.width, naturalHeight: info.height, imageFit: 'cover', fill: 'transparent', strokeWidth: 0
+      });
+      this.doc.selectedLayerId = layer.id;
+      this.doc.selectedSpriteId = sp.id;
+      this.doc.selectedSpriteIds = new Set([sp.id]);
+      this.doc.saveState();
+      this.refreshUI();
+      StudioToast.show('이미지를 추가했습니다.');
+      return sp;
+    }
+
+    async importImageFile(file, at = null) {
+      if (!file) return null;
+      if (file.size > 25 * 1024 * 1024) { StudioToast.show('이미지 파일이 너무 큽니다 (최대 25MB).'); return null; }
+      const r = await NativeBridge.readFile(file, 'dataurl');
+      return r ? this.insertImage(r.data, file.name, at) : null;
+    }
+
+    async pickImage() {
+      const f = await NativeBridge.pickFile('image/*', 'dataurl');
+      if (f) return this.insertImage(f.data, f.name);
+      return null;
+    }
+
+    // ---------------- Canvas size & responsive views ----------------
+    async resizeCanvasInteractive(w, h) {
+      this.endLivePreview();
+      if (w === this.doc.width && h === this.doc.height) return;
+      const hasContent = this.doc.layers.some(l => l.sprites.length > 0);
+      const mode = !hasContent ? 'keep' : await StudioModal.choose(
+        `캔버스를 ${this.doc.width}×${this.doc.height} → ${w}×${h}px로 바꿉니다. 작업물은 어떻게 할까요?`,
+        [['fit', '비율 유지하며 맞추기', '내용 전체를 같은 비율로 줄이거나 키워 가운데에 배치합니다.'],
+         ['stretch', '캔버스에 맞춰 늘리기', '위치와 크기를 가로·세로 비율에 따라 각각 맞춥니다.'],
+         ['keep', '그대로 두기', '캔버스 크기만 바꾸고 내용은 움직이지 않습니다.']], '캔버스 크기 변경');
+      if (!mode) return;
+      this.doc.resizeCanvas(w, h, mode);
+      this.doc.saveState();
+      this.handleResize();
+      this.fitToScreen ? this.fitToScreen() : this.renderer.centerArtboard();
+      this.refreshUI();
+      StudioToast.show(`캔버스 크기: ${w}×${h}px`);
+    }
+
+    // Resize without asking (inspector fields, artboard handles).
+    setCanvasSize(w, h, mode = 'keep', { quiet = false } = {}) {
+      w = Math.round(w); h = Math.round(h);
+      if (!(w > 0 && h > 0) || (w === this.doc.width && h === this.doc.height)) return false;
+      this.endLivePreview();
+      this.doc.resizeCanvas(w, h, mode);
+      this.doc.saveState();
+      this.fitToScreen();
+      this.refreshUI();
+      if (!quiet) StudioToast.show(`캔버스 크기: ${w}×${h}px`);
+      return true;
+    }
+
+    // Zoom so the whole artboard fits the viewport, then centre it.
+    fitToScreen() {
+      const p = this.canvas.parentElement;
+      if (!p) return;
+      const z = Math.min((p.clientWidth - 80) / this.doc.width, (p.clientHeight - 80) / this.doc.height);
+      this.renderer.zoom = Math.max(0.05, Math.min(1, z));
+      this.renderer.centerArtboard();
+      this.renderCanvas();
+    }
+
+    setView(name) {
+      this.endLivePreview();
+      const first = !this.doc.hasView(name);
+      if (!this.doc.switchView(name)) return;
+      this.handleResize();
+      this.fitToScreen ? this.fitToScreen() : this.renderer.centerArtboard();
+      this.refreshUI();
+      if (this.menuBar) this.menuBar.render();
+      const label = { desktop: '데스크톱', tablet: '태블릿', mobile: '모바일' }[name];
+      StudioToast.show(first
+        ? `${label} 화면을 만들었습니다. 데스크톱 배치를 축소한 상태에서 시작하니, 이 화면에서 위치·크기·글자 크기·표시 여부를 따로 조정하세요.`
+        : `${label} 화면 편집 중`, first ? 5000 : 1800);
+    }
+
+    // ---------------- Forms ----------------
+    insertFormElement(kind) {
+      this.endLivePreview();
+      const layer = this.doc.getSelectedLayer() || this.doc.layers[this.doc.layers.length - 1] || this.doc.addLayer({ name: '레이어 1' });
+      const c = this.renderer.screenToWorld(this.canvas.width / 2, this.canvas.height / 2);
+      const x = Math.round(c.x), y0 = Math.round(c.y);
+      const field = (k, name, extra, dy = 0) => layer.addSprite(Object.assign({
+        name: '폼: ' + name, type: 'form_field', x, y: y0 + dy, width: 320, height: k === 'textarea' ? 120 : 44,
+        fill: '#ffffff', stroke: '#a1a1aa', strokeWidth: 1, cornerRadius: 6, fontSize: 15, textColor: '#18181b',
+        form: Object.assign({ kind: k, name, placeholder: '', required: false }, extra)
+      }));
+      const submit = (dy = 0) => {
+        const msg = layer.addSprite({ name: '폼 결과 문구', type: 'text', text: '', x, y: y0 + dy + 44, width: 320, height: 28, fontSize: 14, fill: '#a1a1aa', fontWeight: 'normal' });
+        const def = MODULE_REGISTRY.form_submit, st = MODULE_REGISTRY.state_style;
+        const btn = layer.addSprite({ name: '전송 버튼', type: 'rect', x, y: y0 + dy, width: 320, height: 48, fill: '#e4e4e7', cornerRadius: 8, strokeWidth: 0,
+          modules: [
+            { id: 'mod_' + Math.random().toString(36).slice(2, 10), type: 'text_label', name: '텍스트 라벨', enabled: true, params: { condition: 'always', text: '보내기', fontSize: 16, color: '#18181b', fontWeight: 'bold', textAlign: 'center', valign: 'middle' } },
+            { id: 'mod_' + Math.random().toString(36).slice(2, 10), type: 'form_submit', name: def.name, enabled: true, params: Object.assign(JSON.parse(JSON.stringify(def.defaultParams)), { messageSpriteId: msg.id }) },
+            { id: 'mod_' + Math.random().toString(36).slice(2, 10), type: 'state_style', name: st.name, enabled: true, params: Object.assign(JSON.parse(JSON.stringify(st.defaultParams)), { hoverFill: '#ffffff', pressFill: '#a1a1aa' }) }
+          ] });
+        return btn;
+      };
+      let last;
+      switch (kind) {
+        case 'email': last = field('email', 'email', { placeholder: '이메일 주소', required: true }); break;
+        case 'textarea': last = field('textarea', 'message', { placeholder: '내용을 입력하세요' }); break;
+        case 'checkbox': last = field('checkbox', 'agree', { label: '개인정보 수집에 동의합니다' }); last.width = 320; last.height = 28; break;
+        case 'select': last = field('select', 'topic', { placeholder: '문의 유형', options: '일반 문의, 견적 요청, 기타' }); break;
+        case 'submit': last = submit(); break;
+        case 'contact':
+          field('text', 'name', { placeholder: '이름', required: true }, -150);
+          field('email', 'email', { placeholder: '이메일 주소', required: true }, -96);
+          field('textarea', 'message', { placeholder: '문의 내용', required: true }, 0);
+          last = submit(96);
+          break;
+        default: last = field('text', 'name', { placeholder: '이름' });
+      }
+      this.doc.selectedLayerId = layer.id;
+      this.doc.selectedSpriteId = last.id;
+      this.doc.selectedSpriteIds = new Set([last.id]);
+      this.doc.saveState();
+      this.refreshUI();
+      StudioToast.show('폼 요소를 추가했습니다. Ctrl+Space 미리보기에서 입력해 볼 수 있습니다.');
+      return last;
+    }
+
+    // Register uploaded document fonts and re-render when they are ready.
+    loadDocumentFonts() {
+      PhotoshopCanvas.loadDocumentFonts(this.doc.fonts, () => {
+        for (const l of this.doc.layers) for (const sp of l.sprites) sp._wrapCache = null;
+        this.renderCanvas();
+      });
+    }
+
+    // Font choices for the inspector: document fonts first, then common
+    // fonts available on Windows / macOS, then generic families.
+    fontChoices() {
+      const doc = (this.doc.fonts || []).map(f => [f.family, f.family + ' (문서 글꼴)']);
+      const common = [['Malgun Gothic', '맑은 고딕'], ['Noto Sans KR', 'Noto Sans KR'], ['Nanum Gothic', '나눔고딕'],
+        ['Apple SD Gothic Neo', 'Apple SD 산돌고딕 Neo'], ['Arial', 'Arial'], ['Helvetica', 'Helvetica'], ['Verdana', 'Verdana'],
+        ['Georgia', 'Georgia'], ['Times New Roman', 'Times New Roman'], ['Courier New', 'Courier New'],
+        ['serif', '세리프 (기본)'], ['monospace', '고정폭 (기본)']];
+      return [['', '기본 글꼴']].concat(doc, common);
+    }
+
+    // Add a font file (.ttf/.otf/.woff/.woff2) to the document.
+    async addFontFile() {
+      const file = await NativeBridge.pickFile('.ttf,.otf,.woff,.woff2,font/*', 'dataurl');
+      if (!file) return null;
+      if (file.size > 8 * 1024 * 1024) { StudioToast.show('글꼴 파일이 너무 큽니다 (최대 8MB).'); return null; }
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      const mime = { ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2' }[ext] || 'font/ttf';
+      const src = String(file.data).replace(/^data:[^;,]*;base64,/, 'data:' + mime + ';base64,');
+      const family = PhotoshopCanvas.safeFontFamilyName(file.name.replace(/\.[^.]+$/, '')) || 'CustomFont';
+      this.doc.fonts = (this.doc.fonts || []).filter(f => f.family !== family).concat([{ family, src }]);
+      this.doc.saveState();
+      this.loadDocumentFonts();
+      this.refreshUI(); // the new font appears in the font lists
+      StudioToast.show(`글꼴 '${family}'을(를) 문서에 추가했습니다.`);
+      return family;
+    }
+
+    getProjectFileName() {
+      const base = String(this.doc.name || 'project').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'project';
+      return base + '.jspen';
+    }
+
+    // Ctrl+S saves to the current file (desktop) without asking again;
+    // Ctrl+Shift+S / "다른 이름으로 저장" always asks.
+    saveProject(saveAs = false) {
+      this.endLivePreview();
+      const json = JSON.stringify(this.doc.toJSON(), null, 2);
+      if (NativeBridge.call('saveProjectTo', json, this.getProjectFileName(), !!saveAs)) return;
+      NativeBridge.downloadText(this.getProjectFileName(), json);
+      this.doc.markSaved();
+      StudioToast.show('프로젝트 파일(.jspen)을 다운로드했습니다.');
+    }
+
+    // Called by the desktop shell after a successful save.
+    markSaved() {
+      this.doc.markSaved();
+    }
+
+    isDirty() {
+      return !!(this.doc && this.doc.isDirty());
+    }
+
+    // Ask before replacing a document with unsaved changes.
+    async confirmDiscard(action = '다른 프로젝트를 열면') {
+      if (!this.isDirty()) return true;
+      return StudioModal.confirm(`저장하지 않은 변경 사항이 있습니다. ${action} 지금 작업은 사라집니다. 계속할까요?`, '변경 사항 버리기');
+    }
+
+    async openProject() {
+      this.endLivePreview();
+      if (!(await this.confirmDiscard())) return;
+      if (NativeBridge.send('open')) return;
+      const file = await NativeBridge.pickTextFile('.jspen,.json');
+      if (file) this.openProjectText(file.text, file.name, false);
+    }
+
+    // Open project text (file picker, drag & drop, desktop shell).
+    // `path` is the file on disk (desktop shell only); opens without one
+    // (browser file picker, HTML5 drop) make the next Ctrl+S ask for a path,
+    // so a different file can never be overwritten by mistake.
+    async openProjectText(text, name = '', confirm = true, path = '') {
+      this.endLivePreview();
+      if (confirm && !(await this.confirmDiscard())) return false;
+      const ok = this.loadProjectFromJSON(text);
+      if (ok) this.setProjectPath(path);
+      if (ok && name) StudioToast.show(`'${name}' 프로젝트를 불러왔습니다.`);
+      return ok;
+    }
+
+    // Tell the desktop shell which file Ctrl+S writes to ('' = none yet).
+    setProjectPath(path = '') {
+      NativeBridge.call('projectOpened', String(path || ''));
+    }
+
     async insertWebsiteTemplate(type) {
+      this.endLivePreview();
       const W = this.doc.width || 1440;
       // If template file exists in templates folder, load it cleanly!
       const filenameMap = {
@@ -8964,7 +12275,174 @@ ${sprite.type === 'text' ? `
       this.renderCanvas();
     }
 
+    // Inline text editor over the canvas for text sprites.
+    // Enter commits (Shift+Enter = new line), Escape cancels, blur commits.
+    editTextSprite(sprite, isNew = false) {
+      if (!sprite || this._textEditor) return;
+      const container = this.canvas.parentElement;
+      const r = this.renderer;
+      const pos = r.worldToScreen(sprite.x, sprite.y);
+      const fontSize = Math.max(8, (sprite.fontSize || 24) * r.zoom);
+      const ta = document.createElement('textarea');
+      ta.className = 'jspen-inline-text-editor';
+      ta.value = sprite.text || '';
+      ta.spellcheck = false;
+      ta.style.cssText = `position:absolute;left:${pos.x}px;top:${pos.y}px;transform:translate(-50%,-50%);` +
+        `min-width:${Math.max(80, (sprite.width || 120) * r.zoom)}px;font-size:${fontSize}px;` +
+        `font-weight:${sprite.fontWeight || 'normal'};line-height:1.35;color:${sprite.fill || '#ffffff'};` +
+        'background:rgba(24,24,27,0.92);border:1px solid #e4e4e7;border-radius:2px;outline:none;' +
+        'padding:2px 6px;resize:none;overflow:hidden;z-index:50;text-align:center;font-family:inherit;';
+      const autosize = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+      ta.rows = 1;
+      container.appendChild(ta);
+      this._textEditor = ta;
+      const prevText = sprite.text;
+      let done = false;
+      const finish = (commit) => {
+        if (done) return;
+        done = true;
+        const val = ta.value;
+        ta.remove();
+        this._textEditor = null;
+        if (commit && val.trim() && val !== prevText) {
+          sprite.text = val;
+          if (!sprite.name || sprite.name.startsWith('텍스트')) {
+            sprite.name = '텍스트: ' + val.replace(/\s+/g, ' ').slice(0, 24);
+          }
+          sprite._wrapCache = null;
+          if (isNew && this.doc.history.length > 0) {
+            // Fold the edit into the "text created" undo step.
+            this.doc.history[this.doc.historyIndex] = JSON.stringify(this.doc.historySnapshot());
+          } else {
+            this.doc.saveState();
+          }
+        }
+        this.refreshUI();
+        this.renderCanvas();
+      };
+      ta.addEventListener('input', autosize);
+      ta.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finish(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+      });
+      ta.addEventListener('blur', () => finish(true));
+      ta.addEventListener('mousedown', e => e.stopPropagation());
+      autosize();
+      setTimeout(() => { ta.focus(); ta.select(); }, 0);
+    }
+
+    // ---------------- User script trust ----------------
+    // Code typed or added in this session is trusted. Scripts that came with
+    // an opened file run only after the user allows them (once per session).
+    trustScript(code) {
+      this._trustedScripts = this._trustedScripts || new Set();
+      this._trustedScripts.add(String(code));
+    }
+
+    isScriptTrusted(code) {
+      if (code === String(MODULE_REGISTRY.custom_script.defaultParams.code)) return true;
+      return !!(this._trustedScripts && this._trustedScripts.has(String(code)));
+    }
+
+    untrustedScripts() {
+      const out = [];
+      for (const l of this.doc.layers) {
+        for (const m of [...(l.modules || []), ...l.sprites.flatMap(sp => sp.modules || [])]) {
+          if (m.type === 'custom_script' && m.enabled !== false && !this.isScriptTrusted(String(m.params?.code || ''))) out.push(m);
+        }
+      }
+      return out;
+    }
+
+    async askToTrustScripts() {
+      const pending = this.untrustedScripts();
+      if (!pending.length || this._askingScripts) return;
+      this._askingScripts = true;
+      const ok = await StudioModal.confirm(
+        `이 문서에는 직접 작성하지 않은 사용자 스크립트가 ${pending.length}개 있습니다. ` +
+        '스크립트는 이 프로그램 안에서 자바스크립트로 실행됩니다. 신뢰하는 파일일 때만 허용하세요. 실행할까요?',
+        '사용자 스크립트 실행');
+      this._askingScripts = false;
+      if (ok) pending.forEach(m => this.trustScript(String(m.params?.code || '')));
+      else StudioToast.show('사용자 스크립트는 실행하지 않고 미리보기합니다.');
+    }
+
+    // Live module preview (Ctrl+Space): runs the module engine on the studio
+    // canvas. The document is snapshotted on start and restored on stop because
+    // modules change sprite data (filters, visibility, text, ...) while running.
+    toggleModulePreview(force) {
+      const on = force === undefined ? !this.moduleEngine.active : !!force;
+      if (on === this.moduleEngine.active) return;
+      if (on) {
+        if (this.isNodeMode) this.toggleNodeMode();
+        this._previewSnapshot = {
+          data: this.doc.toJSON(),
+          history: this.doc.history.slice(),
+          historyIndex: this.doc.historyIndex,
+          selectedSpriteIds: new Set(this.doc.selectedSpriteIds || [])
+        };
+        this.moduleEngine.disabledModuleIds = this.nodeEditor ? this.nodeEditor.getDisabledModuleIds() : null;
+        this.moduleEngine.scriptGate = code => this.isScriptTrusted(code);
+        this.moduleEngine.onScriptError = (sp, mod, err) => {
+          StudioToast.show(`스크립트 오류 (${sp.name}): ${err && err.message ? err.message : err}`, 5000);
+        };
+        this.askToTrustScripts();
+        this.moduleEngine.onNavigateAnchor = (sp, opts = {}) => {
+          const to = -(sp.y - sp.height / 2) * this.renderer.zoom + 24;
+          if (opts.smooth) {
+            this._panAnim = { from: this.renderer.panY, to, start: performance.now(), dur: Math.max(0.05, opts.duration || 0.6) * 1000 };
+          } else {
+            this._panAnim = null;
+            this.renderer.panY = to;
+          }
+        };
+        this.pointer.clicked = false;
+        this.pointer.isDown = false;
+        this.renderer.mode = 'preview';
+        this.moduleEngine.start();
+        const vp = this.canvas.parentElement;
+        this.moduleEngine.forms = new FormRuntime(this.moduleEngine, {
+          container: vp,
+          place: (sp) => {
+            const rt = sp.runtime, z = this.renderer.zoom;
+            if (rt.visible === false) return null;
+            const c = this.renderer.worldToScreen(rt.x, rt.y);
+            const w = sp.width * rt.scaleX * z, h = sp.height * rt.scaleY * z;
+            return { x: this.canvas.offsetLeft + c.x - w / 2, y: this.canvas.offsetTop + c.y - h / 2, w, h, scale: z };
+          }
+        });
+        document.body.classList.add('jspen-live-preview');
+        this.moduleHud = new ModuleHud(this);
+        this.moduleHud.update(true);
+        StudioToast.show('실시간 모듈 미리보기: Esc 또는 Ctrl+Space로 편집 모드 복귀');
+      } else {
+        this.moduleEngine.stop();
+        if (this.moduleEngine.forms) { this.moduleEngine.forms.destroy(); this.moduleEngine.forms = null; }
+        if (this.moduleHud) { this.moduleHud.destroy(); this.moduleHud = null; }
+        this._panAnim = null;
+        this.renderer.mode = 'edit';
+        document.body.classList.remove('jspen-live-preview');
+        this.canvas.style.cursor = '';
+        const snap = this._previewSnapshot;
+        this._previewSnapshot = null;
+        if (snap) {
+          this.doc.loadFromData(snap.data, false);
+          this.doc.history = snap.history;
+          this.doc.historyIndex = snap.historyIndex;
+          this.doc.currentFrame = snap.data.currentFrame || 0;
+          this.doc.selectedSpriteId = snap.data.selectedSpriteId || this.doc.selectedSpriteId;
+          this.doc.selectedSpriteIds = snap.selectedSpriteIds;
+          this.doc.selectedModuleId = null;
+        }
+      }
+      this.refreshUI();
+      if (this.timeline) this.timeline.render();
+      this.renderCanvas();
+    }
+
     toggleNodeMode() {
+      if (this.moduleEngine?.active) this.toggleModulePreview(false);
       this.isNodeMode = !this.isNodeMode;
       const nodeCont = document.getElementById('nodeEditorContainer');
       const vpCont = document.getElementById('viewportContainer');
@@ -9006,11 +12484,24 @@ ${sprite.type === 'text' ? `
     }
 
     generateWebsiteHTML(forExport = false) {
-      const doc = this.doc;
-      const W = doc.width || 1440;
-      const H = doc.height || 900;
+      // Always export from the desktop layout; other views become CSS overrides.
+      let doc = this.doc;
+      if (doc.activeView && doc.activeView !== 'desktop') {
+        const copy = new DocumentModel();
+        copy.loadFromData(doc.toJSON(), false);
+        copy.switchView('desktop');
+        doc = copy;
+      }
+      // Module interactions / keyframes run on the exported DOM via the engine.
+      const disabledIds = this.nodeEditor ? this.nodeEditor.getDisabledModuleIds() : null;
+      const docJson = doc.toJSON();
+      const runtimeScript = (PhotoshopJSExporter.needsEngine(docJson, disabledIds, true) || PhotoshopJSExporter.hasKeyframes(docJson))
+        ? `<script>${PhotoshopJSExporter.webRuntimeScript(doc, disabledIds)}<\/script>` : '';
+      const W = Number(doc.width) || 1440;
+      const H = Number(doc.height) || 900;
       // Artboard background matches the Studio Document background exactly
-      const artboardBg = doc.backgroundColor || '#18181b';
+      // (characters that could break out of the <style> block are stripped)
+      const artboardBg = String(doc.backgroundColor || '#18181b').replace(/[<>{};]/g, '');
       // Empty surrounding space is clean white as requested ("빈 공간은 흰색으로 채우기")
       const pageBg = '#ffffff';
 
@@ -9049,13 +12540,16 @@ ${sprite.type === 'text' ? `
         const effectiveCustomClass = (linkMod ? linkMod.params?.customClass : sprite.cssClass) || '';
 
         // Tag: If link is present, default to <a> for true HTML hyperlink navigation
-        let tag = sprite.tag || 'div';
+        const ALLOWED_TAGS = ['div', 'a', 'button', 'span', 'p', 'section', 'header', 'footer', 'nav', 'main', 'article', 'aside', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+        let tag = String(sprite.tag || 'div').toLowerCase();
+        if (!ALLOWED_TAGS.includes(tag)) tag = 'div';
         if (effectiveLinkUrl && tag === 'div') tag = 'a';
+        const safeLinkUrl = safeUrl(effectiveLinkUrl);
 
         const isLink = !!effectiveLinkUrl || tag === 'a';
         const isBtn = tag === 'button';
-        const hrefAttr = effectiveLinkUrl ? `href="${effectiveLinkUrl}" target="${effectiveLinkTarget}" rel="noopener noreferrer"` : '';
-        const anchorAttr = effectiveAnchorId ? `id="${effectiveAnchorId}"` : `id="${sprite.id}"`;
+        const hrefAttr = safeLinkUrl ? `href="${escapeHtml(safeLinkUrl)}" target="${escapeHtml(effectiveLinkTarget)}" rel="noopener noreferrer"` : '';
+        const anchorAttr = effectiveAnchorId ? `id="${escapeHtml(effectiveAnchorId)}"` : `id="${escapeHtml(sprite.id)}"`;
         const classAttr = `web-sprite ${effectiveHoverEffect && effectiveHoverEffect !== 'none' ? 'hover-' + effectiveHoverEffect : ''} ${effectiveCustomClass}`.trim();
         const cursorStyle = (isBtn || isLink) ? 'cursor:pointer;' : '';
 
@@ -9066,16 +12560,26 @@ ${sprite.type === 'text' ? `
         // Check for text_label module
         const textMod = (sprite.modules || []).find(m => m.enabled !== false && m.type === 'text_label');
         if (textMod && textMod.params) {
-          innerContent = textMod.params.text || '';
+          innerContent = escapeHtml(textMod.params.text || '');
           textColor = textMod.params.color || '#ffffff';
         }
 
-        if (sprite.type === 'text') {
-          innerContent = sprite.text || '';
+        if (sprite.type === 'form_field') {
+          // Real form control; the web runtime binds it (validation, submit).
+          const spec = FormRuntime.fieldSpec(sprite);
+          const input = FormRuntime.createInput(sprite, document);
+          input.setAttribute('style', spec.kind === 'checkbox' ? 'width:auto;height:auto;margin:0;' : FormRuntime.inputStyle(sprite, 1));
+          innerContent = spec.kind === 'checkbox'
+            ? `<label style="display:flex;align-items:center;gap:8px;width:100%;height:100%;cursor:pointer;color:${escapeHtml(sprite.textColor || '#e4e4e7')};">${input.outerHTML}<span>${escapeHtml(spec.label || spec.placeholder || spec.name)}</span></label>`
+            : input.outerHTML;
+          bgStyle = 'transparent';
+        } else if (sprite.type === 'text') {
+          innerContent = escapeHtml(sprite.text || '');
           bgStyle = 'transparent';
           textColor = sprite.fill || '#ffffff';
         } else if (sprite.type === 'image' && sprite.imageUrl) {
-          innerContent = `<img src="${sprite.imageUrl}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;" />`;
+          const fit = ['cover', 'contain', 'fill'].includes(sprite.imageFit) ? sprite.imageFit : 'cover';
+          innerContent = `<img src="${escapeHtml(safeUrl(sprite.imageUrl, true))}" alt="${escapeHtml(sprite.alt || '')}" style="width:100%;height:100%;object-fit:${fit};display:block;border-radius:inherit;" />`;
           bgStyle = 'transparent';
         } else if (sprite.type === 'brush') {
           const pts = sprite.brushStrokePoints || [];
@@ -9084,7 +12588,7 @@ ${sprite.type === 'text' ? `
             for (let i = 1; i < pts.length; i++) {
               pathD += ` L ${pts[i].x} ${pts[i].y}`;
             }
-            innerContent = `<svg viewBox="-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}" style="width:100%;height:100%;overflow:visible;"><path d="${pathD}" stroke="${sprite.stroke || '#ffffff'}" stroke-width="${sprite.brushSize || 6}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+            innerContent = `<svg viewBox="${escapeHtml(`-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}`)}" style="width:100%;height:100%;overflow:visible;"><path d="${escapeHtml(pathD)}" stroke="${escapeHtml(sprite.stroke || '#ffffff')}" stroke-width="${escapeHtml(sprite.brushSize || 6)}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
           }
           bgStyle = 'transparent';
         } else if (sprite.type === 'path') {
@@ -9100,7 +12604,7 @@ ${sprite.type === 'text' ? `
               d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${cur.x} ${cur.y}`;
             }
             if (sprite.isClosedPath || sprite.pathClosed) d += ' Z';
-            innerContent = `<svg viewBox="-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}" style="width:100%;height:100%;overflow:visible;"><path d="${d}" stroke="${sprite.stroke || '#ffffff'}" stroke-width="${sprite.strokeWidth || 2}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+            innerContent = `<svg viewBox="${escapeHtml(`-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}`)}" style="width:100%;height:100%;overflow:visible;"><path d="${escapeHtml(d)}" stroke="${escapeHtml(sprite.stroke || '#ffffff')}" stroke-width="${escapeHtml(sprite.strokeWidth || 2)}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
           }
         } else {
           // rect, circle, bevel_rect
@@ -9112,13 +12616,13 @@ ${sprite.type === 'text' ? `
             bgStyle = sprite.fill || '#38bdf8';
           }
           if (sprite.text) {
-            innerContent = sprite.text;
+            innerContent = escapeHtml(sprite.text);
           }
           textColor = sprite.textColor || (isLightColor(sprite.fill) ? '#09090b' : '#ffffff');
         }
 
         const borderRadius = sprite.type === 'circle' ? '50%' : `${sprite.cornerRadius || 0}px`;
-        const stroke = (sprite.strokeWidth && sprite.strokeWidth > 0 && sprite.stroke) ? `${sprite.strokeWidth}px solid ${sprite.stroke}` : 'none';
+        const stroke = (sprite.type !== 'form_field' && sprite.strokeWidth && sprite.strokeWidth > 0 && sprite.stroke) ? `${sprite.strokeWidth}px solid ${sprite.stroke}` : 'none';
 
         // Filters (sprite.filters and active photoshop_filter module)
         const fltrs = [];
@@ -9170,10 +12674,9 @@ ${sprite.type === 'text' ? `
 
         const textAlign = sprite.textAlign || 'center';
         const justify = textAlign === 'left' ? 'flex-start' : (textAlign === 'right' ? 'flex-end' : 'center');
-        const padding = sprite.type === 'text' ? '0' : '8px 16px';
+        const padding = (sprite.type === 'text' || sprite.type === 'form_field') ? '0' : '8px 16px';
 
-        elementsHtml += `
-          <${tag} class="${classAttr}" ${anchorAttr} ${hrefAttr} style="
+        const styleAttr = `
             position: absolute;
             left: ${leftPos}px;
             top: ${topPos}px;
@@ -9194,9 +12697,9 @@ ${sprite.type === 'text' ? `
             justify-content: ${justify};
             padding: ${padding};
             color: ${textColor};
-            font-family: ${sprite.fontFamily || '-apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif'};
-            font-size: ${sprite.fontSize || 16}px;
-            font-weight: ${sprite.fontWeight || 'normal'};
+            font-family: ${PhotoshopCanvas.fontStack(textMod && textMod.params && textMod.params.fontFamily ? textMod.params.fontFamily : (sprite.type === 'text' ? sprite.fontFamily : ''))};
+            font-size: ${(sprite.type !== 'text' && textMod && textMod.params) ? (textMod.params.fontSize || sprite.fontSize || 14) : (sprite.fontSize || 16)}px;
+            font-weight: ${(sprite.type !== 'text' && textMod && textMod.params) ? (textMod.params.fontWeight || 'normal') : (sprite.fontWeight || 'normal')};
             text-align: ${textAlign};
             white-space: pre-wrap;
             word-break: break-word;
@@ -9204,16 +12707,49 @@ ${sprite.type === 'text' ? `
             user-select: none;
             text-decoration: none;
             transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-          ">${innerContent}</${tag}>
+          `;
+        elementsHtml += `
+          <${tag} class="${escapeHtml(classAttr)}" ${anchorAttr} data-sid="${escapeHtml(sprite.id)}" ${hrefAttr} style="${escapeHtml(styleAttr)}">${innerContent}</${tag}>
         `;
       });
+
+      // Responsive views: per-sprite overrides as CSS. JS picks the view
+      // (html.jspen-view-*); media queries cover pages without JS.
+      const viewWidths = { desktop: W };
+      let viewCss = '';
+      const BREAK = { tablet: 1024, mobile: 600 };
+      for (const v of ['tablet', 'mobile']) {
+        const dims = doc.views && doc.views[v];
+        if (!dims) continue;
+        viewWidths[v] = Number(dims.width) || DocumentModel.viewWidths()[v];
+        const rules = [`#webArtboard { width: ${viewWidths[v]}px !important; min-height: ${Number(dims.height) || H}px !important; }`];
+        for (const layer of doc.layers) {
+          for (const sp of layer.sprites) {
+            const o = sp.responsive && sp.responsive[v];
+            if (!o) continue;
+            const w = Number(o.width) || sp.width, h = Number(o.height) || sp.height;
+            const lbl = DocumentModel.labelOf(sp);
+            const fsz = sp.type !== 'text' && lbl ? (o.labelFontSize || lbl.params.fontSize) : o.fontSize;
+            const decl = o.visible === false ? 'display: none !important;' :
+              `left: ${Math.round(Number(o.x) - w / 2)}px !important; top: ${Math.round(Number(o.y) - h / 2)}px !important; ` +
+              `width: ${w}px !important; height: ${h}px !important; ` +
+              `transform: rotate(${Number(o.rotation) || 0}deg) scale(${Number(o.scaleX) || 1}, ${Number(o.scaleY) || 1}) !important;` +
+              (fsz ? ` font-size: ${Number(fsz)}px !important;` : '');
+            rules.push(`[data-sid="${escapeHtml(sp.id).replace(/"/g, '')}"] { ${decl} }`);
+          }
+        }
+        viewCss += `html.jspen-view-${v} ${rules.join(`\n    html.jspen-view-${v} `)}\n`;
+        viewCss += `@media (max-width: ${BREAK[v]}px) { html:not(.jspen-js) ${rules.join(' html:not(.jspen-js) ')} }\n`;
+      }
 
       return `<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${doc.name} - JSPen Website</title>
+  <title>${escapeHtml(doc.name)} - JSPen Website</title>
+  ${(doc.fonts || []).filter(f => /^data:(font|application)\/[\w.+-]+;base64,[A-Za-z0-9+/=]+$/.test(f.src || '')).map(f =>
+    `<style>@font-face { font-family: "${PhotoshopCanvas.safeFontFamilyName(f.family)}"; src: url(${f.src}); font-display: swap; }</style>`).join('\n  ')}
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
@@ -9259,6 +12795,7 @@ ${sprite.type === 'text' ? `
     .hover-fade:hover {
       opacity: 0.75 !important;
     }
+    ${viewCss}
   </style>
 </head>
 <body>
@@ -9270,7 +12807,7 @@ ${sprite.type === 'text' ? `
     </div>
   </div>
 
-  <!-- Sleek Monochromatic Preview Control Bar -->
+  ${forExport ? '' : `  <!-- Sleek Monochromatic Preview Control Bar -->
   <div id="previewToolbar" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#18181b;border:1px solid #3f3f46;border-radius:24px;padding:6px 14px;display:flex;align-items:center;gap:8px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:12px;color:#f4f4f5;user-select:none;">
     <span style="font-weight:700;color:#e4e4e7;margin-right:2px;">화면 배율:</span>
     <span id="valZoomPercent" style="min-width:44px;font-weight:600;color:#a1a1aa;">100%</span>
@@ -9278,14 +12815,39 @@ ${sprite.type === 'text' ? `
     <button class="pv-btn" data-mode="100" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">100%</button>
     <button class="pv-btn" data-mode="768" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">태블릿 (768)</button>
     <button class="pv-btn" data-mode="390" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">모바일 (390)</button>
-  </div>
+  </div>`}
 
   <script>
     // Responsive Dynamic Scaling
+    document.documentElement.classList.add('jspen-js');
     let currentZoomMode = 'fit';
     const baseW = ${W};
     const baseH = ${H};
+    const VIEW_WIDTHS = ${JSON.stringify(viewWidths)};
     let rAFResize = null;
+    let currentView = 'desktop';
+
+    // Responsive layout for the available width (or forced by the toolbar).
+    function pickView(availW) {
+      if (currentZoomMode === '390' && VIEW_WIDTHS.mobile) return 'mobile';
+      if (currentZoomMode === '768' && VIEW_WIDTHS.tablet) return 'tablet';
+      if (currentZoomMode === '100') return 'desktop';
+      if (currentZoomMode === 'fit') {
+        if (VIEW_WIDTHS.mobile && availW <= 600) return 'mobile';
+        if (VIEW_WIDTHS.tablet && availW <= 1024) return 'tablet';
+      }
+      return 'desktop';
+    }
+
+    function applyView(view) {
+      const root = document.documentElement;
+      ['desktop', 'tablet', 'mobile'].forEach(v => root.classList.toggle('jspen-view-' + v, v === view));
+      window.JSPenView = { current: view };
+      if (view !== currentView) {
+        currentView = view;
+        window.dispatchEvent(new CustomEvent('jspen-view', { detail: view }));
+      }
+    }
 
     function updatePreviewScale() {
       const scaler = document.getElementById('artboardScaler');
@@ -9294,15 +12856,18 @@ ${sprite.type === 'text' ? `
       if (!scaler || !artboard) return;
 
       const availW = document.documentElement.clientWidth || window.innerWidth;
+      const view = pickView(availW);
+      applyView(view);
+      const viewW = VIEW_WIDTHS[view] || baseW;
       let scale = 1;
       if (currentZoomMode === 'fit') {
-        scale = Math.max(0.15, availW / baseW);
-        artboard.style.width = baseW + 'px';
+        scale = Math.max(0.15, availW / viewW);
+        artboard.style.width = viewW + 'px';
       } else if (currentZoomMode === '100') {
         scale = 1;
-        artboard.style.width = baseW + 'px';
+        artboard.style.width = viewW + 'px';
       } else {
-        const fixedW = parseInt(currentZoomMode, 10) || baseW;
+        const fixedW = VIEW_WIDTHS[view] && view !== 'desktop' ? viewW : (parseInt(currentZoomMode, 10) || baseW);
         scale = Math.min(1, availW / fixedW);
         artboard.style.width = fixedW + 'px';
       }
@@ -9320,6 +12885,7 @@ ${sprite.type === 'text' ? `
       rAFResize = requestAnimationFrame(updatePreviewScale);
     });
     window.addEventListener('DOMContentLoaded', updatePreviewScale);
+    updatePreviewScale(); // pick the view before the module runtime starts
     setTimeout(updatePreviewScale, 30);
 
     document.querySelectorAll('.pv-btn').forEach(btn => {
@@ -9361,8 +12927,7 @@ ${sprite.type === 'text' ? `
 
     function downloadHtml() {
       const clone = document.documentElement.cloneNode(true);
-      const htmlContent = '<!DOCTYPE html>
-' + clone.outerHTML;
+      const htmlContent = '<!DOCTYPE html>\\n' + clone.outerHTML;
       const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -9372,17 +12937,26 @@ ${sprite.type === 'text' ? `
 
     function copyCode() {
       const clone = document.documentElement.cloneNode(true);
-      navigator.clipboard.writeText('<!DOCTYPE html>
-' + clone.outerHTML).then(() => {
-        StudioToast.show('HTML 코드가 클립보드에 복사되었습니다!');
+      navigator.clipboard.writeText('<!DOCTYPE html>\\n' + clone.outerHTML).then(() => {
+        showNotice('HTML 코드가 클립보드에 복사되었습니다!');
       });
     }
+
+    function showNotice(msg) {
+      const n = document.createElement('div');
+      n.textContent = msg;
+      n.style.cssText = 'position:fixed;left:50%;bottom:72px;transform:translateX(-50%);background:#27272a;color:#f4f4f5;padding:8px 14px;border-radius:4px;font:12px sans-serif;z-index:99999;';
+      document.body.appendChild(n);
+      setTimeout(() => n.remove(), 2000);
+    }
   </script>
+  ${runtimeScript}
 </body>
 </html>`;
     }
 
     openWebPreviewWindow() {
+      this.endLivePreview();
       const previewHtml = this.generateWebsiteHTML(false);
       const blob = new Blob([previewHtml], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
@@ -9396,6 +12970,7 @@ ${sprite.type === 'text' ? `
     }
 
     copyWebsiteCode() {
+      this.endLivePreview();
       const exportHtml = this.generateWebsiteHTML(true);
       navigator.clipboard.writeText(exportHtml).then(() => {
         StudioToast.show('웹사이트 전체 HTML 코드가 클립보드에 복사되었습니다!');
@@ -9411,12 +12986,10 @@ ${sprite.type === 'text' ? `
     }
 
     exportWebsiteFiles() {
+      this.endLivePreview();
       const exportHtml = this.generateWebsiteHTML(true);
-      const blob = new Blob([exportHtml], { type: 'text/html;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = (this.doc.name || 'website').replace(/\s+/g, '_') + '.html';
-      a.click();
+      const name = String(this.doc.name || 'website').replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_') + '.html';
+      NativeBridge.downloadText(name, exportHtml, 'text/html');
     }
 
     renderCanvas() {
@@ -9497,24 +13070,55 @@ ${sprite.type === 'text' ? `
           if (file.name.endsWith('.jspen') || file.name.endsWith('.json')) {
             const reader = new FileReader();
             reader.onload = ev => {
-              this.loadProjectFromJSON(ev.target.result);
+              this.openProjectText(ev.target.result, file.name, true);
             };
             reader.readAsText(file);
+          } else if (/^image\//.test(file.type) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name)) {
+            // Dropped images land where they were dropped on the canvas.
+            const r = this.canvas.getBoundingClientRect();
+            const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+            const at = inside ? this.renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top) : null;
+            this.importImageFile(file, at);
+          } else if (/\.(ttf|otf|woff2?)$/i.test(file.name)) {
+            StudioToast.show('글꼴은 텍스트 속성의 "글꼴 파일 추가"로 넣을 수 있습니다.');
           }
         }
+      });
+
+      // Paste an image from the system clipboard (screenshot, copied image).
+      window.addEventListener('paste', e => {
+        const t = document.activeElement;
+        if (t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable)) return;
+        const item = [...(e.clipboardData?.items || [])].find(i => i.kind === 'file' && /^image\//.test(i.type));
+        if (!item) return;
+        e.preventDefault();
+        if (this._pasteTimer) { clearTimeout(this._pasteTimer); this._pasteTimer = null; this._pasteDeferred = false; }
+        this.importImageFile(item.getAsFile());
       });
 
       window.addEventListener('wheel', e => {
         if (e.ctrlKey) {
           e.preventDefault();
         }
-      }, { passive: false });
+        // A focused number input (or select) swallows the wheel to change its
+        // value, which blocks panel scrolling; blur it so the panel scrolls.
+        const t = e.target;
+        if (t && t === document.activeElement && t.matches &&
+            t.matches('input[type="number"], input[type="color"], input[type="range"], select')) {
+          t.blur();
+        }
+      }, { passive: false, capture: true });
 
       this.canvas.addEventListener('wheel', e => {
         e.preventDefault();
         const r = this.canvas.getBoundingClientRect();
         const sx = e.clientX - r.left;
         const sy = e.clientY - r.top;
+        // Live preview: the wheel goes to scroll_wheel modules under the pointer.
+        if (this.moduleEngine.active && !e.ctrlKey) {
+          const w = this.renderer.screenToWorld(sx, sy);
+          if (this.moduleEngine.wantsWheel(w.x, w.y)) { this.moduleEngine.addWheel(e.deltaY); return; }
+        }
         const factor = e.deltaY < 0 ? 1.1 : 0.9;
         this.tools.zoomAt(sx, sy, factor);
         if (this.optionBar) this.optionBar.render();
@@ -9526,11 +13130,45 @@ ${sprite.type === 'text' ? `
         }
       });
 
+      // Keyboard state for 'key_press' module conditions during live preview.
+      window.addEventListener('keydown', e => {
+        if (!this.moduleEngine.active) return;
+        const ks = this.moduleEngine.bus.keyState;
+        ks[e.code] = true; ks[e.key] = true;
+      });
+      window.addEventListener('keyup', e => {
+        const ks = this.moduleEngine.bus.keyState;
+        delete ks[e.code]; delete ks[e.key];
+      });
+      window.addEventListener('blur', () => {
+        this.moduleEngine.bus.keyState = {};
+        this.pointer.isDown = false;
+      });
+
+      // Double-click a text sprite to edit its text inline.
+      this.canvas.addEventListener('dblclick', e => {
+        if (this.moduleEngine.active) return;
+        const r = this.canvas.getBoundingClientRect();
+        const mw = this.renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top);
+        const sp = this.doc.hitTestSprite(mw.x, mw.y);
+        if (sp && sp.type === 'text') this.editTextSprite(sp, false);
+      });
+
       // Hyperlink Click Navigation (Preview Mode & Ctrl+Click in Edit Mode)
       this.canvas.addEventListener('click', e => {
         const r = this.canvas.getBoundingClientRect();
         const ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         const mw = this.renderer.screenToWorld(ms.x, ms.y);
+
+        if (this.moduleEngine.active) {
+          const link = this.moduleEngine.getClickLink(this.moduleEngine.pickSprite(mw.x, mw.y));
+          if (link) {
+            e.preventDefault();
+            this.moduleEngine.navigateHyperlink(link.href, link.target);
+          }
+          return;
+        }
+
         const clickedSprite = this.doc.hitTestSprite(mw.x, mw.y);
 
         if (clickedSprite) {
@@ -9541,7 +13179,7 @@ ${sprite.type === 'text' ? `
           const trigger = linkMod ? (linkMod.params?.trigger || 'click') : 'click';
 
           if (href && (trigger === 'click' || !linkMod)) {
-            if (this.moduleEngine.active || e.ctrlKey || e.metaKey) {
+            if (e.ctrlKey || e.metaKey) {
               e.preventDefault();
               if (href.startsWith('#')) {
                 const targetId = href.slice(1);
@@ -9551,7 +13189,8 @@ ${sprite.type === 'text' ? `
                   this.renderCanvas();
                 }
               } else {
-                window.open(href, target);
+                const safeHref = safeUrl(href);
+                if (safeHref) window.open(safeHref, target);
               }
             }
           }
@@ -9573,12 +13212,39 @@ ${sprite.type === 'text' ? `
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         mw = this.renderer.screenToWorld(ms.x, ms.y);
         isDown = true;
+        this.pointer.ms = ms; this.pointer.mw = mw;
+
+        // Live preview: only the middle button pans; everything else is an
+        // interaction for the module engine.
+        if (this.moduleEngine.active) {
+          if (e.button === 1) {
+            isPanning = true;
+            panStart = { x: e.clientX, y: e.clientY };
+            initPan = { x: this.renderer.panX, y: this.renderer.panY };
+          } else if (e.button === 0) {
+            ModuleEngine.resumeAudio();
+            this.pointer.isDown = true;
+            this.pointer.clicked = true;
+            this.pointer.press = { x: mw.x, y: mw.y };
+          }
+          return;
+        }
 
         if (this.tools.activeTool === 'hand' || e.spaceKey || e.button === 1) {
           isPanning = true;
           panStart = { x: e.clientX, y: e.clientY };
           initPan = { x: this.renderer.panX, y: this.renderer.panY };
           return;
+        }
+
+        // Artboard edge grips: drag to resize the canvas freely.
+        if (e.button === 0 && ['move', 'direct'].includes(this.tools.activeTool) && this.renderer.mode === 'edit') {
+          const edge = this.renderer.hitArtboardHandle(ms.x, ms.y);
+          if (edge) {
+            this.artboardDrag = { edge, start: { x: mw.x, y: mw.y }, w: this.doc.width, h: this.doc.height };
+            this.requestRender();
+            return;
+          }
         }
 
         if (this.tools.activeTool === 'move' || this.tools.activeTool === 'direct') {
@@ -9616,16 +13282,13 @@ ${sprite.type === 'text' ? `
         ms = { x: e.clientX - r.left, y: e.clientY - r.top };
         mw = this.renderer.screenToWorld(ms.x, ms.y);
 
+        this.pointer.ms = ms; this.pointer.mw = mw;
+
         // Pointer cursor for hyperlinks during preview mode
         if (this.moduleEngine.active) {
-          const hoveredSp = this.doc.hitTestSprite(mw.x, mw.y);
-          const hasLinkMod = hoveredSp && (hoveredSp.modules || []).some(m => m.enabled && m.type === 'hyperlink' && m.params?.url);
-          const hasDirectLink = hoveredSp && !!hoveredSp.linkUrl;
-          if (hasLinkMod || hasDirectLink) {
-            this.canvas.style.cursor = 'pointer';
-          } else {
-            this.canvas.style.cursor = 'default';
-          }
+          const hoveredSp = this.moduleEngine.pickSprite(mw.x, mw.y);
+          this.canvas.style.cursor = this.moduleEngine.bus.hideCursor ? 'none'
+            : (this.moduleEngine.getClickLink(hoveredSp) ? 'pointer' : 'default');
         }
 
         if (this.tools.activeTool === 'eyedropper' && loupe) {
@@ -9641,7 +13304,28 @@ ${sprite.type === 'text' ? `
           loupe.classList.add('hidden');
         }
 
-        if (!isDown) return;
+        if (!isDown) {
+          // resize cursor over the artboard grips
+          if (!this.moduleEngine.active && ['move', 'direct'].includes(this.tools.activeTool)) {
+            const edge = this.renderer.mode === 'edit' && e.target === this.canvas ? this.renderer.hitArtboardHandle(ms.x, ms.y) : null;
+            const cur = edge ? { r: 'ew-resize', b: 'ns-resize', rb: 'nwse-resize' }[edge] : '';
+            if (cur || this._artboardCursor) { this.canvas.style.cursor = cur; this._artboardCursor = !!cur; }
+          }
+          return;
+        }
+
+        if (this.artboardDrag) {
+          const d = this.artboardDrag;
+          const snap = v => e.shiftKey ? Math.round(v / 10) * 10 : Math.round(v);
+          const w = d.edge === 'b' ? d.w : Math.max(50, Math.min(10000, snap(d.w + mw.x - d.start.x)));
+          const h = d.edge === 'r' ? d.h : Math.max(50, Math.min(20000, snap(d.h + mw.y - d.start.y)));
+          if (w !== this.doc.width || h !== this.doc.height) {
+            this.doc.resizeCanvas(w, h, 'keep');
+            this.handleResize();
+            this.requestRender();
+          }
+          return;
+        }
 
         if (isPanning) {
           const dx = e.clientX - panStart.x;
@@ -9652,6 +13336,8 @@ ${sprite.type === 'text' ? `
           return;
         }
 
+        if (this.moduleEngine.active) return;
+
         if (this.transformBox.mode) {
           this.transformBox.drag(mw.x, mw.y, e.shiftKey);
           this.requestRender();
@@ -9661,9 +13347,27 @@ ${sprite.type === 'text' ? `
         this.tools.handleMouseMove(mw.x, mw.y);
       });
 
-      window.addEventListener('mouseup', () => {
+      window.addEventListener('mouseup', e => {
         isDown = false;
+        this.pointer.isDown = false;
         if (isPanning) isPanning = false;
+        if (this.artboardDrag) {
+          const d = this.artboardDrag;
+          this.artboardDrag = null;
+          if (this.doc.width !== d.w || this.doc.height !== d.h) {
+            this.doc.saveState();
+            StudioToast.show(`캔버스 크기: ${this.doc.width}×${this.doc.height}px`);
+          }
+          this.refreshUI();
+          return;
+        }
+        if (this.moduleEngine.active) {
+          const r = getCanvasRect();
+          const up = this.renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top);
+          this.pointer.mw = up;
+          this.moduleEngine.endDrag(up.x, up.y);
+          return;
+        }
         if (this.transformBox.mode) {
           this.transformBox.endDrag();
           this.refreshUI();
@@ -9712,6 +13416,14 @@ ${sprite.type === 'text' ? `
         const renKey  = this.settingsModal?.getShortcutKey('rename') || 'F2';
         const deleteKey = this.settingsModal?.getShortcutKey('delete') || 'Delete';
 
+        // While the live module preview runs the document is not editable:
+        // only the preview toggle and Escape (exit) are handled here.
+        if (this.moduleEngine.active && !(checkShortcutMatch(e, prevKey) || (e.ctrlKey && e.code === 'Space'))) {
+          if (e.key === 'Escape') { e.preventDefault(); this.toggleModulePreview(false); }
+          if (e.code === 'Space') e.preventDefault();
+          return;
+        }
+
         // 1. UNDO
         if (checkShortcutMatch(e, undoKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey)) {
           if (!isInput) {
@@ -9742,12 +13454,18 @@ ${sprite.type === 'text' ? `
           }
         }
 
-        // 3. Web Preview (Alt + W or Ctrl + Space)
-        if (checkShortcutMatch(e, 'Alt + W') || (e.altKey && (e.key === 'w' || e.key === 'W')) || checkShortcutMatch(e, prevKey) || (e.ctrlKey && e.code === 'Space')) {
+        // 3. Live module preview (Ctrl + Space) / Web preview window (Alt + W)
+        if (checkShortcutMatch(e, prevKey) || (e.ctrlKey && e.code === 'Space')) {
+          e.preventDefault();
+          this.toggleModulePreview();
+          return;
+        }
+        if (checkShortcutMatch(e, 'Alt + W') || (e.altKey && (e.key === 'w' || e.key === 'W'))) {
           e.preventDefault();
           this.openWebPreviewWindow();
           return;
         }
+
 
         // 4. Node Mode Toggle
         if (checkShortcutMatch(e, nodeKey) || (e.shiftKey && e.key === 'Tab')) {
@@ -9775,6 +13493,19 @@ ${sprite.type === 'text' ? `
 
         // 7. Paste
         if (checkShortcutMatch(e, pasteKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V') && !isInput)) {
+          // Let the paste event check the system clipboard for an image
+          // first; the internal sprite clipboard is used when there is none.
+          if (this.clipboardSprite && !this._pasteDeferred) {
+            this._pasteDeferred = true;
+            const replay = { ...e, key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey, preventDefault() {} };
+            this._pasteTimer = setTimeout(() => {
+              this._pasteTimer = null;
+              window.dispatchEvent(new KeyboardEvent('keydown', { key: replay.key, code: replay.code, ctrlKey: replay.ctrlKey, metaKey: replay.metaKey }));
+              this._pasteDeferred = false;
+            }, 60);
+            return;
+          }
+          this._pasteDeferred = false;
           if (this.clipboardSprite) {
             e.preventDefault();
             const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
@@ -9842,8 +13573,9 @@ ${sprite.type === 'text' ? `
         }
         else if (k === 'h') this.tools.setTool('hand');
         else if (e.ctrlKey && k === 'e') { e.preventDefault(); this.exportModal.show(); }
-        else if (e.ctrlKey && k === 's') { e.preventDefault(); document.title = 'cmd:save'; setTimeout(() => { document.title = 'JSPen Studio'; }, 100); }
-        else if (e.ctrlKey && k === 'o') { e.preventDefault(); document.title = 'cmd:open'; setTimeout(() => { document.title = 'JSPen Studio'; }, 100); }
+        else if (e.ctrlKey && k === 's') { e.preventDefault(); this.saveProject(e.shiftKey); }
+        else if (e.ctrlKey && e.shiftKey && k === 'i') { e.preventDefault(); this.pickImage(); }
+        else if (e.ctrlKey && k === 'o') { e.preventDefault(); this.openProject(); }
         else if (e.key === 'Enter' || e.key === 'Escape') {
           if (this.tools.activeTool === 'curve' && this.tools.activeCurvePoints.length > 1) {
             e.preventDefault();
@@ -9884,6 +13616,35 @@ ${sprite.type === 'text' ? `
           return;
         }
 
+        // Live module preview: run the module engine every frame.
+        if (this.moduleEngine.active) {
+          if (this.doc.isPlaying) {
+            frameAcc += dt;
+            const frameInterval = 1 / this.doc.fps;
+            while (frameAcc >= frameInterval) {
+              frameAcc -= frameInterval;
+              this.doc.stepFrame(1);
+            }
+          }
+          const r = this.renderer;
+          if (this._panAnim) {
+            const a = this._panAnim;
+            const t = Math.min(1, (now - a.start) / a.dur);
+            r.panY = a.from + (a.to - a.from) * ModuleEngine.ease('easeInOutCubic', t);
+            if (t >= 1) this._panAnim = null;
+          }
+          this.moduleEngine.bus.scroll.scrollY = Math.max(0, -r.panY / r.zoom);
+          this.doc.viewportHeight = this.canvas.height / r.zoom;
+          this.moduleEngine.update(dt, this.pointer.mw, this.pointer.ms, this.pointer.isDown, this.pointer.clicked, this.pointer.press);
+          this.pointer.clicked = false;
+          if (this.moduleEngine.forms) this.moduleEngine.forms.sync(this.doc);
+          if (this.moduleHud) this.moduleHud.update();
+          if (this.moduleEngine.bus.hideCursor) this.canvas.style.cursor = 'none';
+          this.renderCanvas();
+          requestAnimationFrame(loop);
+          return;
+        }
+
         if (this.doc.isPlaying) {
           frameAcc += dt;
           const frameInterval = 1 / this.doc.fps;
@@ -9903,6 +13664,8 @@ ${sprite.type === 'text' ? `
   window.DocumentModel = DocumentModel;
   window.Layer = Layer;
   window.Sprite = Sprite;
+  window.PhotoshopJSExporter = PhotoshopJSExporter;
+  window.PhotoshopCanvas = PhotoshopCanvas;
   window.MODULE_REGISTRY = MODULE_REGISTRY;
 
   window.addEventListener('DOMContentLoaded', () => {
