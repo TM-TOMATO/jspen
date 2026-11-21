@@ -3592,3 +3592,26 @@ body.jspen-live-preview #viewportContainer {
   min-width: 20px;
   padding: 1px 5px;
 }
+
+/* Responsive view switcher (menu bar) */
+.jspen-view-switch {
+  display: flex;
+  gap: 2px;
+  margin-right: 10px;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  padding: 2px;
+}
+.jspen-view-btn {
+  background: transparent;
+  border: 0;
+  color: #a1a1aa;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.jspen-view-btn:hover { color: #f4f4f5; }
+.jspen-view-btn.active { background: #3f3f46; color: #ffffff; }
+.jspen-view-btn.is-new { opacity: 0.6; }

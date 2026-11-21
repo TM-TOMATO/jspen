@@ -254,6 +254,35 @@
       });
     }
 
+    // Choice dialog: resolves with the chosen value, or null when cancelled.
+    static choose(msg, options, title = '선택') {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'studio-modal-overlay';
+        overlay.innerHTML = `
+          <div class="studio-modal-box">
+            <div class="studio-modal-header">
+              <span class="studio-modal-title">${escapeHtml(title)}</span>
+              <button class="studio-modal-close" id="btnStudioModalClose">✕</button>
+            </div>
+            <div class="studio-modal-body">
+              <div class="studio-modal-msg">${escapeHtml(msg)}</div>
+              <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px;">
+                ${options.map(([v, label, hint], i) => `<button class="btn btn-secondary btn-sm" data-choice="${i}" style="text-align:left;justify-content:flex-start;white-space:normal;">
+                  <b>${escapeHtml(label)}</b>${hint ? `<span style="display:block;font-weight:400;color:#a1a1aa;font-size:11px;">${escapeHtml(hint)}</span>` : ''}</button>`).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+        const done = v => { overlay.remove(); resolve(v); };
+        overlay.querySelectorAll('[data-choice]').forEach(b => b.addEventListener('click', () => done(options[+b.dataset.choice][0])));
+        overlay.querySelector('#btnStudioModalClose').onclick = () => done(null);
+        overlay.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } });
+        overlay.querySelector('[data-choice]')?.focus();
+      });
+    }
+
     static prompt(msg, defaultVal = '', title = '입력') {
       return new Promise(resolve => {
         const overlay = document.createElement('div');
@@ -1153,6 +1182,8 @@
       this.isPlaying = false;
       this.isLooping = true;
       this.fonts = [];          // uploaded fonts: [{ family, src: data URL }]
+      this.views = {};          // responsive layouts: { tablet: {width, height}, mobile: {...} }
+      this.activeView = 'desktop';
       this.autoKey = true;
 
       if (options.layers && options.layers.length > 0) {
@@ -1402,6 +1433,15 @@
       this.selectedSpriteId = selL && selL.sprites.length > 0 ? selL.sprites[0].id : null;
       this.sortLayers();
 
+      // Responsive views: the data always holds desktop values; other views
+      // are per-sprite overrides (sprite.responsive[view]).
+      this.views = (data.views && typeof data.views === 'object') ? JSON.parse(JSON.stringify(data.views)) : {};
+      this.activeView = 'desktop';
+      this._desktopSize = null;
+      if (data.activeView && data.activeView !== 'desktop' && DocumentModel.viewNames().includes(data.activeView)) {
+        this.switchView(data.activeView);
+      }
+
       if (recordHistory) {
         this.history = [];
         this.historyIndex = -1;
@@ -1410,7 +1450,148 @@
       }
     }
 
+    // ---------------- Responsive views ----------------
+    static viewNames() { return ['desktop', 'tablet', 'mobile']; }
+    static viewWidths() { return { tablet: 768, mobile: 390 }; }
+    static viewProps() { return ['x', 'y', 'width', 'height', 'rotation', 'scaleX', 'scaleY', 'fontSize', 'visible']; }
+
+    static labelOf(sp) {
+      return (sp.modules || []).find(m => m.type === 'text_label' && m.params);
+    }
+
+    static captureView(sp) {
+      const o = {};
+      for (const k of DocumentModel.viewProps()) o[k] = sp[k];
+      const lbl = DocumentModel.labelOf(sp);
+      if (lbl && lbl.params.fontSize !== undefined) o.labelFontSize = lbl.params.fontSize;
+      return o;
+    }
+
+    static applyView(sp, o) {
+      if (!o) return;
+      for (const k of DocumentModel.viewProps()) if (o[k] !== undefined) sp[k] = o[k];
+      const lbl = DocumentModel.labelOf(sp);
+      if (lbl && o.labelFontSize !== undefined) lbl.params.fontSize = o.labelFontSize;
+      sp._wrapCache = null;
+    }
+
+    // First layout for a new view: the desktop layout scaled to its width.
+    static scaledView(desk, s) {
+      const o = Object.assign({}, desk);
+      for (const k of ['x', 'y', 'width', 'height']) if (isFinite(o[k])) o[k] = Math.round(o[k] * s);
+      // Proportional (no minimum): a clean, non-overlapping copy to adjust from.
+      if (isFinite(o.fontSize)) o.fontSize = Math.max(1, Math.round(o.fontSize * s));
+      if (isFinite(o.labelFontSize)) o.labelFontSize = Math.max(1, Math.round(o.labelFontSize * s));
+      return o;
+    }
+
+    hasView(name) {
+      return name === 'desktop' || !!(this.views && this.views[name]);
+    }
+
+    // Switch the edited layout. Base sprite fields always hold the active
+    // view's values; the desktop values are kept in sprite._desktop meanwhile.
+    switchView(name) {
+      if (!DocumentModel.viewNames().includes(name) || name === this.activeView) return false;
+      const from = this.activeView || 'desktop';
+      const all = this.layers.flatMap(l => l.sprites);
+      if (from === 'desktop') {
+        this._desktopSize = { width: this.width, height: this.height };
+        for (const sp of all) sp._desktop = DocumentModel.captureView(sp);
+      } else {
+        this.views[from] = { width: this.width, height: this.height };
+        for (const sp of all) { sp.responsive = sp.responsive || {}; sp.responsive[from] = DocumentModel.captureView(sp); }
+      }
+      const desk = this._desktopSize || { width: this.width, height: this.height };
+      if (name === 'desktop') {
+        for (const sp of all) { if (sp._desktop) DocumentModel.applyView(sp, sp._desktop); delete sp._desktop; }
+        this.width = desk.width; this.height = desk.height;
+      } else {
+        if (!this.views[name]) {
+          const w = DocumentModel.viewWidths()[name];
+          this.views[name] = { width: w, height: Math.max(200, Math.round(desk.height * w / desk.width)) };
+        }
+        const s = this.views[name].width / desk.width;
+        for (const sp of all) {
+          const deskVals = sp._desktop || DocumentModel.captureView(sp);
+          if (!sp._desktop) sp._desktop = deskVals;
+          const saved = sp.responsive && sp.responsive[name];
+          DocumentModel.applyView(sp, saved || DocumentModel.scaledView(deskVals, s));
+        }
+        this.width = this.views[name].width; this.height = this.views[name].height;
+      }
+      this.activeView = name;
+      return true;
+    }
+
+    // Change the canvas (current view) size. mode: 'fit' scales the content
+    // uniformly and centres it, 'stretch' maps positions to the new size,
+    // 'keep' leaves the content where it is.
+    resizeCanvas(w, h, mode = 'fit') {
+      const ow = this.width, oh = this.height;
+      if (!(w > 0 && h > 0)) return;
+      if (mode !== 'keep' && ow > 0 && oh > 0) {
+        const sx = w / ow, sy = h / oh, k = Math.min(sx, sy);
+        const offX = mode === 'fit' ? (w - ow * k) / 2 : 0, offY = mode === 'fit' ? (h - oh * k) / 2 : 0;
+        for (const l of this.layers) {
+          for (const sp of l.sprites) {
+            if (mode === 'fit') {
+              sp.x = sp.x * k + offX; sp.y = sp.y * k + offY;
+              sp.width = sp.width * k; sp.height = sp.height * k;
+            } else {
+              sp.x = sp.x * sx; sp.y = sp.y * sy;
+              sp.width = sp.width * sx; sp.height = sp.height * sy;
+            }
+            const fk = mode === 'fit' ? k : Math.min(sx, sy);
+            if (sp.fontSize) sp.fontSize = Math.max(6, Math.round(sp.fontSize * fk));
+            const lbl = DocumentModel.labelOf(sp);
+            if (lbl && lbl.params.fontSize) lbl.params.fontSize = Math.max(6, Math.round(lbl.params.fontSize * fk));
+            if (sp.strokeWidth) sp.strokeWidth = sp.strokeWidth * fk;
+            // brush strokes / path points are stored relative to the sprite centre
+            const scalePts = pts => (pts || []).forEach(pt => { for (const key of ['x', 'cp1x', 'cp2x']) if (isFinite(pt[key])) pt[key] *= (mode === 'fit' ? k : sx);
+              for (const key of ['y', 'cp1y', 'cp2y']) if (isFinite(pt[key])) pt[key] *= (mode === 'fit' ? k : sy); });
+            scalePts(sp.pathPoints);
+            for (const st of sp.strokes || []) { scalePts(st.points); if (st.size) st.size *= fk; }
+            sp._wrapCache = null;
+          }
+        }
+      }
+      this.width = Math.round(w);
+      this.height = Math.round(h);
+    }
+
+    // Remove a tablet/mobile layout (its overrides) entirely.
+    removeView(name) {
+      if (name === 'desktop' || !this.views[name]) return;
+      if (this.activeView === name) this.switchView('desktop');
+      delete this.views[name];
+      for (const l of this.layers) for (const sp of l.sprites) if (sp.responsive) delete sp.responsive[name];
+    }
+
     toJSON() {
+      const json = this._toJSONRaw();
+      json.activeView = this.activeView || 'desktop';
+      if (json.activeView === 'desktop') return json;
+      // Normalise: desktop values in the base fields, the active view as an override.
+      const desk = this._desktopSize || { width: this.width, height: this.height };
+      json.views = Object.assign({}, this.views, { [json.activeView]: { width: this.width, height: this.height } });
+      json.width = desk.width; json.height = desk.height;
+      const byId = new Map(this.layers.flatMap(l => l.sprites).map(sp => [sp.id, sp]));
+      for (const lj of json.layers) {
+        for (const sj of lj.sprites) {
+          const sp = byId.get(sj.id);
+          if (!sp) continue;
+          sj.responsive = Object.assign({}, sj.responsive || {}, { [json.activeView]: DocumentModel.captureView(sp) });
+          const d = sp._desktop || DocumentModel.captureView(sp);
+          for (const k of DocumentModel.viewProps()) if (d[k] !== undefined) sj[k] = d[k];
+          const lbl = DocumentModel.labelOf(sj);
+          if (lbl && d.labelFontSize !== undefined) lbl.params.fontSize = d.labelFontSize;
+        }
+      }
+      return json;
+    }
+
+    _toJSONRaw() {
       return {
         name: this.name, width: this.width, height: this.height,
         backgroundColor: this.backgroundColor, transparentBackground: this.transparentBackground,
@@ -1420,6 +1601,7 @@
         selectedLayerId: this.selectedLayerId,
         selectedSpriteId: this.selectedSpriteId,
         fonts: (this.fonts || []).map(f => ({ family: f.family, src: f.src })),
+        views: JSON.parse(JSON.stringify(this.views || {})),
         layers: this.layers.map(l => l.toJSON())
       };
     }
@@ -5365,6 +5547,8 @@
         const model = new DocumentModel();
         model.loadFromData(DOC_DATA, false);
         model.selectedSpriteIds = new Set();
+        const startView = (window.JSPenView && window.JSPenView.current) || 'desktop';
+        if (startView !== 'desktop' && model.hasView(startView)) model.switchView(startView);
         model.setFrame(0);
         for (const l of model.layers) l.resetRuntime();
         const engine = new ModuleEngine(model);
@@ -5377,8 +5561,10 @@
           existing: sp => artboard.querySelector('[data-sid="' + CSS.escape(sp.id) + '"]')
         });
 
+        // Rest position of each element = the sprite's values in the current view.
         const base = new Map();
-        for (const l of DOC_DATA.layers || []) for (const s of l.sprites || []) base.set(s.id, s);
+        const captureBase = () => { base.clear(); for (const l of model.layers) for (const s of l.sprites) base.set(s.id, { x: s.x, y: s.y, opacity: s.opacity }); };
+        captureBase();
         const cssFilter = sp => {
           const out = [];
           const srcs = [];
@@ -5478,9 +5664,10 @@
             if (t0 !== it.transform || (o0 !== it.opacity && (it.opacity !== null || o0 !== (it.b.opacity ?? 1))) ||
                 s0.fill !== p0.fill || s0.stroke !== p0.stroke || s0.color !== p0.color || s0.filter !== p0.filter) own(it);
             const t = t0;
-            if (t !== it.transform) { el.style.transform = t; it.transform = t; }
+            // important: responsive view rules use !important for positions
+            if (t !== it.transform) { el.style.setProperty('transform', t, 'important'); it.transform = t; }
             const o = o0;
-            if (o !== it.opacity) { if (it.opacity !== null || o !== (it.b.opacity ?? 1)) el.style.opacity = String(o); it.opacity = o; }
+            if (o !== it.opacity) { if (it.opacity !== null || o !== (it.b.opacity ?? 1)) el.style.setProperty('opacity', String(o), 'important'); it.opacity = o; }
             const hidden = rt.visible === false || sp.visible === false;
             if (hidden !== it.hidden) { el.style.visibility = hidden ? 'hidden' : ''; it.hidden = hidden; }
             const s = s0, prev = p0;
@@ -5529,6 +5716,22 @@
           engine.forms.sync(model);
           apply();
         };
+        // Responsive view changes (window resize / preview toolbar).
+        window.addEventListener('jspen-view', e => {
+          const v = e.detail;
+          if (!model.hasView(v) && v !== 'desktop') return;
+          model.switchView(v);
+          for (const l of model.layers) l.resetRuntime();
+          captureBase();
+          engine.start();
+          for (const it of items) {
+            it.b = base.get(it.sp.id) || it.b;
+            it.el.style.transform = ''; it.el.style.opacity = ''; it.el.style.visibility = '';
+            it.transform = transformOf(it.sp, it.b); it.opacity = null; it.hidden = false; it.owned = false;
+            it.el.style.transition = '';
+          }
+        });
+
         // First frame right away so entrance animations start hidden (no flash).
         step(0);
         const loop = now => {
@@ -5792,11 +5995,27 @@ ${this.getRuntimeSource(withEngine)}
     }
   };
 
+  // Responsive views: pick the layout for the available width.
+  const pickView = () => {
+    const w = (canvas.parentElement && canvas.parentElement.clientWidth) || window.innerWidth;
+    if (model.hasView('mobile') && w <= 600) return 'mobile';
+    if (model.hasView('tablet') && w <= 1024) return 'tablet';
+    return 'desktop';
+  };
+  const useView = (v) => {
+    if (v === (model.activeView || 'desktop')) return false;
+    model.switchView(v);
+    for (const l of model.layers) l.resetRuntime();
+    if (engine.active) engine.start();
+    return true;
+  };
+  useView(pickView());
   player.resize();
   model.setFrame(0);
   for (const l of model.layers) l.resetRuntime();
   window.addEventListener('resize', () => {
-    if (Math.max(1, window.devicePixelRatio || 1) !== player.dpr) player.resize();
+    const changed = useView(pickView());
+    if (changed || Math.max(1, window.devicePixelRatio || 1) !== player.dpr) player.resize();
   });
 
   let last = performance.now();
@@ -8322,7 +8541,7 @@ ${sprite.type === 'text' ? `
                 <button class="ps-dropdown-item" data-form-kind="submit">전송 버튼</button>
                 <button class="ps-dropdown-item" data-form-kind="contact">[세트] 문의 폼 (이름·이메일·내용·전송)</button>
                 <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">반응형 캔버스 규격 전환</div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">캔버스 크기 변경 (현재 화면)</div>
                 <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="1080">데스크톱 Full HD (1920 × 1080)</button>
                 <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="900">맥북 / 노트북 (1440 × 900)</button>
                 <button class="ps-dropdown-item" data-preset-w="768" data-preset-h="1024">태블릿 iPad (768 × 1024)</button>
@@ -8368,6 +8587,10 @@ ${sprite.type === 'text' ? `
 
         <!-- Native Window Controls -->
         <div class="ps-menubar-right">
+          <div class="jspen-view-switch" title="반응형 화면: 화면마다 위치·크기·글자 크기·표시 여부를 따로 지정합니다">
+            ${[['desktop', '데스크톱'], ['tablet', '태블릿'], ['mobile', '모바일']].map(([v, l]) =>
+              `<button class="jspen-view-btn ${(this.doc.activeView || 'desktop') === v ? 'active' : ''} ${v !== 'desktop' && !this.doc.hasView(v) ? 'is-new' : ''}" data-view="${v}">${l}</button>`).join('')}
+          </div>
           <div class="ps-window-controls"${NativeBridge.isDesktop ? '' : ' style="display:none;"'}>
             <button class="ps-win-btn win-min" id="winMin" title="최소화">─</button>
             <button class="ps-win-btn win-max" id="winMax" title="최대화 / 이전 크기">□</button>
@@ -8522,12 +8745,7 @@ ${sprite.type === 'text' ? `
         btn.addEventListener('click', () => {
           const w = parseInt(btn.dataset.presetW, 10);
           const h = parseInt(btn.dataset.presetH, 10);
-          if (w && h) {
-            this.doc.width = w;
-            this.doc.height = h;
-            this.doc.saveState();
-            this.cb.onCanvasResize();
-          }
+          if (w && h) window.jspenApp?.resizeCanvasInteractive(w, h);
         });
       });
 
@@ -8540,13 +8758,7 @@ ${sprite.type === 'text' ? `
             if (!hStr) return;
             const w = parseInt(wStr, 10);
             const h = parseInt(hStr, 10);
-            if (w > 0 && h > 0) {
-              this.doc.width = w;
-              this.doc.height = h;
-              this.doc.saveState();
-              if (this.onAction) this.onAction('resize');
-              StudioToast.show(`캔버스 크기가 ${w}x${h}px로 변경되었습니다.`);
-            }
+            if (w > 0 && h > 0) window.jspenApp?.resizeCanvasInteractive(w, h);
           });
         });
       });
@@ -8583,6 +8795,7 @@ ${sprite.type === 'text' ? `
       });
       this.el.querySelector('#mSave')?.addEventListener('click', () => window.jspenApp?.saveProject());
       this.el.querySelector('#mSaveAs')?.addEventListener('click', () => window.jspenApp?.saveProject(true));
+      this.el.querySelectorAll('[data-view]').forEach(btn => btn.addEventListener('click', () => window.jspenApp?.setView(btn.dataset.view)));
       this.el.querySelectorAll('[data-form-kind]').forEach(btn => btn.addEventListener('click', () => window.jspenApp?.insertFormElement(btn.dataset.formKind)));
       this.el.querySelector('#mImportImage')?.addEventListener('click', () => window.jspenApp?.pickImage());
       this.el.querySelector('#mAddFont')?.addEventListener('click', () => window.jspenApp?.addFontFile());
@@ -11227,6 +11440,49 @@ ${sprite.type === 'text' ? `
       return null;
     }
 
+    // ---------------- Canvas size & responsive views ----------------
+    async resizeCanvasInteractive(w, h) {
+      this.endLivePreview();
+      if (w === this.doc.width && h === this.doc.height) return;
+      const hasContent = this.doc.layers.some(l => l.sprites.length > 0);
+      const mode = !hasContent ? 'keep' : await StudioModal.choose(
+        `캔버스를 ${this.doc.width}×${this.doc.height} → ${w}×${h}px로 바꿉니다. 작업물은 어떻게 할까요?`,
+        [['fit', '비율 유지하며 맞추기', '내용 전체를 같은 비율로 줄이거나 키워 가운데에 배치합니다.'],
+         ['stretch', '캔버스에 맞춰 늘리기', '위치와 크기를 가로·세로 비율에 따라 각각 맞춥니다.'],
+         ['keep', '그대로 두기', '캔버스 크기만 바꾸고 내용은 움직이지 않습니다.']], '캔버스 크기 변경');
+      if (!mode) return;
+      this.doc.resizeCanvas(w, h, mode);
+      this.doc.saveState();
+      this.handleResize();
+      this.fitToScreen ? this.fitToScreen() : this.renderer.centerArtboard();
+      this.refreshUI();
+      StudioToast.show(`캔버스 크기: ${w}×${h}px`);
+    }
+
+    // Zoom so the whole artboard fits the viewport, then centre it.
+    fitToScreen() {
+      const p = this.canvas.parentElement;
+      if (!p) return;
+      const z = Math.min((p.clientWidth - 80) / this.doc.width, (p.clientHeight - 80) / this.doc.height);
+      this.renderer.zoom = Math.max(0.05, Math.min(1, z));
+      this.renderer.centerArtboard();
+      this.renderCanvas();
+    }
+
+    setView(name) {
+      this.endLivePreview();
+      const first = !this.doc.hasView(name);
+      if (!this.doc.switchView(name)) return;
+      this.handleResize();
+      this.fitToScreen ? this.fitToScreen() : this.renderer.centerArtboard();
+      this.refreshUI();
+      if (this.menuBar) this.menuBar.render();
+      const label = { desktop: '데스크톱', tablet: '태블릿', mobile: '모바일' }[name];
+      StudioToast.show(first
+        ? `${label} 화면을 만들었습니다. 데스크톱 배치를 축소한 상태에서 시작하니, 이 화면에서 위치·크기·글자 크기·표시 여부를 따로 조정하세요.`
+        : `${label} 화면 편집 중`, first ? 5000 : 1800);
+    }
+
     // ---------------- Forms ----------------
     insertFormElement(kind) {
       this.endLivePreview();
@@ -11813,7 +12069,14 @@ ${sprite.type === 'text' ? `
     }
 
     generateWebsiteHTML(forExport = false) {
-      const doc = this.doc;
+      // Always export from the desktop layout; other views become CSS overrides.
+      let doc = this.doc;
+      if (doc.activeView && doc.activeView !== 'desktop') {
+        const copy = new DocumentModel();
+        copy.loadFromData(doc.toJSON(), false);
+        copy.switchView('desktop');
+        doc = copy;
+      }
       // Module interactions / keyframes run on the exported DOM via the engine.
       const disabledIds = this.nodeEditor ? this.nodeEditor.getDisabledModuleIds() : null;
       const docJson = doc.toJSON();
@@ -12020,8 +12283,8 @@ ${sprite.type === 'text' ? `
             padding: ${padding};
             color: ${textColor};
             font-family: ${PhotoshopCanvas.fontStack(textMod && textMod.params && textMod.params.fontFamily ? textMod.params.fontFamily : (sprite.type === 'text' ? sprite.fontFamily : ''))};
-            font-size: ${sprite.fontSize || 16}px;
-            font-weight: ${sprite.fontWeight || 'normal'};
+            font-size: ${(sprite.type !== 'text' && textMod && textMod.params) ? (textMod.params.fontSize || sprite.fontSize || 14) : (sprite.fontSize || 16)}px;
+            font-weight: ${(sprite.type !== 'text' && textMod && textMod.params) ? (textMod.params.fontWeight || 'normal') : (sprite.fontWeight || 'normal')};
             text-align: ${textAlign};
             white-space: pre-wrap;
             word-break: break-word;
@@ -12034,6 +12297,35 @@ ${sprite.type === 'text' ? `
           <${tag} class="${escapeHtml(classAttr)}" ${anchorAttr} data-sid="${escapeHtml(sprite.id)}" ${hrefAttr} style="${escapeHtml(styleAttr)}">${innerContent}</${tag}>
         `;
       });
+
+      // Responsive views: per-sprite overrides as CSS. JS picks the view
+      // (html.jspen-view-*); media queries cover pages without JS.
+      const viewWidths = { desktop: W };
+      let viewCss = '';
+      const BREAK = { tablet: 1024, mobile: 600 };
+      for (const v of ['tablet', 'mobile']) {
+        const dims = doc.views && doc.views[v];
+        if (!dims) continue;
+        viewWidths[v] = Number(dims.width) || DocumentModel.viewWidths()[v];
+        const rules = [`#webArtboard { width: ${viewWidths[v]}px !important; min-height: ${Number(dims.height) || H}px !important; }`];
+        for (const layer of doc.layers) {
+          for (const sp of layer.sprites) {
+            const o = sp.responsive && sp.responsive[v];
+            if (!o) continue;
+            const w = Number(o.width) || sp.width, h = Number(o.height) || sp.height;
+            const lbl = DocumentModel.labelOf(sp);
+            const fsz = sp.type !== 'text' && lbl ? (o.labelFontSize || lbl.params.fontSize) : o.fontSize;
+            const decl = o.visible === false ? 'display: none !important;' :
+              `left: ${Math.round(Number(o.x) - w / 2)}px !important; top: ${Math.round(Number(o.y) - h / 2)}px !important; ` +
+              `width: ${w}px !important; height: ${h}px !important; ` +
+              `transform: rotate(${Number(o.rotation) || 0}deg) scale(${Number(o.scaleX) || 1}, ${Number(o.scaleY) || 1}) !important;` +
+              (fsz ? ` font-size: ${Number(fsz)}px !important;` : '');
+            rules.push(`[data-sid="${escapeHtml(sp.id).replace(/"/g, '')}"] { ${decl} }`);
+          }
+        }
+        viewCss += `html.jspen-view-${v} ${rules.join(`\n    html.jspen-view-${v} `)}\n`;
+        viewCss += `@media (max-width: ${BREAK[v]}px) { html:not(.jspen-js) ${rules.join(' html:not(.jspen-js) ')} }\n`;
+      }
 
       return `<!DOCTYPE html>
 <html lang="ko">
@@ -12088,6 +12380,7 @@ ${sprite.type === 'text' ? `
     .hover-fade:hover {
       opacity: 0.75 !important;
     }
+    ${viewCss}
   </style>
 </head>
 <body>
@@ -12099,7 +12392,7 @@ ${sprite.type === 'text' ? `
     </div>
   </div>
 
-  <!-- Sleek Monochromatic Preview Control Bar -->
+  ${forExport ? '' : `  <!-- Sleek Monochromatic Preview Control Bar -->
   <div id="previewToolbar" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#18181b;border:1px solid #3f3f46;border-radius:24px;padding:6px 14px;display:flex;align-items:center;gap:8px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:12px;color:#f4f4f5;user-select:none;">
     <span style="font-weight:700;color:#e4e4e7;margin-right:2px;">화면 배율:</span>
     <span id="valZoomPercent" style="min-width:44px;font-weight:600;color:#a1a1aa;">100%</span>
@@ -12107,14 +12400,39 @@ ${sprite.type === 'text' ? `
     <button class="pv-btn" data-mode="100" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">100%</button>
     <button class="pv-btn" data-mode="768" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">태블릿 (768)</button>
     <button class="pv-btn" data-mode="390" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">모바일 (390)</button>
-  </div>
+  </div>`}
 
   <script>
     // Responsive Dynamic Scaling
+    document.documentElement.classList.add('jspen-js');
     let currentZoomMode = 'fit';
     const baseW = ${W};
     const baseH = ${H};
+    const VIEW_WIDTHS = ${JSON.stringify(viewWidths)};
     let rAFResize = null;
+    let currentView = 'desktop';
+
+    // Responsive layout for the available width (or forced by the toolbar).
+    function pickView(availW) {
+      if (currentZoomMode === '390' && VIEW_WIDTHS.mobile) return 'mobile';
+      if (currentZoomMode === '768' && VIEW_WIDTHS.tablet) return 'tablet';
+      if (currentZoomMode === '100') return 'desktop';
+      if (currentZoomMode === 'fit') {
+        if (VIEW_WIDTHS.mobile && availW <= 600) return 'mobile';
+        if (VIEW_WIDTHS.tablet && availW <= 1024) return 'tablet';
+      }
+      return 'desktop';
+    }
+
+    function applyView(view) {
+      const root = document.documentElement;
+      ['desktop', 'tablet', 'mobile'].forEach(v => root.classList.toggle('jspen-view-' + v, v === view));
+      window.JSPenView = { current: view };
+      if (view !== currentView) {
+        currentView = view;
+        window.dispatchEvent(new CustomEvent('jspen-view', { detail: view }));
+      }
+    }
 
     function updatePreviewScale() {
       const scaler = document.getElementById('artboardScaler');
@@ -12123,15 +12441,18 @@ ${sprite.type === 'text' ? `
       if (!scaler || !artboard) return;
 
       const availW = document.documentElement.clientWidth || window.innerWidth;
+      const view = pickView(availW);
+      applyView(view);
+      const viewW = VIEW_WIDTHS[view] || baseW;
       let scale = 1;
       if (currentZoomMode === 'fit') {
-        scale = Math.max(0.15, availW / baseW);
-        artboard.style.width = baseW + 'px';
+        scale = Math.max(0.15, availW / viewW);
+        artboard.style.width = viewW + 'px';
       } else if (currentZoomMode === '100') {
         scale = 1;
-        artboard.style.width = baseW + 'px';
+        artboard.style.width = viewW + 'px';
       } else {
-        const fixedW = parseInt(currentZoomMode, 10) || baseW;
+        const fixedW = VIEW_WIDTHS[view] && view !== 'desktop' ? viewW : (parseInt(currentZoomMode, 10) || baseW);
         scale = Math.min(1, availW / fixedW);
         artboard.style.width = fixedW + 'px';
       }
@@ -12149,6 +12470,7 @@ ${sprite.type === 'text' ? `
       rAFResize = requestAnimationFrame(updatePreviewScale);
     });
     window.addEventListener('DOMContentLoaded', updatePreviewScale);
+    updatePreviewScale(); // pick the view before the module runtime starts
     setTimeout(updatePreviewScale, 30);
 
     document.querySelectorAll('.pv-btn').forEach(btn => {
