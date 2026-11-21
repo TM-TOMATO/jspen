@@ -753,6 +753,21 @@
       paramLabels: { runOn: '실행 시점', code: '코드' },
       paramTypes: { code: 'code' }
     },
+    form_submit: {
+      category: 'web', name: '폼 전송 버튼', icon: 'SEND',
+      description: '클릭하면 같은 레이어(또는 문서 전체)의 입력칸을 검증하고 메일·서버(POST)로 보내거나 신호만 보냅니다. 결과 문구를 텍스트 스프라이트에 표시할 수 있습니다.',
+      defaultParams: { condition: 'always', action: 'mailto', url: '', subject: '웹사이트 문의', encoding: 'json', scope: 'layer',
+        messageSpriteId: '', successMessage: '전송되었습니다. 감사합니다!', errorMessage: '전송에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+        resetOnSuccess: true, successSignal: 'form_success', errorSignal: 'form_error' },
+      paramOptions: {
+        action: [['mailto', '메일 앱으로 보내기 (mailto)'], ['post', '서버로 전송 (POST)'], ['signal', '신호만 보내기']],
+        encoding: [['json', 'JSON'], ['form', '폼 형식 (x-www-form-urlencoded)']],
+        scope: [['layer', '같은 레이어의 입력칸'], ['document', '문서 전체 입력칸']]
+      },
+      paramLabels: { action: '전송 방식', url: '받는 주소 (메일 주소 또는 https URL)', subject: '메일 제목', encoding: 'POST 형식', scope: '보낼 입력칸',
+        messageSpriteId: '결과 문구를 표시할 스프라이트', successMessage: '성공 문구', errorMessage: '실패 문구', resetOnSuccess: '성공 후 입력칸 비우기',
+        successSignal: '성공 신호', errorSignal: '실패 신호' }
+    },
     scene_transition: {
       category: 'web', name: '씬 전환 / 섹션 이동', icon: 'SCN',
       description: '클릭·신호 등에 반응해 다른 섹션(스프라이트)으로 부드럽게 이동하거나 페이지를 엽니다. 페이드 전환을 지원합니다.',
@@ -2504,6 +2519,44 @@
         ctx.textBaseline = 'top';
         ctx.fillText(`⚡ ${sprite.name} (${sprite.triggerEvent || '진입 감지'})`, -hw + 8, -hh + 8);
         ctx.restore();
+      } else if (sprite.type === 'form_field') {
+        // Static look of an input (live inputs are DOM overlays at runtime).
+        const spec = FormRuntime.fieldSpec(sprite);
+        const W = sprite.width, H = sprite.height;
+        const fs = Math.max(8, sprite.fontSize || 16);
+        ctx.save();
+        ctx.font = `${fs}px ${PhotoshopCanvas.fontStack(sprite.fontFamily && sprite.fontFamily !== 'Pretendard, sans-serif' ? sprite.fontFamily : '')}`;
+        ctx.textBaseline = 'middle';
+        if (spec.kind === 'checkbox') {
+          const box = Math.min(H, fs + 4);
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = sprite.stroke || '#a1a1aa';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.roundRect(-W / 2, -box / 2, box, box, 3); ctx.fill(); ctx.stroke();
+          if (spec.value === 'true' || spec.value === '1') {
+            ctx.strokeStyle = '#18181b'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(-W / 2 + box * 0.22, 0); ctx.lineTo(-W / 2 + box * 0.42, box * 0.22); ctx.lineTo(-W / 2 + box * 0.8, -box * 0.25); ctx.stroke();
+          }
+          ctx.fillStyle = sprite.textColor || '#e4e4e7';
+          ctx.textAlign = 'left';
+          ctx.fillText(spec.label || spec.placeholder || spec.name, -W / 2 + box + 8, 0);
+        } else {
+          const r = Math.min(sprite.cornerRadius || 6, H / 2, W / 2);
+          ctx.fillStyle = sprite.fill && sprite.fill !== 'transparent' ? sprite.fill : '#ffffff';
+          ctx.strokeStyle = sprite.stroke || '#a1a1aa';
+          ctx.lineWidth = Math.max(1, sprite.strokeWidth || 1);
+          ctx.beginPath(); ctx.roundRect(-W / 2, -H / 2, W, H, r); ctx.fill(); ctx.stroke();
+          const shown = spec.value || spec.placeholder || (spec.kind === 'select' ? '선택하세요' : '');
+          ctx.fillStyle = spec.value ? (sprite.textColor || '#18181b') : '#a1a1aa';
+          ctx.textAlign = 'left';
+          const ty = spec.kind === 'textarea' ? -H / 2 + 8 + fs / 2 : 0;
+          ctx.save();
+          ctx.beginPath(); ctx.rect(-W / 2 + 4, -H / 2, W - (spec.kind === 'select' ? 28 : 8), H); ctx.clip();
+          ctx.fillText(shown, -W / 2 + 10, ty);
+          ctx.restore();
+          if (spec.kind === 'select') { ctx.fillStyle = '#71717a'; ctx.textAlign = 'right'; ctx.fillText('▾', W / 2 - 10, 0); }
+        }
+        ctx.restore();
       } else if (sprite.type === 'image') {
         if (sprite.imageUrl) {
           if (!sprite._imgObj || sprite._imgSrc !== sprite.imageUrl) {
@@ -3224,6 +3277,180 @@
     }
   }
 
+  // ==========================================================================
+  // Form fields at runtime: real DOM inputs for `form_field` sprites.
+  // - canvas hosts (studio preview, exported JS) get overlay inputs placed
+  //   over the canvas each frame;
+  // - the website export already contains the inputs (bound by data-sid).
+  // Values are mirrored into the engine variables as "form.<name>".
+  // ==========================================================================
+  class FormRuntime {
+    // host: { container, place(sprite) -> {x, y, w, h, scale} | null, existing(sprite) -> Element | null }
+    constructor(engine, host) {
+      this.engine = engine;
+      this.host = host;
+      this.fields = new Map(); // sprite id -> { el, input, sprite, owned }
+    }
+
+    static fieldSpec(sp) {
+      const f = sp.form || {};
+      const kind = ['text', 'email', 'tel', 'number', 'textarea', 'checkbox', 'select'].includes(f.kind) ? f.kind : 'text';
+      const name = String(f.name || sp.name || 'field').replace(/[^\w\-가-힣]/g, '_').slice(0, 40) || 'field';
+      return { kind, name, label: String(f.label || ''), placeholder: String(f.placeholder || ''), required: !!f.required,
+        options: String(f.options || '').split(',').map(o => o.trim()).filter(Boolean), value: f.value !== undefined ? String(f.value) : '' };
+    }
+
+    static formSprites(doc) {
+      const out = [];
+      for (const l of doc.layers) {
+        if (!l.visible) continue;
+        for (const sp of l.sprites) if (sp.type === 'form_field' && sp.visible !== false) out.push({ sp, layer: l });
+      }
+      return out;
+    }
+
+    // Build the input element for a field (used for overlays and for the
+    // website export markup via outerHTML).
+    static createInput(sp, doc) {
+      const spec = FormRuntime.fieldSpec(sp);
+      let input;
+      if (spec.kind === 'textarea') input = doc.createElement('textarea');
+      else if (spec.kind === 'select') {
+        input = doc.createElement('select');
+        const ph = doc.createElement('option'); ph.value = ''; ph.textContent = spec.placeholder || '선택하세요'; input.appendChild(ph);
+        for (const o of spec.options) { const op = doc.createElement('option'); op.value = o; op.textContent = o; input.appendChild(op); }
+      } else {
+        input = doc.createElement('input');
+        input.type = spec.kind;
+      }
+      input.name = spec.name;
+      input.className = 'jspen-form-input';
+      if (spec.required) input.required = true;
+      if (spec.placeholder && spec.kind !== 'select' && spec.kind !== 'checkbox') input.placeholder = spec.placeholder;
+      if (spec.kind === 'checkbox') input.checked = spec.value === 'true' || spec.value === '1';
+      else if (spec.value) input.value = spec.value;
+      input.setAttribute('aria-label', spec.label || spec.placeholder || spec.name);
+      return input;
+    }
+
+    static inputStyle(sp, scale = 1) {
+      const fs = Math.max(8, (sp.fontSize || 16) * scale);
+      return 'box-sizing:border-box;width:100%;height:100%;margin:0;padding:' + Math.round(6 * scale) + 'px ' + Math.round(10 * scale) + 'px;' +
+        'font:' + fs + 'px ' + PhotoshopCanvas.fontStack(sp.fontFamily && sp.fontFamily !== 'Pretendard, sans-serif' ? sp.fontFamily : '') + ';' +
+        'color:' + (sp.textColor || '#18181b') + ';background:' + (sp.fill && sp.fill !== 'transparent' ? sp.fill : '#ffffff') + ';' +
+        'border:' + Math.max(1, sp.strokeWidth || 1) * scale + 'px solid ' + (sp.stroke || '#a1a1aa') + ';border-radius:' + (sp.cornerRadius || 6) * scale + 'px;' +
+        'outline:none;resize:none;';
+    }
+
+    ensure(sp) {
+      let f = this.fields.get(sp.id);
+      if (f) return f;
+      const existing = this.host.existing ? this.host.existing(sp) : null;
+      if (existing) {
+        const input = existing.matches('input,textarea,select') ? existing : existing.querySelector('input,textarea,select');
+        f = { el: existing, input, sprite: sp, owned: false };
+      } else {
+        const spec = FormRuntime.fieldSpec(sp);
+        const wrap = document.createElement(spec.kind === 'checkbox' ? 'label' : 'div');
+        wrap.className = 'jspen-form-overlay';
+        wrap.style.cssText = 'position:absolute;z-index:40;' + (spec.kind === 'checkbox' ? 'display:flex;align-items:center;gap:8px;cursor:pointer;' : '');
+        const input = FormRuntime.createInput(sp, document);
+        if (spec.kind === 'checkbox') {
+          wrap.appendChild(input);
+          const t = document.createElement('span'); t.textContent = spec.label || spec.placeholder || spec.name; wrap.appendChild(t);
+        } else {
+          wrap.appendChild(input);
+        }
+        // Keys typed into a field must not reach studio shortcuts / modules.
+        wrap.addEventListener('keydown', e => e.stopPropagation());
+        wrap.addEventListener('pointerdown', e => e.stopPropagation());
+        wrap.addEventListener('mousedown', e => e.stopPropagation());
+        this.host.container.appendChild(wrap);
+        f = { el: wrap, input, sprite: sp, owned: true };
+      }
+      if (f.input) {
+        const sync = () => this.publish(f);
+        f.input.addEventListener('input', sync);
+        f.input.addEventListener('change', sync);
+      }
+      this.fields.set(sp.id, f);
+      this.publish(f);
+      return f;
+    }
+
+    value(f) {
+      if (!f.input) return '';
+      return f.input.type === 'checkbox' ? (f.input.checked ? 1 : 0) : f.input.value;
+    }
+
+    publish(f) {
+      const spec = FormRuntime.fieldSpec(f.sprite);
+      this.engine.bus.vars.set('form.' + spec.name, this.value(f));
+    }
+
+    // Called every frame: create/position overlays, hide removed fields.
+    sync(doc) {
+      const seen = new Set();
+      for (const { sp } of FormRuntime.formSprites(doc)) {
+        seen.add(sp.id);
+        const f = this.ensure(sp);
+        if (!f.owned) continue;
+        const r = this.host.place(sp);
+        if (!r) { f.el.style.display = 'none'; continue; }
+        const spec = FormRuntime.fieldSpec(sp);
+        f.el.style.display = '';
+        f.el.style.left = r.x + 'px'; f.el.style.top = r.y + 'px';
+        f.el.style.width = r.w + 'px'; f.el.style.height = r.h + 'px';
+        if (f.scale !== r.scale) {
+          f.scale = r.scale;
+          if (spec.kind === 'checkbox') {
+            f.el.style.font = Math.max(8, (sp.fontSize || 16) * r.scale) + 'px ' + PhotoshopCanvas.fontStack('');
+            f.el.style.color = sp.textColor || '#e4e4e7';
+          } else {
+            f.input.style.cssText = FormRuntime.inputStyle(sp, r.scale);
+          }
+        }
+      }
+      for (const [id, f] of this.fields) {
+        if (!seen.has(id) && f.owned) { f.el.remove(); this.fields.delete(id); }
+      }
+    }
+
+    fieldsIn(layer) {
+      return [...this.fields.values()].filter(f => !layer || layer.sprites.includes(f.sprite));
+    }
+
+    // Validate; focuses and reports the first invalid field.
+    validate(fields) {
+      for (const f of fields) {
+        if (f.input && typeof f.input.checkValidity === 'function' && !f.input.checkValidity()) {
+          if (typeof f.input.reportValidity === 'function') f.input.reportValidity();
+          return false;
+        }
+      }
+      return true;
+    }
+
+    values(fields) {
+      const out = {};
+      for (const f of fields) out[FormRuntime.fieldSpec(f.sprite).name] = this.value(f);
+      return out;
+    }
+
+    reset(fields) {
+      for (const f of fields) {
+        if (!f.input) continue;
+        if (f.input.type === 'checkbox') f.input.checked = false; else f.input.value = '';
+        this.publish(f);
+      }
+    }
+
+    destroy() {
+      for (const f of this.fields.values()) if (f.owned) f.el.remove();
+      this.fields.clear();
+    }
+  }
+
   class ModuleEngine {
     constructor(docModel) {
       this.doc = docModel;
@@ -3383,6 +3610,38 @@
     wantsWheel(wx, wy) {
       const sp = this.pickSprite(wx, wy);
       return !!(sp && (sp.modules || []).some(m => m.enabled !== false && m.type === 'scroll_wheel'));
+    }
+
+    // ---------------- Forms ----------------
+    // Validate and send the form fields (needs this.forms: a FormRuntime).
+    submitForm(sprite, layer, p) {
+      const forms = this.forms;
+      const fields = forms ? forms.fieldsIn(p.scope === 'document' ? null : layer) : [];
+      if (forms && !forms.validate(fields)) return;
+      const data = forms ? forms.values(fields) : {};
+      const msgSp = p.messageSpriteId ? this.doc.findSpriteById(p.messageSpriteId) : null;
+      const done = (ok) => {
+        if (msgSp) ModuleEngine.setText(msgSp, ok ? (p.successMessage || '') : (p.errorMessage || ''));
+        this.bus.emitSignal(ok ? (p.successSignal || 'form_success') : (p.errorSignal || 'form_error'), sprite.id, data);
+        if (ok && p.resetOnSuccess !== false && forms) forms.reset(fields);
+      };
+      const action = p.action || 'mailto';
+      if (action === 'signal') { done(true); return; }
+      if (action === 'mailto') {
+        const to = String(p.url || '').replace(/^mailto:/i, '').trim();
+        if (!/^[^@\s]+@[^@\s]+$/.test(to)) { done(false); return; }
+        const body = Object.entries(data).map(([k, v]) => k + ': ' + v).join('\n');
+        this.navigateHyperlink('mailto:' + to + '?subject=' + encodeURIComponent(p.subject || '') + '&body=' + encodeURIComponent(body), '_self');
+        done(true);
+        return;
+      }
+      // POST to an http(s) endpoint
+      const url = safeUrl(String(p.url || ''));
+      if (!/^https?:/i.test(url) || typeof fetch === 'undefined') { done(false); return; }
+      const json = p.encoding !== 'form';
+      const body = json ? JSON.stringify(data) : new URLSearchParams(Object.entries(data).map(([k, v]) => [k, String(v)])).toString();
+      fetch(url, { method: 'POST', headers: { 'Content-Type': json ? 'application/json' : 'application/x-www-form-urlencoded' }, body })
+        .then(r => done(r.ok)).catch(() => done(false));
     }
 
     // Topmost visible sprite under (wx, wy) using runtime (animated) transforms.
@@ -4726,6 +4985,10 @@
                 break;
               }
 
+              case 'form_submit':
+                if (this.shouldFire(sprite, mod, Object.assign({}, p, { trigger: 'click' }))) this.submitForm(sprite, layer, p);
+                break;
+
               case 'custom_script':
                 this.runScript(sprite, mod, p, ctx, clock, dt);
                 break;
@@ -5072,7 +5335,7 @@
     // images, filters, masks and timeline keyframes.
     static getRuntimeSource(withEngine = true) {
       const parts = [safeUrl, Sprite, Layer, DocumentModel, PhotoshopCanvas];
-      if (withEngine) parts.push(ModuleEngine);
+      if (withEngine) parts.push(FormRuntime, ModuleEngine);
       let src = parts.map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
       if (!withEngine) {
         // Documents without interactive modules: a small stand-in with only the
@@ -5095,7 +5358,7 @@
     static webRuntimeScript(doc, disabledModuleIds) {
       const data = jsonForScript(doc.toJSON());
       const disabled = jsonForScript(disabledModuleIds ? [...disabledModuleIds] : []);
-      const engineSrc = [safeUrl, Sprite, Layer, DocumentModel, ModuleEngine].map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
+      const engineSrc = [safeUrl, Sprite, Layer, DocumentModel, FormRuntime, ModuleEngine].map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
       const player = function () {
         const artboard = document.getElementById('webArtboard');
         if (!artboard) return;
@@ -5107,6 +5370,12 @@
         const engine = new ModuleEngine(model);
         engine.disabledModuleIds = new Set(DISABLED_MODULE_IDS);
         engine.start();
+        // Form inputs are part of the exported markup: bind them by data-sid.
+        engine.forms = new FormRuntime(engine, {
+          container: artboard,
+          place: () => null,
+          existing: sp => artboard.querySelector('[data-sid="' + CSS.escape(sp.id) + '"]')
+        });
 
         const base = new Map();
         for (const l of DOC_DATA.layers || []) for (const s of l.sprites || []) base.set(s.id, s);
@@ -5257,6 +5526,7 @@
           model.viewportHeight = window.innerHeight / s;
           engine.update(dt, pointer.mw, pointer.ms, pointer.isDown, pointer.clicked, pointer.press);
           pointer.clicked = false;
+          engine.forms.sync(model);
           apply();
         };
         // First frame right away so entrance animations start hidden (no flash).
@@ -5282,7 +5552,7 @@
       const layers = doc.layers || [];
       const passive = m => m.type === 'text_label' || m.type === 'substance_mask' ||
         (forDom && m.type === 'hyperlink' && (m.params?.trigger || 'click') === 'click');
-      return layers.some(l => (l.sprites || []).some(s => s.type === 'screen_trigger' || (!forDom && !!s.linkUrl) ||
+      return layers.some(l => (l.sprites || []).some(s => s.type === 'screen_trigger' || s.type === 'form_field' || (!forDom && !!s.linkUrl) ||
         (s.modules || []).some(m => m.enabled !== false && !passive(m) && !dis.has(m.id))));
     }
 
@@ -5408,12 +5678,29 @@ ${this.getRuntimeSource(withEngine)}
   // ---- Interactions: the studio's module engine ----
   const engine = new ModuleEngine(model);
   engine.disabledModuleIds = new Set(DISABLED_MODULE_IDS);
-  const hasModules = model.layers.some(l => l.sprites.some(s => s.type === 'screen_trigger' ||
+  const hasModules = model.layers.some(l => l.sprites.some(s => s.type === 'screen_trigger' || s.type === 'form_field' ||
     (s.modules || []).some(m => m.enabled !== false && m.type !== 'text_label' && !engine.disabledModuleIds.has(m.id))));
   const interactive = hasModules || model.layers.some(l => l.sprites.some(s => s.linkUrl));
   renderer.moduleEngine = engine;
   renderer.mode = 'preview';
   engine.start();
+
+  // Form fields: real inputs placed over the canvas.
+  if (typeof FormRuntime !== 'undefined' && model.layers.some(l => l.sprites.some(s => s.type === 'form_field'))) {
+    const holder = canvas.parentElement || document.body;
+    if (getComputedStyle(holder).position === 'static') holder.style.position = 'relative';
+    engine.forms = new FormRuntime(engine, {
+      container: holder,
+      place: (sp) => {
+        const rt = sp.runtime;
+        if (rt.visible === false) return null;
+        const cr = canvas.getBoundingClientRect(), hr = holder.getBoundingClientRect();
+        const k = cr.width / model.width;
+        const w = sp.width * rt.scaleX * k, h = sp.height * rt.scaleY * k;
+        return { x: cr.left - hr.left + holder.scrollLeft + rt.x * k - w / 2, y: cr.top - hr.top + holder.scrollTop + rt.y * k - h / 2, w, h, scale: k };
+      }
+    });
+  }
 
   // Document coordinates of a pointer event (the canvas may be scaled by CSS).
   const toDoc = (e) => {
@@ -5534,6 +5821,7 @@ ${this.getRuntimeSource(withEngine)}
       model.viewportHeight = window.innerHeight * scale;
       engine.update(dt, pointer.mw, pointer.ms, pointer.isDown, pointer.clicked, pointer.press);
       pointer.clicked = false;
+      if (engine.forms) engine.forms.sync(model);
       if (engine.bus.hideCursor) canvas.style.cursor = 'none';
       player.dirty = true;
     }
@@ -6607,6 +6895,29 @@ ${sprite.type === 'text' ? `
         </div>
         ` : ''}
 
+        ${sprite.type === 'form_field' ? (() => { const fs = FormRuntime.fieldSpec(sprite); return `
+        <!-- Form Field Section -->
+        <div class="ps-prop-section">
+          <div class="ps-prop-header">폼 입력칸 (Form Field)</div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">종류:</label>
+            <select class="ps-select" data-form-prop="kind">
+              ${[['text', '텍스트'], ['email', '이메일'], ['tel', '전화번호'], ['number', '숫자'], ['textarea', '여러 줄'], ['checkbox', '체크박스'], ['select', '선택 목록']]
+                .map(([v, l]) => `<option value="${v}" ${fs.kind === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+          </div>
+          <div class="ps-prop-row"><label class="ps-prop-label">이름 (전송 키):</label><input type="text" class="ps-input" data-form-prop="name" value="${escapeHtml(fs.name)}"></div>
+          <div class="ps-prop-row"><label class="ps-prop-label">안내 문구:</label><input type="text" class="ps-input" data-form-prop="placeholder" value="${escapeHtml(fs.placeholder)}"></div>
+          ${fs.kind === 'checkbox' ? `<div class="ps-prop-row"><label class="ps-prop-label">라벨:</label><input type="text" class="ps-input" data-form-prop="label" value="${escapeHtml(fs.label)}"></div>` : ''}
+          ${fs.kind === 'select' ? `<div class="ps-prop-row"><label class="ps-prop-label">선택지 (쉼표로 구분):</label><input type="text" class="ps-input" data-form-prop="options" value="${escapeHtml(fs.options.join(', '))}"></div>` : ''}
+          <div class="ps-prop-row"><label class="ps-prop-label">기본값:</label><input type="text" class="ps-input" data-form-prop="value" value="${escapeHtml(fs.value)}"></div>
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">필수 입력:</label>
+            <select class="ps-select" data-form-prop="required"><option value="false" ${!fs.required ? 'selected' : ''}>아니요</option><option value="true" ${fs.required ? 'selected' : ''}>예</option></select>
+          </div>
+          <div class="ps-prop-row" style="font-size:10.5px;color:#71717a;">입력값은 전역 변수 <code>form.${escapeHtml(fs.name)}</code> 으로도 읽을 수 있습니다.</div>
+        </div>`; })() : ''}
+
         ${sprite.type === 'image' ? `
         <!-- Image Section -->
         <div class="ps-prop-section">
@@ -6945,13 +7256,13 @@ ${sprite.type === 'text' ? `
           ${Object.keys(params).filter(k => k !== 'condition' && k !== 'targetModuleId' && k !== 'outputResult').map(key => {
             const opts = def.paramOptions && def.paramOptions[key];
             const label = (def.paramLabels && def.paramLabels[key]) || key;
-            if (key === 'targetSpriteId') {
+            if (key === 'targetSpriteId' || key === 'messageSpriteId') {
               return `
             <div class="ps-prop-row">
               <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              <select class="ps-select" data-param-key="targetSpriteId">
-                <option value="">${mod.type === 'distance_rope' || mod.type === 'follow_target' ? '(마우스 커서)' : '(모든 스프라이트)'}</option>
-                ${allSprites.filter(sp => sp.id !== (sprite && sprite.id)).map(sp => `<option value="${escapeHtml(sp.id)}" ${params.targetSpriteId === sp.id ? 'selected' : ''}>${escapeHtml(sp.name)}</option>`).join('')}
+              <select class="ps-select" data-param-key="${key}">
+                <option value="">${key === 'messageSpriteId' ? '(표시 안 함)' : (mod.type === 'distance_rope' || mod.type === 'follow_target' ? '(마우스 커서)' : '(모든 스프라이트)')}</option>
+                ${allSprites.filter(sp => sp.id !== (sprite && sprite.id)).map(sp => `<option value="${escapeHtml(sp.id)}" ${params[key] === sp.id ? 'selected' : ''}>${escapeHtml(sp.name)}</option>`).join('')}
               </select>
             </div>`;
             }
@@ -7324,6 +7635,16 @@ ${sprite.type === 'text' ? `
             this.doc.saveState();
             if (this.cb.onUpdate) this.cb.onUpdate();
           } catch (err) { StudioToast.show(err.message); }
+        });
+        this.el.querySelectorAll('[data-form-prop]').forEach(inp => {
+          inp.addEventListener('change', () => {
+            sprite.form = sprite.form || {};
+            const k = inp.dataset.formProp;
+            sprite.form[k] = k === 'required' ? inp.value === 'true' : inp.value;
+            if (k === 'kind' && inp.value === 'checkbox') { sprite.height = 28; }
+            this.doc.saveState();
+            if (this.cb.onUpdate) this.cb.onUpdate();
+          });
         });
         this.el.querySelector('#inpImageFit')?.addEventListener('change', e => {
           sprite.imageFit = e.target.value;
@@ -7992,6 +8313,15 @@ ${sprite.type === 'text' ? `
                 <button class="ps-dropdown-item" data-web-tpl="cta_banner">전환 유도 CTA 배너 (CTA)</button>
                 <button class="ps-dropdown-item" data-web-tpl="footer">하단 푸터 (Footer)</button>
                 <div class="ps-dropdown-sep"></div>
+                <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#e4e4e7;">폼 요소 삽입</div>
+                <button class="ps-dropdown-item" data-form-kind="text">텍스트 입력칸</button>
+                <button class="ps-dropdown-item" data-form-kind="email">이메일 입력칸</button>
+                <button class="ps-dropdown-item" data-form-kind="textarea">여러 줄 입력칸</button>
+                <button class="ps-dropdown-item" data-form-kind="checkbox">체크박스</button>
+                <button class="ps-dropdown-item" data-form-kind="select">선택 목록</button>
+                <button class="ps-dropdown-item" data-form-kind="submit">전송 버튼</button>
+                <button class="ps-dropdown-item" data-form-kind="contact">[세트] 문의 폼 (이름·이메일·내용·전송)</button>
+                <div class="ps-dropdown-sep"></div>
                 <div style="padding:4px 14px;font-size:10px;font-weight:700;color:#71717a;">반응형 캔버스 규격 전환</div>
                 <button class="ps-dropdown-item" data-preset-w="1920" data-preset-h="1080">데스크톱 Full HD (1920 × 1080)</button>
                 <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="900">맥북 / 노트북 (1440 × 900)</button>
@@ -8253,6 +8583,7 @@ ${sprite.type === 'text' ? `
       });
       this.el.querySelector('#mSave')?.addEventListener('click', () => window.jspenApp?.saveProject());
       this.el.querySelector('#mSaveAs')?.addEventListener('click', () => window.jspenApp?.saveProject(true));
+      this.el.querySelectorAll('[data-form-kind]').forEach(btn => btn.addEventListener('click', () => window.jspenApp?.insertFormElement(btn.dataset.formKind)));
       this.el.querySelector('#mImportImage')?.addEventListener('click', () => window.jspenApp?.pickImage());
       this.el.querySelector('#mAddFont')?.addEventListener('click', () => window.jspenApp?.addFontFile());
       this.el.querySelector('#mOpen')?.addEventListener('click', () => window.jspenApp?.openProject());
@@ -10896,6 +11227,52 @@ ${sprite.type === 'text' ? `
       return null;
     }
 
+    // ---------------- Forms ----------------
+    insertFormElement(kind) {
+      this.endLivePreview();
+      const layer = this.doc.getSelectedLayer() || this.doc.layers[this.doc.layers.length - 1] || this.doc.addLayer({ name: '레이어 1' });
+      const c = this.renderer.screenToWorld(this.canvas.width / 2, this.canvas.height / 2);
+      const x = Math.round(c.x), y0 = Math.round(c.y);
+      const field = (k, name, extra, dy = 0) => layer.addSprite(Object.assign({
+        name: '폼: ' + name, type: 'form_field', x, y: y0 + dy, width: 320, height: k === 'textarea' ? 120 : 44,
+        fill: '#ffffff', stroke: '#a1a1aa', strokeWidth: 1, cornerRadius: 6, fontSize: 15, textColor: '#18181b',
+        form: Object.assign({ kind: k, name, placeholder: '', required: false }, extra)
+      }));
+      const submit = (dy = 0) => {
+        const msg = layer.addSprite({ name: '폼 결과 문구', type: 'text', text: '', x, y: y0 + dy + 44, width: 320, height: 28, fontSize: 14, fill: '#a1a1aa', fontWeight: 'normal' });
+        const def = MODULE_REGISTRY.form_submit, st = MODULE_REGISTRY.state_style;
+        const btn = layer.addSprite({ name: '전송 버튼', type: 'rect', x, y: y0 + dy, width: 320, height: 48, fill: '#e4e4e7', cornerRadius: 8, strokeWidth: 0,
+          modules: [
+            { id: 'mod_' + Math.random().toString(36).slice(2, 10), type: 'text_label', name: '텍스트 라벨', enabled: true, params: { condition: 'always', text: '보내기', fontSize: 16, color: '#18181b', fontWeight: 'bold', textAlign: 'center', valign: 'middle' } },
+            { id: 'mod_' + Math.random().toString(36).slice(2, 10), type: 'form_submit', name: def.name, enabled: true, params: Object.assign(JSON.parse(JSON.stringify(def.defaultParams)), { messageSpriteId: msg.id }) },
+            { id: 'mod_' + Math.random().toString(36).slice(2, 10), type: 'state_style', name: st.name, enabled: true, params: Object.assign(JSON.parse(JSON.stringify(st.defaultParams)), { hoverFill: '#ffffff', pressFill: '#a1a1aa' }) }
+          ] });
+        return btn;
+      };
+      let last;
+      switch (kind) {
+        case 'email': last = field('email', 'email', { placeholder: '이메일 주소', required: true }); break;
+        case 'textarea': last = field('textarea', 'message', { placeholder: '내용을 입력하세요' }); break;
+        case 'checkbox': last = field('checkbox', 'agree', { label: '개인정보 수집에 동의합니다' }); last.width = 320; last.height = 28; break;
+        case 'select': last = field('select', 'topic', { placeholder: '문의 유형', options: '일반 문의, 견적 요청, 기타' }); break;
+        case 'submit': last = submit(); break;
+        case 'contact':
+          field('text', 'name', { placeholder: '이름', required: true }, -150);
+          field('email', 'email', { placeholder: '이메일 주소', required: true }, -96);
+          field('textarea', 'message', { placeholder: '문의 내용', required: true }, 0);
+          last = submit(96);
+          break;
+        default: last = field('text', 'name', { placeholder: '이름' });
+      }
+      this.doc.selectedLayerId = layer.id;
+      this.doc.selectedSpriteId = last.id;
+      this.doc.selectedSpriteIds = new Set([last.id]);
+      this.doc.saveState();
+      this.refreshUI();
+      StudioToast.show('폼 요소를 추가했습니다. Ctrl+Space 미리보기에서 입력해 볼 수 있습니다.');
+      return last;
+    }
+
     // Register uploaded document fonts and re-render when they are ready.
     loadDocumentFonts() {
       PhotoshopCanvas.loadDocumentFonts(this.doc.fonts, () => {
@@ -11356,10 +11733,22 @@ ${sprite.type === 'text' ? `
         this.pointer.isDown = false;
         this.renderer.mode = 'preview';
         this.moduleEngine.start();
+        const vp = this.canvas.parentElement;
+        this.moduleEngine.forms = new FormRuntime(this.moduleEngine, {
+          container: vp,
+          place: (sp) => {
+            const rt = sp.runtime, z = this.renderer.zoom;
+            if (rt.visible === false) return null;
+            const c = this.renderer.worldToScreen(rt.x, rt.y);
+            const w = sp.width * rt.scaleX * z, h = sp.height * rt.scaleY * z;
+            return { x: this.canvas.offsetLeft + c.x - w / 2, y: this.canvas.offsetTop + c.y - h / 2, w, h, scale: z };
+          }
+        });
         document.body.classList.add('jspen-live-preview');
         StudioToast.show('실시간 모듈 미리보기: Esc 또는 Ctrl+Space로 편집 모드 복귀');
       } else {
         this.moduleEngine.stop();
+        if (this.moduleEngine.forms) { this.moduleEngine.forms.destroy(); this.moduleEngine.forms = null; }
         this._panAnim = null;
         this.renderer.mode = 'edit';
         document.body.classList.remove('jspen-live-preview');
@@ -11497,7 +11886,16 @@ ${sprite.type === 'text' ? `
           textColor = textMod.params.color || '#ffffff';
         }
 
-        if (sprite.type === 'text') {
+        if (sprite.type === 'form_field') {
+          // Real form control; the web runtime binds it (validation, submit).
+          const spec = FormRuntime.fieldSpec(sprite);
+          const input = FormRuntime.createInput(sprite, document);
+          input.setAttribute('style', spec.kind === 'checkbox' ? 'width:auto;height:auto;margin:0;' : FormRuntime.inputStyle(sprite, 1));
+          innerContent = spec.kind === 'checkbox'
+            ? `<label style="display:flex;align-items:center;gap:8px;width:100%;height:100%;cursor:pointer;color:${escapeHtml(sprite.textColor || '#e4e4e7')};">${input.outerHTML}<span>${escapeHtml(spec.label || spec.placeholder || spec.name)}</span></label>`
+            : input.outerHTML;
+          bgStyle = 'transparent';
+        } else if (sprite.type === 'text') {
           innerContent = escapeHtml(sprite.text || '');
           bgStyle = 'transparent';
           textColor = sprite.fill || '#ffffff';
@@ -11546,7 +11944,7 @@ ${sprite.type === 'text' ? `
         }
 
         const borderRadius = sprite.type === 'circle' ? '50%' : `${sprite.cornerRadius || 0}px`;
-        const stroke = (sprite.strokeWidth && sprite.strokeWidth > 0 && sprite.stroke) ? `${sprite.strokeWidth}px solid ${sprite.stroke}` : 'none';
+        const stroke = (sprite.type !== 'form_field' && sprite.strokeWidth && sprite.strokeWidth > 0 && sprite.stroke) ? `${sprite.strokeWidth}px solid ${sprite.stroke}` : 'none';
 
         // Filters (sprite.filters and active photoshop_filter module)
         const fltrs = [];
@@ -11598,7 +11996,7 @@ ${sprite.type === 'text' ? `
 
         const textAlign = sprite.textAlign || 'center';
         const justify = textAlign === 'left' ? 'flex-start' : (textAlign === 'right' ? 'flex-end' : 'center');
-        const padding = sprite.type === 'text' ? '0' : '8px 16px';
+        const padding = (sprite.type === 'text' || sprite.type === 'form_field') ? '0' : '8px 16px';
 
         const styleAttr = `
             position: absolute;
@@ -12461,6 +12859,7 @@ ${sprite.type === 'text' ? `
           this.doc.viewportHeight = this.canvas.height / r.zoom;
           this.moduleEngine.update(dt, this.pointer.mw, this.pointer.ms, this.pointer.isDown, this.pointer.clicked, this.pointer.press);
           this.pointer.clicked = false;
+          if (this.moduleEngine.forms) this.moduleEngine.forms.sync(this.doc);
           if (this.moduleEngine.bus.hideCursor) this.canvas.style.cursor = 'none';
           this.renderCanvas();
           requestAnimationFrame(loop);
