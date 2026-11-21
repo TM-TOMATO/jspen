@@ -509,17 +509,71 @@ def configure_chromium_flags():
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(flags)
 
 
+SELFTEST_JS = """
+(async () => {
+  const out = { app: !!window.jspenApp, desktop: !!(window.JSPenNative && JSPenNative.isDesktop) };
+  try {
+    out.templates = (await jspenApp.templateModal.fetchTemplateList()).length;
+    out.templateLoads = !!(await jspenApp.templateModal.loadTemplateFile('hero.jspen'));
+    out.engine = typeof jspenApp.moduleEngine.update === 'function';
+    out.exportBytes = PhotoshopJSExporter.generateHTML(jspenApp.doc).length;
+  } catch (e) { out.error = String(e); }
+  return JSON.stringify(out);
+})()
+"""
+
+
+def run_selftest(app, window):
+    """--selftest: load the studio, check it from JS, print JSON, exit 0/1.
+    Useful to verify a PyInstaller build (also without a display)."""
+    from PyQt6.QtCore import QTimer
+
+    state = {"code": 1}
+
+    def report(result):
+        print(f"JSPEN_SELFTEST {result}", flush=True)
+        try:
+            data = json.loads(result or "{}")
+            ok = data.get("app") and data.get("desktop") and data.get("templates", 0) >= 7 and \
+                data.get("templateLoads") and data.get("engine") and data.get("exportBytes", 0) > 1000
+            state["code"] = 0 if ok else 1
+        except ValueError:
+            state["code"] = 1
+        window._close_confirmed = True
+        app.quit()
+
+    def poll():
+        # runJavaScript cannot await promises: store the result, then read it.
+        window.run_js("window.__selftest || null", lambda r: report(r) if r else QTimer.singleShot(300, poll))
+
+    def on_loaded(ok):
+        if not ok:
+            report('{"error": "page did not load"}')
+            return
+        window.run_js(SELFTEST_JS.strip() + ".then(r => { window.__selftest = r; });")
+        QTimer.singleShot(500, poll)
+
+    window.browser.loadFinished.connect(on_loaded)
+    QTimer.singleShot(60000, lambda: report('{"error": "timeout"}'))
+    app.exec()
+    return state["code"]
+
+
 def main():
     configure_chromium_flags()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
 
-    register_windows_file_association()
+    selftest = "--selftest" in sys.argv[1:]
+    if not selftest:
+        register_windows_file_association()
 
     initial = next((a for a in sys.argv[1:] if is_project_file(a)), None)
     window = MainWindow(os.path.abspath(initial) if initial else None)
     window.show()
 
+    if selftest:
+        sys.exit(run_selftest(app, window))
     sys.exit(app.exec())
 
 
