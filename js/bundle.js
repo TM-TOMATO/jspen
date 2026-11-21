@@ -4878,9 +4878,264 @@
     // the output is drawn by exactly the same code as the studio canvas:
     // shapes, paths, brush strokes, text and text_label modules, gradients,
     // images, filters, masks and timeline keyframes.
-    static getRuntimeSource() {
-      return [safeUrl, Sprite, Layer, DocumentModel, PhotoshopCanvas, ModuleEngine].map(c => c.toString()).join('\n\n');
+    static getRuntimeSource(withEngine = true) {
+      const parts = [safeUrl, Sprite, Layer, DocumentModel, PhotoshopCanvas];
+      if (withEngine) parts.push(ModuleEngine);
+      let src = parts.map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
+      if (!withEngine) {
+        // Documents without interactive modules: a small stand-in with only the
+        // hit-testing and link navigation the player needs.
+        const P = ModuleEngine.prototype;
+        const methods = [P.pickSprite, P.getClickLink, P.isPointInside, P.navigateHyperlink].map(f => f.toString()).join('\n');
+        src += '\nclass ModuleEngine {\n' +
+          'constructor(doc) { this.doc = doc; this.active = false; this.disabledModuleIds = null; this.draggedSprite = null; this.onNavigateAnchor = null;' +
+          ' this.bus = { particles: [], fade: null, hideCursor: false, keyState: {}, scroll: {}, mouse: {} }; }\n' +
+          'start() { this.active = true; }\nupdate() {}\nendDrag() {}\nwantsWheel() { return false; }\naddWheel() {}\nstatic resumeAudio() {}\n' +
+          PhotoshopJSExporter.compactSource(methods) + '\n}';
+      }
+      return src;
     }
+
+    // Runtime for the HTML/CSS website export: the studio's ModuleEngine drives
+    // the exported DOM elements (one per sprite, matched by data-sid). Each
+    // frame applies runtime transforms, opacity, colours, text and filters;
+    // particles and the scene fade are drawn on an overlay canvas.
+    static webRuntimeScript(doc, disabledModuleIds) {
+      const data = jsonForScript(doc.toJSON());
+      const disabled = jsonForScript(disabledModuleIds ? [...disabledModuleIds] : []);
+      const engineSrc = [safeUrl, Sprite, Layer, DocumentModel, ModuleEngine].map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
+      const player = function () {
+        const artboard = document.getElementById('webArtboard');
+        if (!artboard) return;
+        const model = new DocumentModel();
+        model.loadFromData(DOC_DATA, false);
+        model.selectedSpriteIds = new Set();
+        model.setFrame(0);
+        for (const l of model.layers) l.resetRuntime();
+        const engine = new ModuleEngine(model);
+        engine.disabledModuleIds = new Set(DISABLED_MODULE_IDS);
+        engine.start();
+
+        const base = new Map();
+        for (const l of DOC_DATA.layers || []) for (const s of l.sprites || []) base.set(s.id, s);
+        const cssFilter = sp => {
+          const out = [];
+          const srcs = [];
+          if (sp.filters) srcs.push(sp.filters);
+          for (const m of sp.modules || []) if (m.enabled !== false && m.showInRender !== false && m.type === 'photoshop_filter' && m.params) srcs.push(m.params);
+          for (const f of srcs) {
+            if (f.blur) out.push('blur(' + Math.max(0, f.blur) + 'px)');
+            if (f.brightness !== undefined && f.brightness !== 100) out.push('brightness(' + Math.max(0, f.brightness) + '%)');
+            if (f.contrast !== undefined && f.contrast !== 100) out.push('contrast(' + Math.max(0, f.contrast) + '%)');
+            if (f.saturate !== undefined && f.saturate !== 100) out.push('saturate(' + Math.max(0, f.saturate) + '%)');
+            if (f.grayscale) out.push('grayscale(' + Math.max(0, Math.min(100, f.grayscale)) + '%)');
+            if (f.sepia) out.push('sepia(' + Math.max(0, Math.min(100, f.sepia)) + '%)');
+            if (f.hueRotate) out.push('hue-rotate(' + f.hueRotate + 'deg)');
+            if (f.invert) out.push('invert(' + Math.max(0, Math.min(100, f.invert)) + '%)');
+            if (f.opacity !== undefined && f.opacity !== 100) out.push('opacity(' + Math.max(0, Math.min(100, f.opacity)) + '%)');
+          }
+          return out.join(' ');
+        };
+        const labelOf = sp => (sp.modules || []).find(m => m.type === 'text_label' && m.enabled !== false);
+        const snapshot = sp => {
+          const lbl = labelOf(sp);
+          return { fill: sp.fill, stroke: sp.stroke, color: lbl ? lbl.params && lbl.params.color : sp.textColor,
+            text: ModuleEngine.getText(sp), filter: cssFilter(sp) };
+        };
+        const transformOf = (sp, b) => {
+          const rt = sp.runtime;
+          return 'translate(' + (rt.x - b.x) + 'px,' + (rt.y - b.y) + 'px) rotate(' + (rt.rotation + (rt.tiltAngle || 0)) +
+            'deg) scale(' + rt.scaleX + ',' + rt.scaleY + ')';
+        };
+        const items = [];
+        for (const layer of model.layers) {
+          for (const sp of layer.sprites) {
+            const el = artboard.querySelector('[data-sid="' + CSS.escape(sp.id) + '"]');
+            const b = base.get(sp.id);
+            if (!el || !b) continue;
+            const hasText = sp.type === 'text' || !!labelOf(sp) || !!sp.text;
+            items.push({ sp, el, b, textEl: hasText && !el.querySelector('img,svg') ? el : null,
+              snap: snapshot(sp), transform: transformOf(sp, b), opacity: null, hidden: false });
+          }
+        }
+
+        // Overlay for particles and the scene fade.
+        const old = document.getElementById('jspenFx');
+        if (old) old.remove(); // a saved copy of this page may contain the previous overlay
+        const fx = document.createElement('canvas');
+        fx.id = 'jspenFx';
+        fx.width = model.width; fx.height = model.height;
+        fx.style.cssText = 'position:absolute;left:0;top:0;width:' + model.width + 'px;height:' + model.height + 'px;pointer-events:none;z-index:2147483000;';
+        artboard.appendChild(fx);
+        const fxCtx = fx.getContext('2d');
+        let fxDirty = false;
+
+        const scaleOf = r => (artboard.offsetWidth ? r.width / artboard.offsetWidth : 1);
+        engine.onNavigateAnchor = (sp, opts) => {
+          const r = artboard.getBoundingClientRect();
+          window.scrollTo({ top: window.scrollY + r.top + (sp.y - sp.height / 2) * scaleOf(r), behavior: opts && opts.smooth === false ? 'auto' : 'smooth' });
+        };
+
+        const pointer = { mw: { x: -1e9, y: -1e9 }, ms: { x: 0, y: 0 }, isDown: false, clicked: false, press: null };
+        const toDoc = e => {
+          const r = artboard.getBoundingClientRect(), s = scaleOf(r) || 1;
+          return { x: (e.clientX - r.left) / s, y: (e.clientY - r.top) / s, sx: e.clientX - r.left, sy: e.clientY - r.top };
+        };
+        window.addEventListener('pointermove', e => { const p = toDoc(e); pointer.mw = { x: p.x, y: p.y }; pointer.ms = { x: p.sx, y: p.sy }; });
+        document.addEventListener('mouseleave', () => { if (!pointer.isDown) pointer.mw = { x: -1e9, y: -1e9 }; });
+        artboard.addEventListener('pointerdown', e => {
+          if (e.button !== 0) return;
+          ModuleEngine.resumeAudio();
+          const p = toDoc(e);
+          pointer.mw = { x: p.x, y: p.y }; pointer.isDown = true; pointer.clicked = true; pointer.press = { x: p.x, y: p.y };
+          const hit = engine.pickSprite(p.x, p.y);
+          if (hit && (hit.modules || []).some(m => m.enabled !== false && m.type === 'draggable')) e.preventDefault();
+        });
+        window.addEventListener('pointerup', e => {
+          pointer.isDown = false;
+          const p = toDoc(e);
+          pointer.mw = { x: p.x, y: p.y };
+          engine.endDrag(p.x, p.y);
+        });
+        artboard.addEventListener('wheel', e => {
+          const p = toDoc(e);
+          if (engine.wantsWheel(p.x, p.y)) { e.preventDefault(); engine.addWheel(e.deltaY); }
+        }, { passive: false });
+        window.addEventListener('keydown', e => { engine.bus.keyState[e.code] = true; engine.bus.keyState[e.key] = true; });
+        window.addEventListener('keyup', e => { delete engine.bus.keyState[e.code]; delete engine.bus.keyState[e.key]; });
+        window.addEventListener('blur', () => { engine.bus.keyState = {}; pointer.isDown = false; });
+
+        const hasKeyframes = model.layers.some(l => l.sprites.some(s => s.keyframes && Object.keys(s.keyframes).some(k => Array.isArray(s.keyframes[k]) && s.keyframes[k].length > 0)));
+
+        // Elements driven by the runtime must not use the static CSS transition
+        // (it would make every frame lag ~0.2s behind, e.g. while dragging).
+        const own = it => { if (!it.owned) { it.el.style.transition = 'none'; it.owned = true; } };
+        const apply = () => {
+          for (const it of items) {
+            const sp = it.sp, rt = sp.runtime, el = it.el;
+            const t0 = transformOf(sp, it.b), o0 = Math.max(0, Math.min(1, rt.opacity)), s0 = snapshot(sp), p0 = it.snap;
+            if (t0 !== it.transform || (o0 !== it.opacity && (it.opacity !== null || o0 !== (it.b.opacity ?? 1))) ||
+                s0.fill !== p0.fill || s0.stroke !== p0.stroke || s0.color !== p0.color || s0.filter !== p0.filter) own(it);
+            const t = t0;
+            if (t !== it.transform) { el.style.transform = t; it.transform = t; }
+            const o = o0;
+            if (o !== it.opacity) { if (it.opacity !== null || o !== (it.b.opacity ?? 1)) el.style.opacity = String(o); it.opacity = o; }
+            const hidden = rt.visible === false || sp.visible === false;
+            if (hidden !== it.hidden) { el.style.visibility = hidden ? 'hidden' : ''; it.hidden = hidden; }
+            const s = s0, prev = p0;
+            if (s.fill !== prev.fill) {
+              if (sp.type === 'text') el.style.color = s.fill;
+              else if (sp.fillType !== 'linear-gradient') el.style.background = s.fill;
+            }
+            if (s.stroke !== prev.stroke && sp.strokeWidth > 0) el.style.borderColor = s.stroke;
+            if (s.color !== prev.color && s.color) el.style.color = s.color;
+            if (s.text !== prev.text && it.textEl) it.textEl.textContent = s.text;
+            if (s.filter !== prev.filter) el.style.filter = s.filter;
+            it.snap = s;
+          }
+          artboard.style.cursor = engine.bus.hideCursor ? 'none' : '';
+          const parts = engine.bus.particles, fade = engine.bus.fade;
+          if (parts.length || fade || fxDirty) {
+            fxCtx.clearRect(0, 0, fx.width, fx.height);
+            for (const p of parts) {
+              fxCtx.globalAlpha = Math.max(0, p.life);
+              fxCtx.fillStyle = p.color;
+              fxCtx.beginPath(); fxCtx.arc(p.x, p.y, p.size || 3, 0, Math.PI * 2); fxCtx.fill();
+            }
+            if (fade) {
+              const t = Math.max(0, Math.min(1, (engine.bus.time - fade.start) / fade.duration));
+              fxCtx.globalAlpha = 1 - Math.abs(2 * t - 1);
+              fxCtx.fillStyle = '#000000';
+              fxCtx.fillRect(0, 0, fx.width, fx.height);
+            }
+            fxCtx.globalAlpha = 1;
+            fxDirty = parts.length > 0 || !!fade;
+          }
+        };
+
+        let last = performance.now(), frameAcc = 0;
+        const step = (dt) => {
+          if (hasKeyframes && model.fps > 0) {
+            frameAcc += dt;
+            const iv = 1 / model.fps;
+            while (frameAcc >= iv) { frameAcc -= iv; model.stepFrame(1); }
+          }
+          const r = artboard.getBoundingClientRect(), s = scaleOf(r) || 1;
+          engine.bus.scroll.scrollY = Math.max(0, -r.top / s);
+          model.viewportHeight = window.innerHeight / s;
+          engine.update(dt, pointer.mw, pointer.ms, pointer.isDown, pointer.clicked, pointer.press);
+          pointer.clicked = false;
+          apply();
+        };
+        // First frame right away so entrance animations start hidden (no flash).
+        step(0);
+        const loop = now => {
+          const dt = Math.min((now - last) / 1000, 0.1);
+          last = now;
+          step(dt);
+          requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+        window.JSPenWebRuntime = { model, engine };
+      };
+      const code = '(function () {\n  \'use strict\';\n  const DOC_DATA = ' + data + ';\n  const DISABLED_MODULE_IDS = ' + disabled + ';\n' +
+        engineSrc + '\n  (' + player.toString() + ')();\n})();';
+      return code.replace(/<\/script/gi, '<\\/script');
+    }
+
+    // Does a document need the module engine at runtime? In the DOM website
+    // export (forDom) plain click links are real <a> elements and need none.
+    static needsEngine(doc, disabledModuleIds, forDom = false) {
+      const dis = disabledModuleIds || new Set();
+      const layers = doc.layers || [];
+      const passive = m => m.type === 'text_label' || m.type === 'substance_mask' ||
+        (forDom && m.type === 'hyperlink' && (m.params?.trigger || 'click') === 'click');
+      return layers.some(l => (l.sprites || []).some(s => s.type === 'screen_trigger' || (!forDom && !!s.linkUrl) ||
+        (s.modules || []).some(m => m.enabled !== false && !passive(m) && !dis.has(m.id))));
+    }
+
+    static hasKeyframes(doc) {
+      return (doc.layers || []).some(l => (l.sprites || []).some(s => s.keyframes &&
+        Object.keys(s.keyframes).some(k => Array.isArray(s.keyframes[k]) && s.keyframes[k].length > 0)));
+    }
+
+    // Strip whole-line comments and indentation from embedded class sources
+    // (never inside multi-line template literals).
+    static compactSource(src) {
+      const out = [];
+      let inTemplate = false;
+      for (const line of src.split('\n')) {
+        const ticks = (line.replace(/\\`/g, '').match(/`/g) || []).length;
+        if (inTemplate) {
+          out.push(line);
+        } else {
+          const t = line.trim();
+          if (t && !t.startsWith('//')) out.push(t);
+        }
+        if (ticks % 2 === 1) inTemplate = !inTemplate;
+      }
+      return out.join('\n');
+    }
+
+    // Text and links of a document for accessible / indexable fallback content.
+    static fallbackItems(doc) {
+      const items = [];
+      for (const l of doc.layers || []) {
+        if (l.visible === false) continue;
+        for (const s of l.sprites || []) {
+          if (s.visible === false || s.type === 'screen_trigger') continue;
+          const lbl = (s.modules || []).find(m => m.type === 'text_label' && m.enabled !== false);
+          const text = String((s.type !== 'text' && lbl ? lbl.params?.text : s.text) || '').trim();
+          const link = (s.modules || []).find(m => m.type === 'hyperlink' && m.enabled !== false);
+          const href = safeUrl((link ? link.params?.url : s.linkUrl) || '');
+          if (!text && !href) continue;
+          items.push({ y: s.y || 0, x: s.x || 0, text: text || s.name || href, href: href && !href.startsWith('#') ? href : '' });
+        }
+      }
+      items.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+      return items.map(({ text, href }) => ({ text, href }));
+    }
+
 
     // disabledModuleIds: modules disconnected from the Node Graph OUTPUT
     // (defaults to the studio's current node graph).
@@ -4891,6 +5146,9 @@
           ? window.jspenApp.nodeEditor.getDisabledModuleIds() : null;
       }
       const disabledData = jsonForScript(disabledModuleIds ? [...disabledModuleIds] : []);
+      // Plain click links are handled by the small stand-in engine.
+      const withEngine = PhotoshopJSExporter.needsEngine(doc.toJSON(), disabledModuleIds, true);
+      const fallbackData = jsonForScript(PhotoshopJSExporter.fallbackItems(doc.toJSON()));
       return `/**
  * JSPen Studio - Exported Vanilla Canvas 2D Player
  * Uses the same rendering engine as the studio. No external dependencies.
@@ -4900,9 +5158,10 @@
   'use strict';
   const DOC_DATA = ${docData};
   const DISABLED_MODULE_IDS = ${disabledData};
+  const FALLBACK = ${fallbackData};
 
   // ---- JSPen engine (identical to the studio) ----
-${this.getRuntimeSource()}
+${this.getRuntimeSource(withEngine)}
 
   // ---- Player ----
   class JSPenPlayerCanvas extends PhotoshopCanvas {
@@ -4923,6 +5182,20 @@ ${this.getRuntimeSource()}
 
   const canvas = document.getElementById('viewportCanvas') || document.querySelector('canvas');
   if (!canvas) return;
+
+  // Accessible / indexable fallback: the document's text and links inside the
+  // canvas (exposed to screen readers, not painted).
+  if (!canvas.firstElementChild && FALLBACK.length) {
+    const box = document.createElement('div');
+    for (const item of FALLBACK) {
+      const el = document.createElement(item.href ? 'a' : 'p');
+      el.textContent = item.text;
+      if (item.href) el.href = item.href;
+      box.appendChild(el);
+    }
+    canvas.appendChild(box);
+  }
+  if (!canvas.getAttribute('aria-label')) canvas.setAttribute('aria-label', DOC_DATA.name || 'JSPen');
 
   const model = new DocumentModel();
   model.loadFromData(DOC_DATA, false);
@@ -5090,7 +5363,9 @@ ${this.getRuntimeSource()}
   </style>
 </head>
 <body>
-  <canvas id="viewportCanvas"></canvas>
+  <canvas id="viewportCanvas" aria-label="${escapeHtml(doc.name || 'JSPen')}">${PhotoshopJSExporter.fallbackItems(doc.toJSON()).map(i => i.href
+    ? `<a href="${escapeHtml(i.href)}">${escapeHtml(i.text)}</a>`
+    : `<p>${escapeHtml(i.text)}</p>`).join('')}</canvas>
   <script>${jsCode.replace(/<\/script/gi, '<\\/script')}<\/script>
 </body>
 </html>`;
@@ -10651,6 +10926,11 @@ ${sprite.type === 'text' ? `
 
     generateWebsiteHTML(forExport = false) {
       const doc = this.doc;
+      // Module interactions / keyframes run on the exported DOM via the engine.
+      const disabledIds = this.nodeEditor ? this.nodeEditor.getDisabledModuleIds() : null;
+      const docJson = doc.toJSON();
+      const runtimeScript = (PhotoshopJSExporter.needsEngine(docJson, disabledIds, true) || PhotoshopJSExporter.hasKeyframes(docJson))
+        ? `<script>${PhotoshopJSExporter.webRuntimeScript(doc, disabledIds)}<\/script>` : '';
       const W = Number(doc.width) || 1440;
       const H = Number(doc.height) || 900;
       // Artboard background matches the Studio Document background exactly
@@ -10853,7 +11133,7 @@ ${sprite.type === 'text' ? `
             transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
           `;
         elementsHtml += `
-          <${tag} class="${escapeHtml(classAttr)}" ${anchorAttr} ${hrefAttr} style="${escapeHtml(styleAttr)}">${innerContent}</${tag}>
+          <${tag} class="${escapeHtml(classAttr)}" ${anchorAttr} data-sid="${escapeHtml(sprite.id)}" ${hrefAttr} style="${escapeHtml(styleAttr)}">${innerContent}</${tag}>
         `;
       });
 
@@ -11033,6 +11313,7 @@ ${sprite.type === 'text' ? `
       setTimeout(() => n.remove(), 2000);
     }
   </script>
+  ${runtimeScript}
 </body>
 </html>`;
     }

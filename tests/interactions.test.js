@@ -142,3 +142,48 @@ test('saving or opening a file during live preview never captures runtime change
   await page.evaluate(() => jspenApp.loadProjectFromJSON({ name: 'other', width: 400, height: 300, layers: [{ name: 'X', sprites: [] }] }));
   assert.deepEqual(await page.evaluate(() => [jspenApp.moduleEngine.active, jspenApp.doc.name]), [false, 'other']);
 });
+
+test('website (HTML/CSS) export runs modules on the DOM elements', async () => {
+  const { page, context } = s;
+  const html = await page.evaluate(() => {
+    const mk = (type, params = {}) => ({ id: 'w_' + type, type, name: type, enabled: true,
+      params: Object.assign(JSON.parse(JSON.stringify(MODULE_REGISTRY[type].defaultParams || {})), params) });
+    jspenApp.loadProjectFromJSON({ name: 'web', width: 1000, height: 2000, transparentBackground: false, backgroundColor: '#101010', layers: [{ name: 'L', sprites: [
+      { id: 'btn', name: 'btn', type: 'rect', x: 500, y: 300, width: 200, height: 60, fill: '#222222', modules: [mk('text_label', { text: 'Go' }), mk('state_style', { hoverFill: '#ff0000', transition: 0.05 }), mk('scene_transition', { targetSpriteId: 'sec2', transition: 'smooth' })] },
+      { id: 'drag', name: 'drag', type: 'rect', x: 150, y: 500, width: 80, height: 80, fill: '#0000ff', modules: [mk('draggable')] },
+      { id: 'cnt', name: 'cnt', type: 'text', text: '0', x: 500, y: 1500, width: 300, height: 60, fill: '#ffffff', modules: [mk('count_up', { to: 1200, duration: 0.3 })] },
+      { id: 'sec2', name: 'sec2', type: 'rect', x: 500, y: 1700, width: 600, height: 200, fill: '#00ff00', modules: [mk('entrance_animation', { duration: 0.3 })] }
+    ] }] });
+    return jspenApp.generateWebsiteHTML(true);
+  });
+  const q = await context.newPage();
+  const errs = []; q.on('pageerror', e => errs.push(e.message));
+  await q.setViewportSize({ width: 1000, height: 700 });
+  await q.setContent(html);
+  await q.waitForFunction(() => !!window.JSPenWebRuntime);
+  const st = () => q.evaluate(() => {
+    const g = id => document.querySelector('[data-sid="' + id + '"]');
+    return { btnBg: getComputedStyle(g('btn')).backgroundColor, sec2Op: getComputedStyle(g('sec2')).opacity, cnt: g('cnt').textContent.trim(), scrollY: Math.round(scrollY) };
+  });
+  const before = await st();
+  assert.equal(before.sec2Op, '0', 'entrance target hidden until scrolled into view');
+  assert.equal(before.cnt, '0+');
+  const ab = await (await q.$('#webArtboard')).boundingBox();
+  const k = ab.width / 1000;
+  const at = (x, y) => [ab.x + x * k, ab.y + y * k];
+  await q.mouse.move(...at(500, 300)); await q.waitForTimeout(300);
+  assert.equal((await st()).btnBg, 'rgb(255, 0, 0)', 'hover style');
+  await q.mouse.move(...at(150, 500)); await q.mouse.down();
+  for (let i = 1; i <= 10; i++) { await q.mouse.move(...at(150 + 15 * i, 500)); await q.waitForTimeout(16); }
+  await q.mouse.up(); await q.waitForTimeout(100);
+  const box = await (await q.$('[data-sid="drag"]')).boundingBox();
+  assert.ok(Math.abs((box.x - ab.x + box.width / 2) / k - 300) < 2, 'dragged element moved');
+  await q.mouse.click(...at(500, 300));
+  await q.waitForFunction(() => window.scrollY > 1000, null, { timeout: 5000 });
+  await q.waitForTimeout(800);
+  const after = await st();
+  assert.equal(after.sec2Op, '1');
+  assert.equal(after.cnt, '1,200+');
+  await q.close();
+  assert.deepEqual(errs, []);
+});

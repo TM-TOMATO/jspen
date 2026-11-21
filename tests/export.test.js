@@ -96,3 +96,21 @@ test('exported player plays keyframes and renders sharply at devicePixelRatio 2'
   assert.equal(r.size, '800x600');
   assert.notEqual(r.left, '255,0,0', 'box moved away from its start position');
 });
+
+test('static and link-only exports stay small, links still work, fallback text is present', async () => {
+  const out = await s.page.evaluate(async () => {
+    jspenApp.loadProjectFromJSON(await JSPenNative.loadJSON('templates/navbar.jspen'));
+    const doc = jspenApp.doc;
+    const linkSprite = doc.layers.flatMap(l => l.sprites).find(sp => (sp.modules || []).some(m => m.type === 'hyperlink' && /^https?:/.test(m.params?.url || '')));
+    return { js: PhotoshopJSExporter.generateJS(doc), html: PhotoshopJSExporter.generateHTML(doc), web: jspenApp.generateWebsiteHTML(true),
+      w: doc.width, h: doc.height, link: linkSprite ? { x: linkSprite.x, y: linkSprite.y } : null };
+  });
+  assert.ok(out.js.length < 120 * 1024, `link-only JS export is ${Math.round(out.js.length / 1024)} KB`);
+  assert.ok(!/JSPenWebRuntime/.test(out.web), 'no runtime for a static website');
+  assert.match(out.html, /<canvas id="viewportCanvas" aria-label="[^"]+"><(p|a)/, 'fallback content inside the canvas');
+  assert.ok(out.link, 'template has an external link');
+  const q = await s.browser.newPage({ viewport: { width: out.w, height: Math.max(out.h, 200) }, deviceScaleFactor: 1 });
+  await q.setContent(out.html); await q.waitForTimeout(300);
+  const [popup] = await Promise.all([q.context().waitForEvent('page', { timeout: 5000 }), q.mouse.click(out.link.x, out.link.y)]);
+  await popup.close(); await q.close();
+});
