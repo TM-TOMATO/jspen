@@ -2,6 +2,9 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
+  <!-- Backstop for escaping mistakes: markup from a project file can never run
+       inline event handlers. The desktop shell adds a stricter policy. -->
+  <meta http-equiv="Content-Security-Policy" content="script-src-attr 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>JSPen Studio</title>
   <link rel="stylesheet" href="css/style.css">
