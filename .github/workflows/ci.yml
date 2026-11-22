@@ -49,6 +49,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m py_compile main.py
       - run: python tests/desktop_smoke.py
+      - run: python tests/desktop_security.py
 
   windows:
     name: Windows desktop build (PyInstaller + self-test)
@@ -65,6 +66,10 @@ jobs:
       - run: python -m py_compile main.py
       - name: Desktop smoke test
         run: python tests/desktop_smoke.py
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - name: Desktop security test
+        run: python tests/desktop_security.py
         env:
           QT_QPA_PLATFORM: offscreen
       - name: Build (folder) and self-test the exe
