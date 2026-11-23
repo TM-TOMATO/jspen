@@ -39,7 +39,10 @@ test('views: switch, edit per view, save normalised, load back, undo', async () 
     jspenApp.setView('desktop');
     return { scaled, json: { w: json.width, view: json.activeView, boxX: json.layers[0].sprites[1].x, mobile: json.layers[0].sprites[1].responsive.mobile.x, decoMobile: json.layers[0].sprites[2].responsive.mobile.visible }, back, again, loaded, undone };
   }, DOC);
-  assert.deepEqual(r.scaled, { w: 390, box: [98, 130], font: 16 }, 'new view starts as the scaled desktop layout');
+  assert.equal(r.scaled.w, 390);
+  assert.equal(r.scaled.box[0], 195, 'new view is reflowed: the box is centred');
+  assert.ok(r.scaled.box[1] > 300 && r.scaled.box[1] <= 390, 'and as wide as the screen allows, not a miniature');
+  assert.ok(r.scaled.font >= 28, 'headings stay readable');
   assert.deepEqual(r.json, { w: 1200, view: 'mobile', boxX: 300, mobile: 195, decoMobile: false }, 'saved with desktop base + mobile overrides');
   assert.deepEqual(r.back, { w: 1200, box: [300, 400], deco: true }, 'desktop untouched');
   assert.deepEqual(r.again, [195, 350, false], 'mobile edits kept');
@@ -89,20 +92,24 @@ test('website export switches layout by width; JS export picks the view', async 
   await q.close();
   assert.equal(cw, 390);
   q = await open(html.js, 1400);
-  assert.equal(await q.evaluate(() => document.querySelector('canvas').width), 1200);
+  assert.equal(await q.evaluate(() => document.querySelector('canvas').width), 1400, 'desktop layout, reflowed to the window');
   await q.close();
 });
 
-test('canvas resize asks how to treat the content (fit / stretch / keep)', async () => {
+test('canvas resize asks how to treat the content (reflow / fit / stretch / keep)', async () => {
   const run = async (choice) => {
     await s.page.evaluate((DOC) => jspenApp.loadProjectFromJSON(DOC), DOC);
     await s.page.evaluate(() => { window.__p = jspenApp.resizeCanvasInteractive(600, 800); });
     await s.page.waitForSelector('.studio-modal-overlay [data-choice]');
-    const idx = { fit: 0, stretch: 1, keep: 2 }[choice];
+    const idx = { reflow: 0, fit: 1, stretch: 2, keep: 3 }[choice];
     await s.page.click(`.studio-modal-overlay [data-choice="${idx}"]`);
     await s.page.evaluate(() => window.__p);
     return s.page.evaluate(() => { const b = jspenApp.doc.findSpriteById('box'); return { W: jspenApp.doc.width, x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) }; });
   };
+  const reflowed = await run('reflow');
+  assert.equal(reflowed.W, 600);
+  assert.ok(reflowed.x - reflowed.w / 2 >= 0 && reflowed.x + reflowed.w / 2 <= 600, 'reflow: inside the new width');
+  assert.ok(reflowed.w > 300, 'reflow: not scaled down with the canvas');
   assert.deepEqual(await run('fit'), { W: 600, x: 150, y: 400, w: 200, h: 100 }, 'uniform 0.5, centred vertically');
   assert.deepEqual(await run('stretch'), { W: 600, x: 150, y: 400, w: 200, h: 200 });
   assert.deepEqual(await run('keep'), { W: 600, x: 300, y: 400, w: 400, h: 200 });
@@ -116,7 +123,8 @@ test('the preview toolbar is only in the preview, not in the exported website', 
 test('canvas size is freely adjustable: inspector W/H and artboard edge drag', async () => {
   const { page } = s;
   await page.evaluate((DOC) => { jspenApp.loadProjectFromJSON(DOC); jspenApp.doc.selectedSpriteId = null; jspenApp.doc.selectedSpriteIds = new Set(); jspenApp.refreshUI(); }, DOC);
-  // inspector fields (no dialog; content kept by default)
+  // inspector fields (no dialog); "keep" leaves the content where it is
+  await page.selectOption('#inpCanvasMode', 'keep');
   await page.fill('#inpCanvasW', '1000');
   await page.press('#inpCanvasW', 'Enter');
   let r = await page.evaluate(() => ({ W: jspenApp.doc.width, H: jspenApp.doc.height, boxX: jspenApp.doc.findSpriteById('box').x, modal: !!document.querySelector('.studio-modal-overlay') }));

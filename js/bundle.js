@@ -402,17 +402,25 @@
     hover_proximity: {
       category: 'sensor', name: '호버 및 근접 감지', icon: 'ZONE',
       description: '마우스가 스프라이트 위에 올라오거나 지정 반경에 진입했는지 감지합니다.',
-      defaultParams: { condition: 'always', detectionRadius: 60, scaleOnHover: 1.15 }
+      defaultParams: { condition: 'always', detectionRadius: 60, scaleOnHover: 1.15 },
+      paramLabels: { detectionRadius: '감지 거리 (px)', scaleOnHover: '올렸을 때 크기' },
+      paramRanges: { detectionRadius: [0, 400, 1], scaleOnHover: [0.5, 2, 0.01] }
     },
     click_gesture: {
       category: 'sensor', name: '클릭 및 제스처 감지', icon: 'TRG',
       description: '단일 클릭, 더블 클릭, 롱 프레스 이벤트를 발생시킵니다.',
-      defaultParams: { condition: 'always', gestureType: 'click', activeDuration: 0.2 }
+      defaultParams: { condition: 'always', gestureType: 'click', activeDuration: 0.2 },
+      paramLabels: { gestureType: '동작', activeDuration: '발동 유지 (초)' },
+      paramOptions: { gestureType: [['click', '클릭'], ['double_click', '더블 클릭'], ['long_press', '길게 누르기']] },
+      paramRanges: { activeDuration: [0, 3, 0.05] }
     },
     draggable: {
       category: 'sensor', name: '자유 드래그 모듈', icon: 'DRG',
       description: '마우스로 스프라이트를 집어 자유롭게 드래그 앤 드롭 이동합니다.',
-      defaultParams: { condition: 'always', constrainAxis: 'none', snapToGrid: false, gridSize: 20 }
+      defaultParams: { condition: 'always', constrainAxis: 'none', snapToGrid: false, gridSize: 20 },
+      paramLabels: { constrainAxis: '움직일 방향', snapToGrid: '격자에 맞추기', gridSize: '격자 간격 (px)' },
+      paramOptions: { constrainAxis: [['none', '자유롭게'], ['x', '가로만'], ['y', '세로만']] },
+      paramRanges: { gridSize: [1, 200, 1] }
     },
     scroll_wheel: {
       category: 'sensor', name: '스크롤 휠 감지', icon: 'WHL',
@@ -423,7 +431,10 @@
     keyboard_trigger: {
       category: 'sensor', name: '키보드 입력 감지', icon: 'KEY',
       description: '지정된 키(방향키, Space, Enter 등) 입력을 감지합니다.',
-      defaultParams: { condition: 'always', targetKey: 'ArrowRight', moveSpeed: 5 }
+      defaultParams: { condition: 'always', targetKey: 'ArrowRight', moveSpeed: 5 },
+      paramLabels: { targetKey: '키', moveSpeed: '이동 속도 (px)' },
+      paramTypes: { targetKey: 'key' },
+      paramRanges: { moveSpeed: [0, 50, 0.5] }
     },
     collision_detector: {
       category: 'sensor', name: '충돌 및 겹침 감지', icon: 'COL',
@@ -462,7 +473,10 @@
         offsetX: 0,
         offsetY: 0,
         rotateToTarget: false
-      }
+      },
+      paramLabels: { targetSpriteId: '따라갈 대상', trackMode: '따라가는 방식', smoothSpeed: '부드러움 (0~1)', constantSpeed: '속도 (px/초)', stiffness: '스프링 강도', damping: '감쇠', orbitRadius: '공전 반지름 (px)', orbitSpeed: '공전 속도 (도/초)', followAxis: '따라갈 축', offsetX: '가로 간격 (px)', offsetY: '세로 간격 (px)', rotateToTarget: '대상 쪽으로 회전' },
+      paramOptions: { trackMode: [['lerp', '부드럽게 감속'], ['spring', '스프링'], ['constant', '일정한 속도'], ['orbit', '주위를 공전'], ['direct', '바로 붙기']], followAxis: [['both', '가로·세로'], ['x_only', '가로만'], ['y_only', '세로만']] },
+      paramRanges: { smoothSpeed: [0, 1, 0.01], constantSpeed: [0, 2000, 1], stiffness: [0, 1, 0.01], damping: [0, 1, 0.01], orbitRadius: [0, 1000, 1], orbitSpeed: [-720, 720, 1] }
     },
     math_calculate: {
       category: 'logic', name: '수학 계산 (Math)', icon: 'CALC',
@@ -474,8 +488,13 @@
         inputB: 1,
         clampMin: 0,
         clampMax: 100,
+        targetVal: 0,
+        targetParam: 'none',
         outputProperty: 'x' // x, y, rotation, scaleX, scaleY, opacity, filter_blur, filter_brightness, filter_contrast, filter_opacity, filter_grayscale, filter_invert, filter_hueRotate
-      }
+      },
+      paramLabels: { operation: '연산', inputA: '값 A', inputB: '값 B', clampMin: '최솟값 (범위 제한)', clampMax: '최댓값 (범위 제한)', targetVal: '목표값 (보간)', targetParam: '결과 적용 대상' },
+      paramOptions: { operation: [['add', '더하기 (A + B)'], ['subtract', '빼기 (A − B)'], ['multiply', '곱하기 (A × B)'], ['divide', '나누기 (A ÷ B)'], ['min', '작은 값'], ['max', '큰 값'], ['modulo', '나머지 (A ÷ B)'], ['abs', '절댓값 (A)'], ['round', '반올림 (A)'], ['sin', '사인 (A)'], ['cos', '코사인 (A)'], ['clamp', '범위 제한 (A)'], ['lerp', '보간 (A → 목표값, 비율 B)']], targetParam: [['none', '적용 안 함 (값만 전달)'], ['x', 'X 위치'], ['y', 'Y 위치'], ['rotation', '회전 (도)'], ['scaleX', '가로 배율'], ['scaleY', '세로 배율'], ['opacity', '불투명도 (0~1)'], ['filter_blur', '필터: 흐림'], ['filter_brightness', '필터: 밝기'], ['filter_contrast', '필터: 대비'], ['filter_grayscale', '필터: 흑백'], ['filter_invert', '필터: 반전'], ['filter_hueRotate', '필터: 색조 회전'], ['filter_opacity', '필터: 불투명도']] },
+      paramHidden: ['outputProperty']
     },
     screen_trigger: {
       category: 'sensor', name: '화면 트리거 (뷰포트)', icon: 'TRIG',
@@ -490,7 +509,10 @@
         filterEffect: 'blur', // blur, brightness, contrast, saturate, grayscale, sepia, hueRotate, invert, opacity
         filterValue: 20,
         once: false
-      }
+      },
+      paramLabels: { triggerEvent: '발동 시점', action: '할 일', signalName: '보낼 신호 이름', targetSpriteId: '대상 스프라이트', filterEffect: '필터', filterValue: '필터 값', once: '한 번만 발동' },
+      paramOptions: { triggerEvent: [['viewport_enter', '화면에 들어올 때'], ['viewport_exit', '화면에서 나갈 때'], ['mouse_enter', '마우스가 올라올 때'], ['mouse_move', '위에서 마우스가 움직일 때'], ['scroll_reach', '스크롤이 닿았을 때'], ['click', '클릭했을 때']], action: [['emit_signal', '신호만 보내기'], ['show_sprite', '대상 보이기'], ['hide_sprite', '대상 숨기기'], ['pulse', '대상 강조 (펄스)'], ['animate_in', '대상 등장'], ['animate_filter', '대상 필터 서서히'], ['set_filter', '대상 필터 바로']], filterEffect: [['blur', '흐림'], ['brightness', '밝기'], ['contrast', '대비'], ['saturate', '채도'], ['grayscale', '흑백'], ['sepia', '세피아'], ['hueRotate', '색조 회전'], ['invert', '반전'], ['opacity', '불투명도']] },
+      paramRanges: { filterValue: [0, 200, 1] }
     },
     photoshop_filter: {
       category: 'motion', name: '그래픽 필터 (Filter FX)', icon: 'FLTR',
@@ -528,7 +550,12 @@
     look_at: {
       category: 'logic', name: '타겟 조준 (Look-At)', icon: 'AIM',
       description: '스프라이트가 항상 타겟 레이어나 마우스 방향을 바라보도록 자동 회전합니다.',
-      defaultParams: { condition: 'always', targetType: 'mouse', targetLayerId: null, rotationOffset: 0 }
+      defaultParams: { condition: 'always', targetType: 'mouse', targetLayerId: null, rotationOffset: 0 },
+      paramLabels: { targetLayerId: '바라볼 대상', rotationOffset: '회전 보정 (도)' },
+      paramTypes: { targetLayerId: 'layer' },
+      paramEmpty: { targetLayerId: '마우스 커서' },
+      paramRanges: { rotationOffset: [-180, 180, 1] },
+      paramHidden: ['targetType']
     },
     distance_rope: {
       category: 'logic', name: '거리 제한 로프', icon: 'ROPE',
@@ -561,17 +588,24 @@
         targetLayerId: '',
         filterEffect: 'invert',
         filterValue: 100
-      }
+      },
+      paramLabels: { inputSignal: '받을 신호', delaySec: '지연 (초)', outputSignal: '보낼 신호', action: '할 일', targetSpriteId: '대상 스프라이트', targetLayerId: '대상 레이어', filterEffect: '필터', filterValue: '필터 값' },
+      paramOptions: { action: [['emit_signal', '신호 다시 보내기'], ['toggle_active', '대상 켜기 / 끄기'], ['animate_filter', '대상 필터 적용'], ['set_filter', '대상 필터 바로']], filterEffect: [['blur', '흐림'], ['brightness', '밝기'], ['contrast', '대비'], ['saturate', '채도'], ['grayscale', '흑백'], ['sepia', '세피아'], ['hueRotate', '색조 회전'], ['invert', '반전'], ['opacity', '불투명도']] },
+      paramTypes: { targetLayerId: 'layer' },
+      paramEmpty: { targetLayerId: '없음' },
+      paramRanges: { delaySec: [0, 10, 0.05], filterValue: [0, 200, 1] }
     },
     toggle_switch: {
       category: 'logic', name: '토글 스위치', icon: 'TOG',
       description: '트리거 감지, 신호 수신 또는 클릭할 때마다 켜짐(ON)/꺼짐(OFF) 상태를 반전 전환하고 신호를 방출합니다.',
-      defaultParams: { condition: 'always', inputSignal: '', initialValue: false }
+      defaultParams: { condition: 'always', inputSignal: '', initialValue: false },
+      paramLabels: { inputSignal: '받을 신호 (비우면 클릭)', initialValue: '처음에 켜짐' }
     },
     counter_accumulator: {
       category: 'logic', name: '숫자 카운터', icon: 'CNT',
       description: '트리거 감지 또는 신호 발생 시마다 숫자를 증가시키고 텍스트/신호에 반영합니다.',
-      defaultParams: { condition: 'always', inputSignal: '', startVal: 0, stepVal: 1, maxVal: 9999 }
+      defaultParams: { condition: 'always', inputSignal: '', startVal: 0, stepVal: 1, maxVal: 9999 },
+      paramLabels: { inputSignal: '받을 신호 (비우면 클릭)', startVal: '시작값', stepVal: '증가량', maxVal: '최댓값' }
     },
     node_merge: {
       category: 'logic', name: '모듈 합치기', icon: 'MRG',
@@ -610,7 +644,10 @@
     particle_emitter: {
       category: 'motion', name: '파티클 분출기', icon: 'FX',
       description: '반짝이, 스파크, 먼지 등의 파티클을 마우스나 위치에서 방출합니다.',
-      defaultParams: { condition: 'always', rate: 10, speed: 80, particleColor: '#e4e4e7', lifetime: 0.8 }
+      defaultParams: { condition: 'always', rate: 10, speed: 80, particleColor: '#e4e4e7', lifetime: 0.8 },
+      paramLabels: { rate: '초당 개수', speed: '속도 (px/초)', particleColor: '색', lifetime: '수명 (초)' },
+      paramTypes: { particleColor: 'color' },
+      paramRanges: { rate: [0, 200, 1], speed: [0, 1000, 1], lifetime: [0.05, 10, 0.05] }
     },
     motion_wave: {
       category: 'motion', name: '부유 진동 (Wave)', icon: 'WAVE',
@@ -620,34 +657,49 @@
     pulse_scale: {
       category: 'motion', name: '펄스 박동 효과', icon: 'PULS',
       description: '심장 박동처럼 크기가 주기적으로 커졌다 작아지는 효과입니다.',
-      defaultParams: { condition: 'always', minScale: 0.92, maxScale: 1.08, speed: 2.0 }
+      defaultParams: { condition: 'always', minScale: 0.92, maxScale: 1.08, speed: 2.0 },
+      paramLabels: { minScale: '최소 크기', maxScale: '최대 크기', speed: '속도' },
+      paramRanges: { minScale: [0.1, 3, 0.01], maxScale: [0.1, 3, 0.01], speed: [0, 20, 0.1] }
     },
     shake_vibrate: {
       category: 'motion', name: '흔들림 및 진동', icon: 'SHK',
       description: '타격감이나 지진처럼 무작위로 화면을 진동시킵니다.',
-      defaultParams: { condition: 'always', intensity: 8, decay: 0.9 }
+      defaultParams: { condition: 'always', intensity: 8, decay: 0.9 },
+      paramLabels: { intensity: '세기 (px)' },
+      paramRanges: { intensity: [0, 100, 0.5] },
+      paramHidden: ['decay']
     },
     orbit_spin: {
       category: 'motion', name: '공전 및 자전', icon: 'SPIN',
       description: '자체 중심축으로 자전하거나 타겟 주위를 공전합니다.',
-      defaultParams: { condition: 'always', speedDegPerSec: 45, radius: 0 }
+      defaultParams: { condition: 'always', speedDegPerSec: 45, radius: 0 },
+      paramLabels: { speedDegPerSec: '회전 속도 (도/초)' },
+      paramRanges: { speedDegPerSec: [-1440, 1440, 1] },
+      paramHidden: ['radius']
     },
     wall_bounce: {
       category: 'motion', name: '벽면 튕기기 반사', icon: 'BOUN',
       description: '캔버스 가장자리에 닿으면 당구공처럼 튕겨져 나옵니다.',
-      defaultParams: { condition: 'always', speedX: 120, speedY: 90, elasticity: 0.95 }
+      defaultParams: { condition: 'always', speedX: 120, speedY: 90, elasticity: 0.95 },
+      paramLabels: { speedX: '가로 속도 (px/초)', speedY: '세로 속도 (px/초)' },
+      paramRanges: { speedX: [-2000, 2000, 1], speedY: [-2000, 2000, 1] },
+      paramHidden: ['elasticity']
     },
     rainbow_shift: {
       category: 'motion', name: '무지개 색상 순환', icon: 'RAIN',
       description: '시간 경과에 따라 색조(Hue)가 무지개색으로 부드럽게 순환합니다.',
-      defaultParams: { condition: 'always', cycleDuration: 3.0 }
+      defaultParams: { condition: 'always', speed: 60, cycleDuration: 3.0 },
+      paramLabels: { speed: '색 변화 속도 (도/초)' },
+      paramRanges: { speed: [0, 720, 1] },
+      paramHidden: ['cycleDuration']
     },
 
     // 4. Timing & Control
     timeline_keyframes: {
       category: 'timing', name: '타임라인 키프레임', icon: 'TL',
       description: '타임라인에 기록된 키프레임 보간 애니메이션을 모듈 단위로 실행하고 제어합니다.',
-      defaultParams: { condition: 'always', playMode: 'timeline', speed: 1.0 }
+      defaultParams: { condition: 'always', playMode: 'timeline', speed: 1.0 },
+      paramHidden: ['playMode', 'speed']
     },
     duration_delay: {
       category: 'timing', name: '듀레이션 및 지연', icon: 'DUR',
@@ -719,7 +771,9 @@
       category: 'web', name: '상태 전환 스타일', icon: 'STAT',
       description: '마우스를 올리거나 누를 때 채우기·테두리·글자색·크기를 부드럽게 바꿉니다. 버튼 호버 효과에 사용합니다. (빈 칸은 바꾸지 않음)',
       defaultParams: { condition: 'always', hoverFill: '#3f3f46', pressFill: '#52525b', hoverStroke: '', hoverTextColor: '', hoverScale: 1.04, pressScale: 0.97, transition: 0.15 },
-      paramLabels: { hoverFill: '호버 채우기 색', pressFill: '눌림 채우기 색', hoverStroke: '호버 테두리 색', hoverTextColor: '호버 글자 색', hoverScale: '호버 크기', pressScale: '눌림 크기', transition: '전환 시간 (초)' }
+      paramLabels: { hoverFill: '호버 채우기 색', pressFill: '눌림 채우기 색', hoverStroke: '호버 테두리 색', hoverTextColor: '호버 글자 색', hoverScale: '호버 크기', pressScale: '눌림 크기', transition: '전환 시간 (초)' },
+      paramTypes: { hoverFill: 'color', pressFill: 'color', hoverStroke: 'color', hoverTextColor: 'color' },
+      paramEmpty: { hoverFill: '바꾸지 않음', pressFill: '바꾸지 않음', hoverStroke: '바꾸지 않음', hoverTextColor: '바꾸지 않음' }
     },
     count_up: {
       category: 'web', name: '숫자 카운트업', icon: '123',
@@ -746,7 +800,8 @@
       description: '트레일: 커서를 따라 잔상 입자를 남깁니다. 커스텀 커서: 이 스프라이트가 시스템 커서를 대신합니다.',
       defaultParams: { condition: 'always', mode: 'trail', color: '#e4e4e7', size: 5, lifetime: 0.5, lag: 0 },
       paramOptions: { mode: [['trail', '커서 트레일'], ['cursor', '커스텀 커서 (이 스프라이트)']] },
-      paramLabels: { mode: '방식', color: '트레일 색', size: '트레일 크기', lifetime: '잔상 시간 (초)', lag: '따라오는 지연 (0~0.95)' }
+      paramLabels: { mode: '방식', color: '트레일 색', size: '트레일 크기', lifetime: '잔상 시간 (초)', lag: '따라오는 지연 (0~0.95)' },
+      paramTypes: { color: 'color' }
     },
     property_binding: {
       category: 'logic', name: '속성 바인딩', icon: 'BIND',
@@ -1253,6 +1308,500 @@
   }
 
   // ==========================================================================
+  // Reflow: lay a fixed-position design out for another width, like a website
+  // ==========================================================================
+  // The design is read as boxes inside boxes, split into rows and columns:
+  //   * full-width backgrounds and bands follow the width
+  //   * content keeps its size while it fits: the margins shrink first, then
+  //     the gaps, then the boxes
+  //   * text keeps its size and wraps (only big headings get smaller), and
+  //     what is below moves down
+  //   * columns that no longer fit continue on the next line
+  //   * a row with items at both edges (a navigation bar) keeps them there
+  //   * overlapping artwork scales as one piece
+  // Pure: the same design and width always give the same layout, and the
+  // design's own width gives the design back. Also embedded in exported pages,
+  // so it must not refer to anything outside the class.
+  class Reflow {
+    // Serializable description of a document's current layout.
+    static describe(doc, fontStack) {
+      const items = [];
+      for (const layer of doc.layers) {
+        for (const sp of layer.sprites) {
+          const sx = Math.abs(sp.scaleX) || 1, sy = Math.abs(sp.scaleY) || 1;
+          let w = sp.width * sx, h = sp.height * sy;
+          const angle = ((sp.rotation || 0) % 180) * Math.PI / 180;
+          if (angle) {
+            const c = Math.abs(Math.cos(angle)), s = Math.abs(Math.sin(angle));
+            [w, h] = [w * c + h * s, w * s + h * c];
+          }
+          const item = {
+            id: sp.id, type: sp.type, x: Reflow.rest(sp, 'x', doc.activeView) - w / 2, y: Reflow.rest(sp, 'y', doc.activeView) - h / 2, w, h,
+            cx: Reflow.rest(sp, 'x', doc.activeView), cy: Reflow.rest(sp, 'y', doc.activeView),
+            width: sp.width, height: sp.height, scaleX: sp.scaleX, scaleY: sp.scaleY,
+            hidden: layer.visible === false || sp.visible === false || sp.type === 'screen_trigger',
+            // Drawn relative to the centre: can only be scaled as a whole.
+            rigid: !!angle || sx !== 1 || sy !== 1 || ['path', 'brush', 'circle'].includes(sp.type) ||
+              !!sp.isBrushCanvas || !!(sp.strokes && sp.strokes.length)
+          };
+          const label = (sp.modules || []).find(m => m.type === 'text_label' && m.enabled !== false && m.params);
+          if (sp.type === 'text') {
+            if (sp.text) {
+              item.text = { value: String(sp.text), size: sp.fontSize || 16, weight: sp.fontWeight || 'normal',
+                family: fontStack(sp.fontFamily), line: 1.35, padX: 0, padY: 0 };
+            }
+          } else if (sp.type !== 'form_field') {
+            const value = label ? label.params.text : sp.text;
+            if (value) {
+              const p = label ? label.params : {};
+              item.text = { value: String(value), size: Number(p.fontSize) || sp.fontSize || 14, weight: p.fontWeight || sp.fontWeight || 'normal',
+                family: fontStack(p.fontFamily), line: Math.max(1.35, Number(p.lineHeight) || 0), padX: 16, padY: 8, label: !!label };
+            }
+          }
+          items.push(item);
+        }
+      }
+      return { width: doc.width, height: doc.height, items };
+    }
+
+    // An animated sprite is laid out where its animation ends. Animations hold
+    // desktop values, so in a responsive view the view's own position counts.
+    static rest(sp, prop, view) {
+      const track = sp.keyframes && sp.keyframes[prop];
+      return track && track.length && (!view || view === 'desktop') ? track[track.length - 1].value : sp[prop];
+    }
+
+    constructor(design) {
+      this.design = design;
+      this.widths = new Map();
+      this.mins = new Map();
+      this.ctx = document.createElement('canvas').getContext('2d');
+      const W = design.width, H = design.height;
+      this.flow = [];
+      this.loose = []; // not part of the flow: moves along with what it is next to
+      for (const it of design.items) {
+        const outside = it.x + it.w <= 0 || it.x >= W || it.y + it.h <= 0 || it.y >= H;
+        const bleeds = it.x < -2 || it.x + it.w > W + 2;
+        const spans = it.x <= 2 && it.x + it.w >= W - 2;
+        const backdrop = spans && it.y <= 2 && it.y + it.h >= H - 2;
+        if (it.hidden || outside || backdrop || (bleeds && !spans)) this.loose.push({ it, backdrop, spans });
+        else this.flow.push(it);
+      }
+      this.root = this.flow.length ? this.nest(this.flow) : null;
+    }
+
+    // Boxes that contain others become their parents.
+    nest(items) {
+      const boxes = items.filter(it => !it.rigid && ['rect', 'bevel_rect', 'image'].includes(it.type));
+      const children = new Map(), top = [];
+      for (const it of items) {
+        let parent = null;
+        for (const b of boxes) {
+          if (b === it || b.w * b.h <= it.w * it.h * 1.02) continue;
+          if (it.x < b.x - 1 || it.y < b.y - 1 || it.x + it.w > b.x + b.w + 1 || it.y + it.h > b.y + b.h + 1) continue;
+          if (!parent || b.w * b.h < parent.w * parent.h) parent = b;
+        }
+        if (!parent) top.push(it);
+        else if (children.has(parent)) children.get(parent).push(it);
+        else children.set(parent, [it]);
+      }
+      const toNode = it => ({ kind: 'box', x: it.x, y: it.y, w: it.w, h: it.h, item: it,
+        inner: children.has(it) ? this.split(children.get(it).map(toNode)) : null });
+      return this.split(top.map(toNode));
+    }
+
+    static group(kind, parts) {
+      const x = Math.min(...parts.map(p => p.x)), y = Math.min(...parts.map(p => p.y));
+      return { kind, parts, x, y,
+        w: Math.max(...parts.map(p => p.x + p.w)) - x,
+        h: Math.max(...parts.map(p => p.y + p.h)) - y };
+    }
+
+    // Rows, inside them columns, inside those rows again.
+    split(nodes) {
+      if (nodes.length === 1) return nodes[0];
+      const rows = Reflow.separate(nodes, 'y', 'h');
+      if (rows.length > 1) return Reflow.group('stack', rows.map(r => this.split(r)));
+      const columns = Reflow.separate(nodes, 'x', 'w');
+      if (columns.length > 1) return Reflow.group('row', columns.map(c => this.split(c)));
+      return Reflow.group('overlay', nodes);
+    }
+
+    // Sets of nodes that do not share space along an axis (slight overlaps allowed).
+    static separate(nodes, pos, size) {
+      const sorted = nodes.slice().sort((a, b) => a[pos] - b[pos]);
+      let sets = [];
+      for (const n of sorted) {
+        const joined = [], apart = [];
+        for (const set of sets) {
+          const shares = set.some(m => Math.min(m[pos] + m[size], n[pos] + n[size]) - n[pos] > 0.3 * Math.min(m[size], n[size]));
+          (shares ? joined : apart).push(set);
+        }
+        sets = apart.concat([[].concat(...joined, [n])]);
+      }
+      return sets.sort((a, b) => Math.min(...a.map(n => n[pos])) - Math.min(...b.map(n => n[pos])));
+    }
+
+    // ---------------- Text ----------------
+    charWidths(text, size) {
+      const font = `${text.weight} ${size}px ${text.family}`;
+      if (!this.widths.has(font)) this.widths.set(font, new Map());
+      const known = this.widths.get(font);
+      let ready = false;
+      return (ch) => {
+        if (!known.has(ch)) {
+          if (!ready) { this.ctx.font = font; ready = true; }
+          known.set(ch, this.ctx.measureText(ch).width);
+        }
+        return known.get(ch);
+      };
+    }
+
+    longestLine(text) {
+      const width = this.charWidths(text, text.size);
+      return Math.max(...text.value.split('\n').map(line => Array.from(line).reduce((sum, ch) => sum + width(ch), 0)));
+    }
+
+    // The canvas wraps at any character, a browser between words (CJK: between
+    // characters, but punctuation never starts or ends a line on its own).
+    // Use whichever needs more lines, so both fit.
+    lineCount(text, size, room) {
+      const width = this.charWidths(text, size);
+      const limit = Math.max(20, room); // no tolerance: browsers wrap at a fraction of a pixel
+      let total = 0;
+      for (const line of text.value.split('\n')) {
+        let byChar = 1, used = 0;
+        for (const ch of line) {
+          const w = width(ch);
+          if (used && used + w > limit) { byChar++; used = w; } else used += w;
+        }
+        let byWord = 1;
+        used = 0;
+        for (const word of line.match(/[(\[{\u201C\u2018]*[\u2E80-\u9FFF\uAC00-\uD7A3][.,!?:;)\]}%\u201D\u2019\u2026\u3001\u3002]*|[^\s\u2E80-\u9FFF\uAC00-\uD7A3]+|\s+/g) || []) {
+          let w = 0;
+          for (const ch of word) w += width(ch);
+          if (!word.trim()) { used += w; continue; }
+          if (used && used + w > limit) { byWord++; used = 0; }
+          while (w > limit) { byWord++; w -= limit; }
+          used += w;
+        }
+        total += Math.max(byChar, byWord);
+      }
+      return total;
+    }
+
+    // The narrowest a node may get before its row breaks.
+    minWidth(node) {
+      if (!this.mins.has(node)) this.mins.set(node, this.measureMinWidth(node));
+      return this.mins.get(node);
+    }
+
+    measureMinWidth(node) {
+      if (node.kind === 'stack' || node.kind === 'row') return Math.max(...node.parts.map(p => this.minWidth(p)));
+      if (node.kind === 'overlay') return Math.min(node.w, 160);
+      const it = node.item;
+      if (node.inner) return Math.min(node.w, Math.max(200, this.minWidth(node.inner) + 24));
+      if (it.rigid) return Math.min(node.w, 120);
+      if (it.text) {
+        const needed = this.longestLine(it.text) + it.text.padX * 2 + 2;
+        // Buttons and menu items never wrap; paragraphs and cards do.
+        return Math.min(node.w, it.h <= 64 && needed <= 240 ? needed : 240);
+      }
+      if (it.type === 'form_field') return Math.min(node.w, 160);
+      return Math.min(node.w, node.w <= 120 ? node.w : 200);
+    }
+
+    // ---------------- Layout ----------------
+    layout(width) {
+      const d = this.design, boxes = Object.create(null);
+      const W = d.width, T = Math.max(50, width);
+      if (Math.abs(T - W) < 0.5) {
+        // The design's own width: exactly the design, unrounded.
+        for (const it of d.items) boxes[it.id] = { x: it.cx, y: it.cy, width: it.width, height: it.height, scaleX: it.scaleX, scaleY: it.scaleY };
+        return { width: T, height: d.height, boxes };
+      }
+      this.out = new Map();
+      this.target = T;
+      let grown = 0;
+      if (this.root) grown = this.place(this.root, { x0: 0, w0: W, x: 0, w: T }, this.root.y) - this.root.h;
+      const height = Math.max(50, d.height + grown);
+
+      const ratio = Math.min(1, T / W);
+      for (const { it, backdrop, spans } of this.loose) {
+        // Follows whatever flow item ends closest above it.
+        let above = null;
+        for (const f of this.flow) if (f.y <= it.y && (!above || f.y > above.y)) above = f;
+        const dy = above && this.out.has(above) ? this.out.get(above).y - above.y : 0;
+        const right = W - it.x - it.w;
+        let x, w = it.w, h = it.h;
+        if (spans) {
+          x = it.x; w = Math.max(1, T - it.x - right);
+          if (backdrop) h = Math.max(1, it.h + grown);
+          if (it.rigid) { w = it.w; x = (T - w) / 2; h = it.h; }
+        } else if (it.x < W * 0.1 && it.x < right) x = it.x;
+        else if (right < W * 0.1) x = T - right - w;
+        else x = T / 2 + (it.x + w / 2 - W / 2) * ratio - w / 2;
+        this.out.set(it, { x, y: backdrop ? it.y : it.y + dy, w, h, k: 1 });
+      }
+      for (const [it, r] of this.out) {
+        boxes[it.id] = Reflow.result(it, r);
+      }
+      return { width: T, height, boxes };
+    }
+
+    // The sprite values for a laid-out box (x / y are the centre).
+    static result(it, r) {
+      const fix = v => Math.round(v * 100) / 100;
+      const box = { x: fix(r.x + r.w / 2), y: fix(r.y + r.h / 2), width: it.width, height: it.height, scaleX: it.scaleX, scaleY: it.scaleY };
+      if (it.rigid) {
+        box.scaleX = it.scaleX * r.k; box.scaleY = it.scaleY * r.k;
+      } else {
+        if (Math.abs(r.w - it.w) > 0.001) box.width = fix(r.w);
+        if (Math.abs(r.h - it.h) > 0.001) box.height = fix(r.h);
+        if (r.size) box.fontSize = fix(r.size);
+      }
+      return box;
+    }
+
+    // Where a node sits in its frame. Frame: the span it was designed in
+    // (x0, w0) and the span it gets now (x, w).
+    align(node, f, width) {
+      const left = node.x - f.x0, right = f.x0 + f.w0 - node.x - node.w;
+      const ratio = Math.min(1, f.w / f.w0);
+      const gl = Math.min(16, Math.max(0, left)), gr = Math.min(16, Math.max(0, right));
+      let x;
+      if (node.w < f.w0 * 0.8 && left < f.w0 * 0.1 && left < right - 2) x = f.x + left * ratio;
+      else if (node.w < f.w0 * 0.8 && right < f.w0 * 0.1 && right < left - 2) x = f.x + f.w - right * ratio - width;
+      else x = f.x + f.w / 2 + (node.x + node.w / 2 - f.x0 - f.w0 / 2) * ratio - width / 2;
+      return Math.max(f.x + gl, Math.min(x, f.x + f.w - gr - width));
+    }
+
+    available(node, f) {
+      const left = node.x - f.x0, right = f.x0 + f.w0 - node.x - node.w;
+      return Math.max(20, f.w - Math.min(16, Math.max(0, left)) - Math.min(16, Math.max(0, right)));
+    }
+
+    static fills(node, f) {
+      return node.x - f.x0 <= 2 && f.x0 + f.w0 - node.x - node.w <= 2;
+    }
+
+    // Lays a node out with its top at `top`; returns its height.
+    place(node, f, top) {
+      if (node.kind === 'stack') return this.placeStack(node, f, top);
+      if (node.kind === 'row') return this.placeRow(node, f, top);
+      if (node.kind === 'overlay') return this.placeScaled(node, f, top);
+      return this.placeBox(node, f, top);
+    }
+
+    placeStack(node, f, top) {
+      let shift = 0, bottom = top;
+      for (const part of node.parts) {
+        const y = top + part.y - node.y + shift;
+        const h = this.place(part, f, y);
+        shift += h - part.h;
+        bottom = Math.max(bottom, y + h);
+      }
+      return bottom - top;
+    }
+
+    placeScaled(node, f, top) {
+      const k = Math.min(1, this.available(node, f) / node.w);
+      const left = this.align(node, f, node.w * k);
+      const put = (n) => {
+        if (n.item) {
+          this.out.set(n.item, { x: left + (n.x - node.x) * k, y: top + (n.y - node.y) * k, w: n.w * k, h: n.h * k, k,
+            size: n.item.text && k !== 1 ? n.item.text.size * k : undefined });
+        }
+        if (n.inner) put(n.inner);
+        for (const p of n.parts || []) put(p);
+      };
+      put(node);
+      return node.h * k;
+    }
+
+    placeBox(node, f, top) {
+      const it = node.item;
+      const fills = Reflow.fills(node, f) && !it.rigid;
+      const w = fills ? Math.max(1, f.w - (node.x - f.x0) - (f.x0 + f.w0 - node.x - node.w)) : Math.min(node.w, this.available(node, f));
+      const x = fills ? f.x + node.x - f.x0 : this.align(node, f, w);
+      let h = node.h, k = 1, size;
+      if (it.rigid) {
+        k = w / node.w;
+        h = node.h * k;
+        if (it.text && k !== 1) size = it.text.size * k;
+      } else {
+        if (it.type === 'image' && !node.inner && w < node.w) h = node.h * w / node.w;
+        const t = it.text;
+        if (t) {
+          let fs = t.size;
+          if (fs > 28 && this.target < this.design.width) {
+            fs = Math.max(28, Math.round(fs * (0.45 + 0.55 * this.target / this.design.width) * 10) / 10);
+            if (fs !== t.size) size = fs;
+          }
+          if (w < node.w || size) {
+            const before = this.lineCount(t, t.size, node.w - t.padX * 2) * t.size * t.line + t.padY * 2;
+            const after = this.lineCount(t, fs, w - t.padX * 2) * fs * t.line + t.padY * 2;
+            h += Math.max(0, after - Math.max(node.h, before));
+          }
+        }
+        if (node.inner) {
+          const inner = node.inner;
+          const grown = this.place(inner, { x0: node.x, w0: node.w, x, w }, top + inner.y - node.y) - inner.h;
+          h = Math.max(h, node.h + grown);
+        }
+      }
+      this.out.set(it, { x, y: top, w, h, k, size });
+      return h;
+    }
+
+    // Places a row's part in exactly the given span.
+    placePart(part, x, w, top) {
+      return this.place(part, { x0: part.x, w0: part.w, x, w }, top);
+    }
+
+    placeRow(node, f, top) {
+      const parts = node.parts;
+      const gaps = parts.slice(1).map((p, i) => p.x - parts[i].x - parts[i].w);
+      const left = node.x - f.x0, right = f.x0 + f.w0 - node.x - node.w;
+      const wide = [];
+      gaps.forEach((g, i) => { if (g > f.w0 * 0.12) wide.push(i); });
+      if (wide.length && left < f.w0 * 0.1 && right < f.w0 * 0.1) return this.placeSpread(node, f, top, wide);
+
+      // Panels that share the whole width keep sharing it.
+      if (f.w > f.w0 && Reflow.fills(node, f) && gaps.every(g => g <= 2)) {
+        let x = f.x + left, height = 0;
+        for (const p of parts) {
+          const w = p.w * f.w / f.w0, y = p.y - node.y;
+          height = Math.max(height, y + this.placePart(p, x, w, top + y));
+          x += w;
+        }
+        return height;
+      }
+      return this.placePacked(node, f, top, gaps);
+    }
+
+    placePacked(node, f, top, gaps) {
+      const parts = node.parts, room = this.available(node, f);
+      // Small items (menu entries) may move closer together than cards.
+      const closest = parts.every(q => q.w <= 120) ? 8 : 16;
+      const tight = gaps.map(g => Math.min(g, closest));
+      const sum = list => list.reduce((a, b) => a + b, 0);
+      const mins = parts.map(p => Math.min(room, this.minWidth(p)));
+
+      // Break into lines, as few as possible, with no lone item if avoidable.
+      let lines = [];
+      let line = [], used = 0;
+      parts.forEach((p, i) => {
+        const gap = line.length ? tight[i - 1] : 0;
+        if (line.length && used + gap + mins[i] > room + 0.5) {
+          lines.push(line);
+          line = [i]; used = mins[i];
+        } else {
+          line.push(i); used += gap + mins[i];
+        }
+      });
+      lines.push(line);
+      const last = lines[lines.length - 1], prev = lines[lines.length - 2];
+      if (prev && last.length === 1 && prev.length > 2) last.unshift(prev.pop());
+
+      const sameSize = parts.every(p => p.kind === 'box' && Math.abs(p.h - parts[0].h) < 1 && Math.abs(p.y - parts[0].y) < 1);
+      const between = Math.max(8, Math.min(24, ...gaps.filter(g => g > 0)));
+      let y = top;
+      lines.forEach((ids, n) => {
+        const inner = ids.slice(1).map(i => gaps[i - 1]), least = ids.slice(1).map(i => tight[i - 1]);
+        const natural = ids.map(i => parts[i].w), narrow = ids.map(i => mins[i]);
+        let widths = natural, space = inner;
+        if (sum(natural) + sum(inner) > room + 0.01) {
+          if (sum(natural) + sum(least) <= room) {
+            const t = (room - sum(natural) - sum(least)) / Math.max(1e-6, sum(inner) - sum(least));
+            space = inner.map((g, i) => least[i] + (g - least[i]) * t);
+          } else {
+            space = least;
+            const t = Math.max(0, (room - sum(least) - sum(narrow)) / Math.max(1e-6, sum(natural) - sum(narrow)));
+            widths = natural.map((w, i) => narrow[i] + (w - narrow[i]) * Math.min(1, t));
+          }
+        }
+        let x = this.align(node, f, sum(widths) + sum(space));
+        let height = 0;
+        const placed = [];
+        ids.forEach((id, i) => {
+          const p = parts[id], offset = lines.length > 1 ? 0 : p.y - node.y;
+          const h = this.placePart(p, x, widths[i], y + offset);
+          height = Math.max(height, offset + h);
+          placed.push(p);
+          x += widths[i] + (i < space.length ? space[i] : 0);
+        });
+        // Equal cards stay equally tall.
+        if (sameSize) {
+          for (const p of placed) {
+            if (!p.item.rigid && p.item.type !== 'image') this.out.get(p.item).h = height;
+          }
+        }
+        y += height + (n < lines.length - 1 ? between : 0);
+      });
+      return y - top;
+    }
+
+    // Items at both edges stay there, what is between them stays centred.
+    placeSpread(node, f, top, wide) {
+      const parts = node.parts;
+      if (!node.sides) {
+        const make = list => (list.length === 1 ? list[0] : Reflow.group('row', list));
+        const first = wide[0], last = wide[wide.length - 1];
+        node.sides = { start: make(parts.slice(0, first + 1)), end: make(parts.slice(last + 1)),
+          middle: last > first ? make(parts.slice(first + 1, last + 1)) : null };
+      }
+      const { start, end, middle } = node.sides;
+      const left = node.x - f.x0, right = f.x0 + f.w0 - node.x - node.w;
+      const gl = Math.min(16, Math.max(0, left)), gr = Math.min(16, Math.max(0, right));
+      const ratio = Math.min(1, f.w / f.w0);
+      const oneLine = start.w + end.w + (middle ? middle.w + 32 : 16);
+      const slack = f.w - gl - gr - oneLine;
+      let height = 0;
+      if (slack >= 0) {
+        const l = Math.max(gl, Math.min(left * ratio, gl + slack / 2));
+        const r = Math.max(gr, Math.min(right * ratio, gr + slack / 2));
+        const put = (part, x) => {
+          const offset = part.y - node.y;
+          height = Math.max(height, offset + this.placePart(part, x, part.w, top + offset));
+        };
+        put(start, f.x + l);
+        put(end, f.x + f.w - r - end.w);
+        if (middle) {
+          const centre = f.x + f.w / 2 + (middle.x + middle.w / 2 - f.x0 - f.w0 / 2) * ratio;
+          put(middle, Math.max(f.x + l + start.w + 16, Math.min(centre - middle.w / 2, f.x + f.w - r - end.w - 16 - middle.w)));
+        }
+        return height;
+      }
+
+      // Too narrow: the edges share the first line, the middle goes below.
+      const room = Math.max(20, f.w - gl - gr);
+      const need = this.minWidth(start) + this.minWidth(end) + 16;
+      let bottom;
+      if (need <= room) {
+        const t = Math.min(1, (room - need) / Math.max(1e-6, start.w + end.w + 16 - need));
+        const a = this.minWidth(start) + (start.w - this.minWidth(start)) * t;
+        const b = this.minWidth(end) + (end.w - this.minWidth(end)) * t;
+        const base = Math.min(start.y, end.y);
+        bottom = top + Math.max(start.y - base + this.placePart(start, f.x + gl, a, top + start.y - base),
+          end.y - base + this.placePart(end, f.x + f.w - gr - b, b, top + end.y - base));
+      } else {
+        bottom = top + this.placePart(start, f.x + gl, Math.min(room, start.w), top);
+        bottom += 12;
+        bottom += this.placePart(end, f.x + gl, Math.min(room, end.w), bottom);
+      }
+      if (middle) {
+        // Centred in the full span, whatever side it was designed on.
+        const span = { x0: middle.x, w0: middle.w, x: f.x + gl, w: Math.min(room, middle.w) };
+        span.x += (room - span.w) / 2;
+        bottom += 12;
+        bottom += this.place(middle, span, bottom);
+      }
+      return bottom - top;
+    }
+  }
+
+  // ==========================================================================
   // 4. Document Model
   // ==========================================================================
   class DocumentModel {
@@ -1586,7 +2135,7 @@
       sp._wrapCache = null;
     }
 
-    // First layout for a new view: the desktop layout scaled to its width.
+    // For a sprite added after its view was created: desktop values scaled.
     static scaledView(desk, s) {
       const o = Object.assign({}, desk);
       for (const k of ['x', 'y', 'width', 'height']) if (isFinite(o[k])) o[k] = Math.round(o[k] * s);
@@ -1594,6 +2143,107 @@
       if (isFinite(o.fontSize)) o.fontSize = Math.max(1, Math.round(o.fontSize * s));
       if (isFinite(o.labelFontSize)) o.labelFontSize = Math.max(1, Math.round(o.labelFontSize * s));
       return o;
+    }
+
+    // ---------------- Reflow ----------------
+    // The values a layout changes, as they are before it.
+    static geometryOf(sp, view) {
+      const g = { width: sp.width, height: sp.height, scaleX: sp.scaleX, scaleY: sp.scaleY, fontSize: sp.fontSize,
+        x: Reflow.rest(sp, 'x', view), y: Reflow.rest(sp, 'y', view), tracks: {} };
+      const label = DocumentModel.labelOf(sp);
+      if (label && Number(label.params.fontSize)) g.labelFontSize = Number(label.params.fontSize);
+      for (const k of ['x', 'y', 'width', 'height', 'scaleX', 'scaleY']) {
+        const track = sp.keyframes && sp.keyframes[k];
+        if (track && track.length) g.tracks[k] = track.map(kf => Object.assign({}, kf));
+      }
+      return g;
+    }
+
+    captureGeometry() {
+      const map = new Map();
+      for (const l of this.layers) for (const sp of l.sprites) map.set(sp.id, DocumentModel.geometryOf(sp, this.activeView));
+      return map;
+    }
+
+    // Set a layout from Reflow. `geometry` is captureGeometry() of the design
+    // it was computed from. Sprites that are moving keep moving: their runtime
+    // values shift along. withTracks: move the animations too.
+    applyLayout(layout, geometry, withTracks = true) {
+      for (const l of this.layers) {
+        for (const sp of l.sprites) {
+          const box = layout.boxes[sp.id], g = geometry.get(sp.id);
+          if (!box || !g) continue;
+          const old = { x: sp.x, y: sp.y, scaleX: sp.scaleX, scaleY: sp.scaleY };
+          for (const k of ['x', 'y', 'width', 'height', 'scaleX', 'scaleY']) sp[k] = box[k];
+          const label = DocumentModel.labelOf(sp);
+          // A label without a size of its own uses the sprite's.
+          if (label && g.labelFontSize) {
+            sp.fontSize = g.fontSize;
+            label.params.fontSize = box.fontSize || g.labelFontSize;
+          } else {
+            sp.fontSize = box.fontSize || g.fontSize;
+          }
+          if (withTracks && Object.keys(g.tracks).length) {
+            for (const k of Object.keys(g.tracks)) {
+              // Positions move to end in the new place; sizes scale along.
+              const moves = k === 'x' || k === 'y', track = g.tracks[k];
+              const end = track[track.length - 1].value;
+              sp.keyframes[k] = track.map(kf => Object.assign({}, kf,
+                { value: moves ? kf.value + box[k] - end : (g[k] ? kf.value * box[k] / g[k] : kf.value) }));
+            }
+            sp.evaluateKeyframes(this.currentFrame);
+          }
+          const rt = sp.runtime;
+          if (rt) {
+            rt.x += sp.x - old.x; rt.y += sp.y - old.y;
+            if (rt._px !== undefined) { rt._px += sp.x - old.x; rt._py += sp.y - old.y; }
+            if (old.scaleX) rt.scaleX *= sp.scaleX / old.scaleX;
+            if (old.scaleY) rt.scaleY *= sp.scaleY / old.scaleY;
+          }
+          sp._wrapCache = null;
+        }
+      }
+      this.width = layout.width;
+      this.height = Math.round(layout.height);
+    }
+
+    // Undo what applyLayout did to the animations.
+    restoreTracks(geometry) {
+      for (const l of this.layers) {
+        for (const sp of l.sprites) {
+          const g = geometry.get(sp.id);
+          if (g) for (const k of Object.keys(g.tracks)) sp.keyframes[k] = g.tracks[k].map(kf => Object.assign({}, kf));
+        }
+      }
+    }
+
+    // Identifies the current arrangement (the canvas height does not matter).
+    layoutKey() {
+      return JSON.stringify([this.activeView, this.width, this.layers.map(l => [l.visible, l.sprites.map(sp => {
+        const g = DocumentModel.geometryOf(sp, this.activeView), label = DocumentModel.labelOf(sp);
+        return [sp.id, sp.visible, sp.rotation, g, sp.text, label && label.params.text];
+      })])]);
+    }
+
+    // The design to lay out from. While the result of the last resize has not
+    // been edited, that is the design before it, so resizing back and forth
+    // loses nothing (like resizing a browser window).
+    reflowSource() {
+      const known = this._reflowed && this._reflowed.get(this.layoutKey());
+      if (known) return Object.assign({}, known.source, { extra: known.source.extra + this.height - known.height });
+      return { flow: new Reflow(Reflow.describe(this, PhotoshopCanvas.fontStack)), geometry: this.captureGeometry(), extra: 0 };
+    }
+
+    reflowTo(width, source = this.reflowSource()) {
+      this.applyLayout(source.flow.layout(width), source.geometry, (this.activeView || 'desktop') === 'desktop');
+      this.height = Math.max(50, this.height + source.extra);
+      return source;
+    }
+
+    rememberLayout(source, height = this.height) {
+      this._reflowed = this._reflowed || new Map();
+      this._reflowed.set(this.layoutKey(), { source, height });
+      if (this._reflowed.size > this.maxHistory) this._reflowed.delete(this._reflowed.keys().next().value);
     }
 
     hasView(name) {
@@ -1617,11 +2267,18 @@
       if (name === 'desktop') {
         for (const sp of all) { if (sp._desktop) DocumentModel.applyView(sp, sp._desktop); delete sp._desktop; }
         this.width = desk.width; this.height = desk.height;
-      } else {
-        if (!this.views[name]) {
-          const w = DocumentModel.viewWidths()[name];
-          this.views[name] = { width: w, height: Math.max(200, Math.round(desk.height * w / desk.width)) };
+      } else if (!this.views[name]) {
+        // A new view starts as the desktop design reflowed to its width.
+        for (const sp of all) {
+          if (sp._desktop) DocumentModel.applyView(sp, sp._desktop);
+          else sp._desktop = DocumentModel.captureView(sp);
         }
+        this.width = desk.width; this.height = desk.height;
+        const flow = new Reflow(Reflow.describe(this, PhotoshopCanvas.fontStack));
+        // Animations are shared by all views: they are left as they are.
+        this.applyLayout(flow.layout(DocumentModel.viewWidths()[name]), this.captureGeometry(), false);
+        this.views[name] = { width: this.width, height: this.height };
+      } else {
         const s = this.views[name].width / desk.width;
         for (const sp of all) {
           const deskVals = sp._desktop || DocumentModel.captureView(sp);
@@ -5745,7 +6402,7 @@
     // shapes, paths, brush strokes, text and text_label modules, gradients,
     // images, filters, masks and timeline keyframes.
     static getRuntimeSource(withEngine = true) {
-      const parts = [safeUrl, Sprite, Layer, DocumentModel, PhotoshopCanvas];
+      const parts = [safeUrl, Sprite, Layer, Reflow, DocumentModel, PhotoshopCanvas];
       if (withEngine) parts.push(FormRuntime, ModuleEngine);
       let src = parts.map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
       if (!withEngine) {
@@ -5772,7 +6429,7 @@
       const allowed = jsonForScript(allowedScripts);
       const data = jsonForScript(doc.toJSON());
       const disabled = jsonForScript(disabledModuleIds ? [...disabledModuleIds] : []);
-      const engineSrc = [safeUrl, Sprite, Layer, DocumentModel, FormRuntime, ModuleEngine].map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
+      const engineSrc = [safeUrl, Sprite, Layer, Reflow, DocumentModel, FormRuntime, ModuleEngine].map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
       const player = function () {
         const artboard = document.getElementById('webArtboard');
         if (!artboard) return;
@@ -5780,8 +6437,8 @@
         model.loadFromData(DOC_DATA, false);
         model.selectedSpriteIds = new Set();
         const startView = (window.JSPenView && window.JSPenView.current) || 'desktop';
-        if (startView !== 'desktop' && model.hasView(startView)) model.switchView(startView);
         model.setFrame(0);
+        if (startView !== 'desktop' && model.hasView(startView)) model.switchView(startView);
         for (const l of model.layers) l.resetRuntime();
         const engine = new ModuleEngine(model);
         engine.disabledModuleIds = new Set(DISABLED_MODULE_IDS);
@@ -5798,6 +6455,22 @@
         const base = new Map();
         const captureBase = () => { base.clear(); for (const l of model.layers) for (const s of l.sprites) base.set(s.id, { x: s.x, y: s.y, opacity: s.opacity }); };
         captureBase();
+        // The page script lays the elements out; the model follows it.
+        let authored = model.captureGeometry(), authoredSize = { width: model.width, height: model.height };
+        const followLayout = (layout) => {
+          model.applyLayout(layout, authored);
+          for (const [id, b] of base) {
+            const box = layout.boxes[id];
+            if (box) { b.x = box.x; b.y = box.y; }
+          }
+        };
+        const unfollowLayout = () => {
+          const boxes = Object.create(null);
+          for (const [id, g] of authored) boxes[id] = { x: g.x, y: g.y, width: g.width, height: g.height, scaleX: g.scaleX, scaleY: g.scaleY };
+          followLayout({ width: authoredSize.width, height: authoredSize.height, boxes });
+          model.restoreTracks(authored);
+        };
+        if (window.JSPenView && window.JSPenView.layout) followLayout(window.JSPenView.layout);
         const cssFilter = sp => {
           const out = [];
           const srcs = [];
@@ -5949,11 +6622,25 @@
           engine.forms.sync(model);
           apply();
         };
+        // A new width: everything moves, nothing restarts.
+        window.addEventListener('jspen-layout', e => {
+          followLayout(e.detail);
+          fx.width = model.width; fx.height = model.height;
+          fx.style.width = model.width + 'px'; fx.style.height = model.height + 'px';
+          for (const it of items) {
+            it.transform = transformOf(it.sp, it.b);
+            if (it.owned) it.el.style.setProperty('transform', it.transform, 'important');
+            it.snap = snapshot(it.sp);
+          }
+        });
         // Responsive view changes (window resize / preview toolbar).
         window.addEventListener('jspen-view', e => {
           const v = e.detail;
           if (!model.hasView(v) && v !== 'desktop') return;
+          // Never store a reflowed arrangement as a view's own layout.
+          unfollowLayout();
           model.switchView(v);
+          authored = model.captureGeometry(); authoredSize = { width: model.width, height: model.height };
           for (const l of model.layers) l.resetRuntime();
           captureBase();
           engine.start();
@@ -6232,28 +6919,65 @@ ${this.getRuntimeSource(withEngine)}
     }
   };
 
-  // Responsive views: pick the layout for the available width.
+  // Responsive views: pick the layout for the available width, then reflow it.
+  const availableWidth = () => {
+    const box = canvas.parentElement;
+    if (!box || !box.clientWidth) return window.innerWidth;
+    const css = getComputedStyle(box);
+    return Math.max(50, box.clientWidth - (parseFloat(css.paddingLeft) || 0) - (parseFloat(css.paddingRight) || 0));
+  };
   const pickView = () => {
-    const w = (canvas.parentElement && canvas.parentElement.clientWidth) || window.innerWidth;
+    const w = availableWidth();
     if (model.hasView('mobile') && w <= 600) return 'mobile';
     if (model.hasView('tablet') && w <= 1024) return 'tablet';
     return 'desktop';
   };
+  let source = null, shownWidth = 0;
   const useView = (v) => {
     if (v === (model.activeView || 'desktop')) return false;
+    if (source) {
+      // Never store a reflowed arrangement as a view's own layout.
+      model.applyLayout(source.flow.layout(source.width), source.geometry);
+      model.restoreTracks(source.geometry);
+      source = null;
+    }
     model.switchView(v);
     for (const l of model.layers) l.resetRuntime();
     if (engine.active) engine.start();
     return true;
   };
-  useView(pickView());
-  player.resize();
-  model.setFrame(0);
-  for (const l of model.layers) l.resetRuntime();
-  window.addEventListener('resize', () => {
+  const fitWidth = () => {
     const changed = useView(pickView());
-    if (changed || Math.max(1, window.devicePixelRatio || 1) !== player.dpr) player.resize();
-  });
+    if (!source) {
+      source = { design: Reflow.describe(model, PhotoshopCanvas.fontStack), geometry: model.captureGeometry(), width: model.width };
+      source.flow = new Reflow(source.design);
+      shownWidth = 0;
+    }
+    const w = Math.round(availableWidth());
+    const moved = w !== shownWidth;
+    if (moved) {
+      shownWidth = w;
+      model.applyLayout(source.flow.layout(w), source.geometry);
+    }
+    if (changed || moved || Math.max(1, window.devicePixelRatio || 1) !== player.dpr) player.resize();
+  };
+  model.setFrame(0);
+  useView(pickView());
+  for (const l of model.layers) l.resetRuntime();
+  fitWidth();
+  window.addEventListener('resize', fitWidth);
+  if (typeof ResizeObserver !== 'undefined' && canvas.parentElement) {
+    new ResizeObserver(() => requestAnimationFrame(fitWidth)).observe(canvas.parentElement);
+  }
+  // Text is measured: lay out again once web fonts have arrived.
+  if (document.fonts && document.fonts.addEventListener) {
+    document.fonts.addEventListener('loadingdone', () => {
+      if (!source) return;
+      source.flow = new Reflow(source.design);
+      shownWidth = 0;
+      fitWidth();
+    });
+  }
 
   let last = performance.now();
   let frameAcc = 0;
@@ -6299,7 +7023,8 @@ ${this.getRuntimeSource(withEngine)}
   <title>${escapeHtml(doc.name || 'JSPen Output')}</title>
   <style>
     html, body { margin: 0; min-height: 100%; background: #000; }
-    body { display: flex; align-items: flex-start; justify-content: center; overflow: auto; }
+    /* Always a scrollbar: its appearing must not change the width to lay out for. */
+    body { display: flex; align-items: flex-start; justify-content: center; overflow-x: auto; overflow-y: scroll; }
     canvas { display: block; max-width: 100%; height: auto; letter-spacing: normal; box-shadow: 0 10px 40px rgba(0,0,0,0.8); }
   </style>
 </head>
@@ -7142,7 +7867,7 @@ ${this.getRuntimeSource(withEngine)}
     // Canvas (artboard) size: free W/H inputs. The artboard edges can also be
     // dragged on the canvas (handles on the right / bottom / corner).
     renderCanvasSection() {
-      const mode = this.canvasMode || 'keep';
+      const mode = this.canvasMode || 'reflow';
       const view = this.doc.activeView && this.doc.activeView !== 'desktop' ? ` (${this.doc.activeView === 'mobile' ? '모바일' : '태블릿'} 화면)` : '';
       return `
         <div class="ps-prop-section" id="canvasSizeSection">
@@ -7159,12 +7884,13 @@ ${this.getRuntimeSource(withEngine)}
           <div class="ps-prop-row">
             <label class="ps-prop-label">작업물 처리:</label>
             <select class="ps-select" id="inpCanvasMode">
+              <option value="reflow" ${mode === 'reflow' ? 'selected' : ''}>웹사이트처럼 재배치</option>
               <option value="keep" ${mode === 'keep' ? 'selected' : ''}>그대로 두기</option>
               <option value="fit" ${mode === 'fit' ? 'selected' : ''}>비율 유지하며 맞추기</option>
               <option value="stretch" ${mode === 'stretch' ? 'selected' : ''}>캔버스에 맞춰 늘리기</option>
             </select>
           </div>
-          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;line-height:1.5;margin-top:4px;">값을 입력하고 Enter. 캔버스 오른쪽·아래 가장자리의 손잡이를 끌어도 바뀝니다 (Shift: 10px 단위).</div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;line-height:1.5;margin-top:4px;">값을 입력하고 Enter. 캔버스 오른쪽·아래 가장자리의 손잡이를 끌어도 바뀝니다 (Shift: 10px 단위). 손잡이는 '그대로 두기'일 때만 내용을 고정하고, 나머지는 웹사이트처럼 재배치합니다.</div>
         </div>`;
     }
 
@@ -7175,7 +7901,7 @@ ${this.getRuntimeSource(withEngine)}
       const apply = () => {
         const w = Math.round(parseFloat(wEl.value)), h = Math.round(parseFloat(hEl.value));
         if (!(w >= 50 && h >= 50)) { wEl.value = this.doc.width; hEl.value = this.doc.height; return; }
-        window.jspenApp?.setCanvasSize(Math.min(10000, w), Math.min(20000, h), this.canvasMode || 'keep');
+        window.jspenApp?.setCanvasSize(Math.min(10000, w), Math.min(20000, h), this.canvasMode || 'reflow');
       };
       wEl.addEventListener('change', apply);
       hEl.addEventListener('change', apply);
@@ -7233,9 +7959,9 @@ ${this.getRuntimeSource(withEngine)}
       return `
         <!-- Sprite Header -->
         <div class="ps-prop-section">
-          <div class="ps-prop-header" style="justify-content:space-between;">
-            <span style="font-weight:700;color:#e4e4e7;">스프라이트: ${escapeHtml(sprite.name)}</span>
-            <span class="ps-val-tag">${escapeHtml(layerName ? layerName : sprite.type)}</span>
+          <div class="ps-prop-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span style="font-weight:700;color:#e4e4e7;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(sprite.name)}">스프라이트: ${escapeHtml(sprite.name)}</span>
+            <span class="ps-val-tag ps-val-name" title="${escapeHtml(layerName ? layerName : sprite.type)}">${escapeHtml(layerName ? layerName : sprite.type)}</span>
           </div>
           <div class="ps-prop-row" style="margin-top:6px;">
             <label class="ps-prop-label">이름:</label>
@@ -7718,6 +8444,20 @@ ${sprite.type === 'text' ? `
           </div>
           
           <div class="ps-prop-row">
+            <label class="ps-prop-label">이동 시점:</label>
+            <select class="ps-select" data-param-key="trigger">
+              ${['click', 'hover', 'signal'].includes(params.trigger || 'click') ? '' : `<option value="${escapeHtml(params.trigger)}" selected>(이전 값: ${escapeHtml(params.trigger)})</option>`}
+              <option value="click" ${(params.trigger || 'click') === 'click' ? 'selected' : ''}>클릭할 때</option>
+              <option value="hover" ${params.trigger === 'hover' ? 'selected' : ''}>마우스를 올릴 때</option>
+              <option value="signal" ${params.trigger === 'signal' ? 'selected' : ''}>신호를 받을 때</option>
+            </select>
+          </div>
+          ${params.trigger === 'signal' ? `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">받을 신호:</label>
+            <input type="text" class="ps-input" data-param-key="signalName" value="${escapeHtml(params.signalName || '')}">
+          </div>` : ''}
+          <div class="ps-prop-row">
             <label class="ps-prop-label">인페이지 앵커 ID:</label>
             <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${escapeHtml(params.anchorId || '')}">
           </div>
@@ -7752,10 +8492,16 @@ ${sprite.type === 'text' ? `
           </div>
         `;
       } else {
+        // Settings in the registry's order, then any extra ones a file carries.
+        const skip = ['condition', 'conditionMode', 'conditionDuration', 'condKey', 'condSignal', 'condStartFrame', 'condEndFrame', 'targetModuleId', 'outputResult']
+          .concat(def.paramHidden || []);
+        const keys = [...new Set([...Object.keys(def.defaultParams || {}), ...Object.keys(params)])].filter(k => !skip.includes(k));
         typeSpecificHtml = `
-          ${Object.keys(params).filter(k => !['condition', 'conditionMode', 'conditionDuration', 'condKey', 'condSignal', 'condStartFrame', 'condEndFrame', 'targetModuleId', 'outputResult'].includes(k)).map(key => {
+          ${keys.map(key => {
             const opts = def.paramOptions && def.paramOptions[key];
             const label = (def.paramLabels && def.paramLabels[key]) || key;
+            const value = params[key] !== undefined ? params[key] : (def.defaultParams || {})[key];
+            const type = def.paramTypes && def.paramTypes[key];
             if (key === 'targetSpriteId' || key === 'messageSpriteId') {
               return `
             <div class="ps-prop-row">
@@ -7766,16 +8512,66 @@ ${sprite.type === 'text' ? `
               </select>
             </div>`;
             }
-            if (opts) {
+            if (type === 'layer') {
               return `
             <div class="ps-prop-row">
               <label class="ps-prop-label">${escapeHtml(label)}:</label>
               <select class="ps-select" data-param-key="${escapeHtml(key)}">
-                ${opts.map(([v, l]) => `<option value="${escapeHtml(v)}" ${String(params[key]) === String(v) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+                <option value="">(${escapeHtml((def.paramEmpty && def.paramEmpty[key]) || '없음')})</option>
+                ${this.doc.layers.map(l => `<option value="${escapeHtml(l.id)}" ${value === l.id ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
               </select>
             </div>`;
             }
-            if (def.paramTypes && def.paramTypes[key] === 'code') {
+            if (opts) {
+              // A value from an older file that is not in the list stays visible.
+              const known = opts.some(([v]) => String(v) === String(value));
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <select class="ps-select" data-param-key="${escapeHtml(key)}">
+                ${known || value === undefined || value === '' ? '' : `<option value="${escapeHtml(value)}" selected>(이전 값: ${escapeHtml(value)})</option>`}
+                ${opts.map(([v, l]) => `<option value="${escapeHtml(v)}" ${String(value) === String(v) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+              </select>
+            </div>`;
+            }
+            if (type === 'color') {
+              const empty = def.paramEmpty && def.paramEmpty[key];
+              const hex = /^#[0-9a-f]{6}$/i.test(String(value)) ? value : (/^#[0-9a-f]{3}$/i.test(String(value)) ? '#' + String(value).slice(1).split('').map(c => c + c).join('') : '#000000');
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <span class="jspen-color-field ${value ? '' : 'is-empty'}">
+                <input type="color" data-param-key="${escapeHtml(key)}" data-param-type="color" value="${escapeHtml(hex)}" aria-label="${escapeHtml(label)}">
+                ${empty ? `<button type="button" class="jspen-color-clear" data-param-clear="${escapeHtml(key)}" title="${escapeHtml(empty)}">${value ? '×' : escapeHtml(empty)}</button>` : ''}
+              </span>
+            </div>`;
+            }
+            if (type === 'key') {
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <input type="text" readonly class="ps-input jspen-key-field" data-param-key="${escapeHtml(key)}" data-param-type="key" value="${escapeHtml(InspectorPanelUI.keyLabel(value))}" title="클릭한 뒤 원하는 키를 누르세요">
+            </div>`;
+            }
+            if (typeof value === 'boolean') {
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <input type="checkbox" class="jspen-checkbox" data-param-key="${escapeHtml(key)}" ${value ? 'checked' : ''} aria-label="${escapeHtml(label)}">
+            </div>`;
+            }
+            if (typeof value === 'number') {
+              const [min, max, step] = (def.paramRanges && def.paramRanges[key]) || [null, null, InspectorPanelUI.stepFor(value)];
+              const factor = min === 0 && max === 1;
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <div class="blender-scrub-group jspen-param-scrub ${factor ? 'is-factor' : ''}" ${factor ? `style="--fill:${escapeHtml(Math.max(0, Math.min(1, value)) * 100)}%"` : ''}>
+                <input type="number" class="blender-scrub-input" data-param-key="${escapeHtml(key)}" step="${escapeHtml(step)}" ${min !== null ? `min="${escapeHtml(min)}"` : ''} ${max !== null ? `max="${escapeHtml(max)}"` : ''} value="${escapeHtml(value)}">
+              </div>
+            </div>`;
+            }
+            if (type === 'code') {
               return `
             <div class="ps-prop-row" style="flex-direction:column;align-items:stretch;gap:4px;">
               <label class="ps-prop-label">${escapeHtml(label)}: <span style="color:#71717a;font-weight:400;">(api.self, api.find(), api.mouse, api.time, api.vars, api.emit() …)</span></label>
@@ -7786,14 +8582,7 @@ ${sprite.type === 'text' ? `
             return `
             <div class="ps-prop-row">
               <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              ${typeof params[key] === 'boolean' ? `
-                <select class="ps-select" data-param-key="${escapeHtml(key)}">
-                  <option value="true" ${params[key] ? 'selected' : ''}>true</option>
-                  <option value="false" ${!params[key] ? 'selected' : ''}>false</option>
-                </select>
-              ` : `
-                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" ${typeof params[key] === 'number' ? 'step="any"' : ''} class="ps-input" data-param-key="${escapeHtml(key)}" value="${escapeHtml(params[key])}">
-              `}
+              <input type="text" class="ps-input" data-param-key="${escapeHtml(key)}" value="${escapeHtml(value)}">
             </div>`;
           }).join('')}
         `;
@@ -7812,7 +8601,7 @@ ${sprite.type === 'text' ? `
 
           <div class="ps-prop-row" style="margin-top:8px;">
             <label class="ps-prop-label">소속 스프라이트:</label>
-            <span class="ps-val-tag">${escapeHtml(sprite ? sprite.name : '없음')}</span>
+            <span class="ps-val-tag ps-val-name" title="${escapeHtml(sprite ? sprite.name : '없음')}">${escapeHtml(sprite ? sprite.name : '없음')}</span>
           </div>
 
           <div class="ps-prop-row">
@@ -7861,6 +8650,29 @@ ${sprite.type === 'text' ? `
       };
     }
 
+    // A link is always ready; it opens at its own moment.
+    static linkSummary(p) {
+      const when = { hover: '마우스를 올리면', signal: `'${p.signalName || '(신호 이름 없음)'}' 신호를 받으면` }[p.trigger] || '클릭하면';
+      return `링크가 켜져 있고, ${when} 이동합니다. 켜자마자 이동하지는 않습니다.`;
+    }
+
+    // Drag step for a number without a known range.
+    static stepFor(value) {
+      const v = Math.abs(Number(value) || 0);
+      return Number.isInteger(Number(value)) && v >= 2 ? 1 : (v <= 1 ? 0.01 : 0.1);
+    }
+
+    // A key code shown the way it is printed on the keyboard.
+    static keyLabel(code) {
+      const c = String(code || '');
+      const named = { ArrowRight: '→', ArrowLeft: '←', ArrowUp: '↑', ArrowDown: '↓', Space: '스페이스', Enter: 'Enter',
+        Escape: 'Esc', ShiftLeft: '왼쪽 Shift', ShiftRight: '오른쪽 Shift', ControlLeft: '왼쪽 Ctrl', ControlRight: '오른쪽 Ctrl',
+        AltLeft: '왼쪽 Alt', AltRight: '오른쪽 Alt', Tab: 'Tab', Backspace: 'Backspace', ' ': '스페이스' };
+      if (named[c]) return named[c];
+      const m = c.match(/^(?:Key|Digit|Numpad)(.+)$/);
+      return m ? m[1] : (c || '(없음)');
+    }
+
     // Compact badge text for the layers panel.
     static conditionShort(mod) {
       const p = mod.params || {};
@@ -7886,6 +8698,7 @@ ${sprite.type === 'text' ? `
     static conditionSummary(mod) {
       const p = mod.params || {};
       const cond = p.condition || 'always';
+      if (cond === 'always' && mod.type === 'hyperlink') return InspectorPanelUI.linkSummary(p);
       if (cond === 'always') return '미리보기를 시작하면 바로, 계속 작동합니다.';
       const mode = ModuleEngine.resolveConditionMode(mod);
       const instant = ModuleEngine.instantCondition(cond);
@@ -7972,7 +8785,7 @@ ${sprite.type === 'text' ? `
               ${Object.entries(info).map(([k, [label]]) => `<option value="${k}" ${cond === k ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
             </select>
           </div>
-          <div class="ps-help-text" style="font-size:10.5px;color:#a1a1aa;margin:-2px 0 6px;line-height:1.5;">${escapeHtml((info[cond] || info.always)[1])}</div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#a1a1aa;margin:-2px 0 6px;line-height:1.5;">${escapeHtml(cond === 'always' && mod.type === 'hyperlink' ? '이 링크 기능이 언제 켜져 있을지 고릅니다. 이동하는 때는 아래 \'이동 시점\'에서 정합니다.' : (info[cond] || info.always)[1])}</div>
           ${extra}
           ${modeRow}
           <div class="jspen-cond-summary" id="modCondSummary" style="margin-top:6px;padding:7px 9px;border-radius:6px;background:#1e1b4b;color:#e0e7ff;font-size:11px;line-height:1.5;">
@@ -8024,8 +8837,9 @@ ${sprite.type === 'text' ? `
             if (Math.abs(dx) > 3) {
               isDragging = true;
               inp.blur();
-              const step = inp.step ? parseFloat(inp.step) : 1;
-              let nVal = Math.round((startVal + dx * step) * 10) / 10;
+              const step = (parseFloat(inp.step) || 1) * (ev.shiftKey ? 0.1 : 1);
+              const digits = Math.min(6, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)));
+              let nVal = Number((startVal + dx * step).toFixed(digits));
               if (inp.min !== '' && !isNaN(inp.min)) {
                 nVal = Math.max(parseFloat(inp.min), nVal);
               }
@@ -8138,6 +8952,15 @@ ${sprite.type === 'text' ? `
           }
         });
 
+        // Colours that may also be left unset
+        this.el.querySelectorAll('[data-param-clear]').forEach(btn => btn.addEventListener('click', () => {
+          if (!mod.params) mod.params = {};
+          mod.params[btn.dataset.paramClear] = '';
+          this.doc.saveState();
+          this.render();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        }));
+
         // Parameters with data-param-key
         this.el.querySelector('select[data-param-key="fontFamily"]')?.parentElement?.querySelector('[data-act-font-upload]')?.addEventListener('click', async () => {
           const family = window.jspenApp ? await window.jspenApp.addFontFile() : null;
@@ -8151,10 +8974,30 @@ ${sprite.type === 'text' ? `
 
         this.el.querySelectorAll('[data-param-key]').forEach(input => {
           const key = input.dataset.paramKey;
-          const onValChange = () => {
+          if (input.dataset.paramType === 'key') {
+            input.addEventListener('focus', () => { input.value = '키를 누르세요…'; });
+            input.addEventListener('blur', () => { input.value = InspectorPanelUI.keyLabel(mod.params?.[key]); });
+            input.addEventListener('keydown', e => {
+              if (e.key === 'Tab') return;
+              e.preventDefault(); e.stopPropagation();
+              if (!mod.params) mod.params = {};
+              mod.params[key] = e.code || e.key;
+              input.value = InspectorPanelUI.keyLabel(mod.params[key]);
+              this.doc.saveState();
+              input.blur();
+            });
+            return;
+          }
+          // Values change live while typing or dragging; the change is one undo step.
+          const onValChange = (commit = true) => {
             if (!mod.params) mod.params = {};
             let val = input.value;
-            if (input.type === 'number') {
+            if (input.type === 'checkbox') {
+              val = input.checked;
+            } else if (input.type === 'color') {
+              const field = input.closest('.jspen-color-field');
+              if (field) field.classList.remove('is-empty');
+            } else if (input.type === 'number') {
               val = parseFloat(val) || 0;
               if (input.min !== '' && !isNaN(input.min)) val = Math.max(parseFloat(input.min), val);
               if (input.max !== '' && !isNaN(input.max)) val = Math.min(parseFloat(input.max), val);
@@ -8172,7 +9015,9 @@ ${sprite.type === 'text' ? `
               }
             }
 
-            this.doc.saveState();
+            const scrub = input.closest('.jspen-param-scrub.is-factor');
+            if (scrub && typeof val === 'number') scrub.style.setProperty('--fill', Math.max(0, Math.min(1, val)) * 100 + '%');
+            if (commit) this.doc.saveState();
             if (this.cb.onCanvasRender) this.cb.onCanvasRender();
           };
 
@@ -8194,9 +9039,9 @@ ${sprite.type === 'text' ? `
             input.addEventListener('change', () => { mod.params[key] = input.value; window.jspenApp?.trustScript(input.value); this.doc.saveState(); });
             return;
           }
-          input.addEventListener('input', onValChange);
+          input.addEventListener('input', () => onValChange(input.type === 'checkbox'));
           input.addEventListener('change', () => {
-            onValChange();
+            onValChange(true);
             if (this.cb.onUpdate) this.cb.onUpdate();
           });
         });
@@ -8978,6 +9823,12 @@ ${sprite.type === 'text' ? `
                 <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="3600">세로 롱페이지 웹 (1440 × 3600)</button>
               </div>
             </div>
+            <div class="ps-menu-item"><span>도움말(H)</span>
+              <div class="ps-dropdown-menu">
+                <button class="ps-dropdown-item" id="mTutorial">튜토리얼 시작하기</button>
+                <button class="ps-dropdown-item" id="mShortcutsHelp">단축키 보기 <span class="shortcut">Ctrl+,</span></button>
+              </div>
+            </div>
             <div class="ps-menu-item"><span>창(V)</span>
               <div class="ps-dropdown-menu">
                 <button class="ps-dropdown-item" id="wToolbox">${isToolbox ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}도구 상자 (Toolbox)</button>
@@ -9215,6 +10066,8 @@ ${sprite.type === 'text' ? `
       // File actions
       this.el.querySelector('#mExp')?.addEventListener('click', () => this.cb.onExport());
       this.el.querySelector('#mSettings')?.addEventListener('click', () => this.cb.onOpenSettings());
+      this.el.querySelector('#mShortcutsHelp')?.addEventListener('click', () => this.cb.onOpenSettings());
+      this.el.querySelector('#mTutorial')?.addEventListener('click', () => window.jspenApp?.tutorial.start());
       this.el.querySelector('#mNew')?.addEventListener('click', async () => {
         const ok = window.jspenApp && !window.jspenApp.isDirty()
           ? true : await StudioModal.confirm('새 도큐먼트를 생성하시겠습니까? 저장되지 않은 작업은 유실됩니다.', '새 도큐먼트');
@@ -11670,6 +12523,169 @@ ${sprite.type === 'text' ? `
   }
 
   // ==========================================================================
+  // Tutorial: a guided first project. Each step points at a part of the
+  // studio; steps with a task move on when the task is done. The studio
+  // stays fully usable while it runs (nothing is blocked).
+  // ==========================================================================
+  class Tutorial {
+    constructor(app) {
+      this.app = app;
+      this.index = -1;
+      this.el = null;
+      this.timer = null;
+    }
+
+    static storageKey() { return 'jspen.tutorial'; }
+
+    counts() {
+      const sprites = this.app.doc.layers.flatMap(l => l.sprites);
+      return { sprites: sprites.length, modules: sprites.reduce((n, sp) => n + (sp.modules || []).length, 0) };
+    }
+
+    steps() {
+      const q = sel => document.querySelector(sel);
+      return [
+        { title: 'JSPen에 오신 것을 환영합니다',
+          text: '코드 없이 버튼과 다이얼만으로 움직이는 웹 화면을 만드는 도구입니다. 사각형 하나에 움직임을 붙여 보면서 기본을 익혀요. 직접 따라 하면 다음 단계로 넘어갑니다.' },
+        { title: '가운데: 캔버스', target: () => q('#viewportContainer'),
+          text: '만든 결과가 그대로 보이는 미리보기 화면입니다. 휠로 확대·축소하고, 스페이스를 누른 채 끌면 화면을 옮깁니다.' },
+        { title: '사각형 그리기', target: () => q('#leftToolbox [data-t="shape"]'),
+          text: '도형 도구(U)를 누른 다음, 캔버스에서 끌어서 사각형을 하나 그려 보세요.',
+          task: true, begin: () => { this.base = this.counts(); }, done: () => this.counts().sprites > this.base.sprites },
+        { title: '오른쪽: 속성', target: () => q('#inspectorContainer'),
+          text: '선택한 것의 위치·크기·색을 바꿉니다. 숫자 칸은 좌우로 끌면 바뀌고(블렌더처럼), Shift를 누른 채 끌면 정밀하게 바뀝니다. 클릭하면 직접 입력할 수 있어요.' },
+        { title: '움직임 붙이기: 모듈', target: () => q('.ps-sprite-sub-item.selected .ps-btn-add-module') || q('#layersContainer .ps-btn-add-module'),
+          text: '레이어 목록에서 사각형 옆의 +fx를 눌러 모듈을 붙여 보세요. 모듈은 블렌더의 모디파이어처럼 차례로 쌓여 움직임을 만듭니다. "펄스 박동 효과"가 보기 쉬워요.',
+          task: true, begin: () => { this.base = this.counts(); }, done: () => this.counts().modules > this.base.modules },
+        { title: '모듈 설정', target: () => q('#inspectorContainer'),
+          text: '방금 붙인 모듈의 설정입니다. 숫자 칸을 끌어서 속도와 크기를 바꿔 보세요. 선택지는 목록에서 고르고, 색은 색 견본을 누릅니다.' },
+        { title: '언제 움직일까: 발동 조건', target: () => q('#modCondSection'),
+          text: '"항상"이면 바로 움직이고, "클릭했을 때"로 바꾸면 클릭해야 움직입니다. 키보드, 마우스 올리기, 신호도 고를 수 있어요.' },
+        { title: '움직여 보기: 실시간 미리보기', target: () => q('#btnTlPreview'),
+          text: 'Ctrl+Space를 누르거나 이 버튼을 눌러 실제로 움직이는 모습을 보세요. 다시 누르거나 Esc를 누르면 편집으로 돌아옵니다.',
+          task: true, done: () => !!this.app.moduleEngine.active },
+        { title: '연결해서 보기: 노드', target: () => q('#btnOptNodeMode'),
+          text: 'Shift+Tab을 누르면 모듈들이 블렌더의 셰이딩 노드처럼 선으로 이어진 모습으로 보입니다. 값을 다른 모듈로 넘기는 연결을 여기서 만듭니다.' },
+        { title: '저장하고 내보내기', target: () => q('#topMenuBar .ps-menu-items'),
+          text: 'Ctrl+S로 저장합니다. 웹(W) 메뉴에서 웹 미리보기를 보고 HTML로 내보내면 그대로 웹사이트가 됩니다. 튜토리얼은 도움말(H) 메뉴에서 언제든 다시 볼 수 있어요.' }
+      ];
+    }
+
+    start() {
+      this.stop();
+      this.list = this.steps();
+      this.el = document.createElement('div');
+      this.el.className = 'jspen-tutorial';
+      this.el.innerHTML = '<div class="jspen-tutorial-spot"></div>' +
+        '<div class="jspen-tutorial-card" role="dialog" aria-live="polite">' +
+        '<div class="jspen-tutorial-top"><span class="jspen-tutorial-progress"></span>' +
+        '<button type="button" class="jspen-tutorial-close" aria-label="튜토리얼 닫기" title="튜토리얼 닫기">✕</button></div>' +
+        '<div class="jspen-tutorial-title"></div><div class="jspen-tutorial-text"></div>' +
+        '<div class="jspen-tutorial-status"></div>' +
+        '<div class="jspen-tutorial-actions"><button type="button" class="btn btn-secondary btn-sm" data-tut="prev">이전</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" data-tut="next">다음</button></div></div>';
+      document.body.appendChild(this.el);
+      this.el.querySelector('.jspen-tutorial-close').addEventListener('click', () => this.stop(true));
+      this.el.querySelector('[data-tut="prev"]').addEventListener('click', () => this.go(this.index - 1));
+      this.el.querySelector('[data-tut="next"]').addEventListener('click', () => this.go(this.index + 1));
+      this.markSeen();
+      this.go(0);
+      this.timer = setInterval(() => this.tick(), 200);
+      // Dialogs opening or closing: react at once, not on the next tick.
+      this.observer = new MutationObserver(() => this.tick());
+      this.observer.observe(document.body, { childList: true });
+    }
+
+    stop(byUser = false) {
+      clearInterval(this.timer);
+      this.timer = null;
+      if (this.observer) this.observer.disconnect();
+      this.observer = null;
+      if (this.el) this.el.remove();
+      this.el = null;
+      this.index = -1;
+      if (byUser) StudioToast.show('튜토리얼은 도움말(H) 메뉴에서 다시 볼 수 있습니다.');
+    }
+
+    get running() { return !!this.el; }
+
+    go(i) {
+      if (!this.el) return;
+      if (i >= this.list.length) { this.stop(); StudioToast.show('튜토리얼을 마쳤습니다. 이제 자유롭게 만들어 보세요!', 3500); return; }
+      this.index = Math.max(0, i);
+      const step = this.list[this.index];
+      this.finished = false;
+      if (step.begin) step.begin();
+      this.el.querySelector('.jspen-tutorial-progress').textContent = `${this.index + 1} / ${this.list.length}`;
+      this.el.querySelector('.jspen-tutorial-title').textContent = step.title;
+      this.el.querySelector('.jspen-tutorial-text').textContent = step.text;
+      this.el.querySelector('.jspen-tutorial-status').textContent = step.task ? '직접 해 보면 다음으로 넘어갑니다.' : '';
+      this.el.querySelector('[data-tut="prev"]').style.visibility = this.index ? '' : 'hidden';
+      const next = this.el.querySelector('[data-tut="next"]');
+      next.textContent = this.index === this.list.length - 1 ? '마치기' : (this.index === 0 ? '시작하기' : (step.task ? '건너뛰기' : '다음'));
+      next.classList.toggle('btn-primary', !step.task);
+      next.classList.toggle('btn-secondary', !!step.task);
+      this.tick();
+    }
+
+    tick() {
+      if (!this.el) return;
+      const step = this.list[this.index];
+      if (step.task && !this.finished && step.done && step.done()) {
+        this.finished = true;
+        this.el.querySelector('.jspen-tutorial-status').textContent = '잘했어요!';
+        const at = this.index;
+        setTimeout(() => { if (this.index === at) this.go(at + 1); }, 700);
+      }
+      // A dialog (module library, confirmations) is in front: stay out of its way.
+      const covered = !!document.querySelector('.modal-overlay:not(.hidden), .studio-modal-overlay');
+      this.el.classList.toggle('is-covered', covered);
+      this.place(step.target ? step.target() : null);
+    }
+
+    place(target) {
+      const spot = this.el.querySelector('.jspen-tutorial-spot'), card = this.el.querySelector('.jspen-tutorial-card');
+      const r = target && target.getClientRects().length ? target.getBoundingClientRect() : null;
+      spot.style.display = r ? '' : 'none';
+      const W = window.innerWidth, H = window.innerHeight, cw = card.offsetWidth || 320, ch = card.offsetHeight || 180, gap = 14;
+      let x = (W - cw) / 2, y = (H - ch) / 2;
+      if (r) {
+        const pad = 6;
+        Object.assign(spot.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' });
+        // Beside the target where there is room, otherwise below or above it.
+        if (r.right + gap + cw <= W) { x = r.right + gap; y = r.top; }
+        else if (r.left - gap - cw >= 0) { x = r.left - gap - cw; y = r.top; }
+        else if (r.bottom + gap + ch <= H) { x = r.left; y = r.bottom + gap; }
+        else { x = r.left; y = r.top - gap - ch; }
+        // A large target (the canvas): keep the card inside it, in a corner.
+        if (r.width > W * 0.4 && r.height > H * 0.4) { x = r.left + 16; y = r.bottom - ch - 16; }
+      }
+      card.style.left = Math.max(8, Math.min(x, W - cw - 8)) + 'px';
+      card.style.top = Math.max(8, Math.min(y, H - ch - 8)) + 'px';
+    }
+
+    markSeen() {
+      try { localStorage.setItem(Tutorial.storageKey(), 'seen'); } catch (e) { /* storage blocked */ }
+    }
+
+    // First visit: a small offer, never in the way.
+    offer() {
+      let seen = false;
+      try { seen = localStorage.getItem(Tutorial.storageKey()) === 'seen'; } catch (e) { /* storage blocked */ }
+      if (seen || this.running || document.querySelector('.jspen-tutorial-offer')) return;
+      const box = document.createElement('div');
+      box.className = 'jspen-tutorial-offer';
+      box.innerHTML = '<div class="jspen-tutorial-title">처음이신가요?</div>' +
+        '<div class="jspen-tutorial-text">3분짜리 튜토리얼로 사각형 하나에 움직임을 붙여 보세요.</div>' +
+        '<div class="jspen-tutorial-actions"><button type="button" class="btn btn-secondary btn-sm" data-offer="no">괜찮아요</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" data-offer="yes">튜토리얼 시작</button></div>';
+      document.body.appendChild(box);
+      box.querySelector('[data-offer="no"]').addEventListener('click', () => { this.markSeen(); box.remove(); });
+      box.querySelector('[data-offer="yes"]').addEventListener('click', () => { box.remove(); this.start(); });
+    }
+  }
+
+  // ==========================================================================
   // Live-preview status panel (studio only): which modules run right now,
   // recent signals, the hovered sprite and held keys - so trigger conditions
   // can be tested without guessing.
@@ -11817,6 +12833,8 @@ ${sprite.type === 'text' ? `
       this.exportModal = new ExportModalUI(this.doc);
       this.settingsModal = new SettingsModalUI(this.pluginManager);
       this.templateModal = new TemplateModalUI(this);
+      this.tutorial = new Tutorial(this);
+      setTimeout(() => this.tutorial.offer(), 1200);
       this.nodeEditor = new NodeEditorUI(document.getElementById('nodeEditorContainer'), this.doc, {
         onUpdate: () => {
           this.moduleEngine.disabledModuleIds = this.nodeEditor.getDisabledModuleIds();
@@ -11958,16 +12976,24 @@ ${sprite.type === 'text' ? `
       const hasContent = this.doc.layers.some(l => l.sprites.length > 0);
       const mode = !hasContent ? 'keep' : await StudioModal.choose(
         `캔버스를 ${this.doc.width}×${this.doc.height} → ${w}×${h}px로 바꿉니다. 작업물은 어떻게 할까요?`,
-        [['fit', '비율 유지하며 맞추기', '내용 전체를 같은 비율로 줄이거나 키워 가운데에 배치합니다.'],
+        [['reflow', '웹사이트처럼 재배치', '글자 크기를 유지한 채 폭에 맞춰 배치합니다. 내용이 길어지면 세로도 늘어납니다.'],
+         ['fit', '비율 유지하며 맞추기', '내용 전체를 같은 비율로 줄이거나 키워 가운데에 배치합니다.'],
          ['stretch', '캔버스에 맞춰 늘리기', '위치와 크기를 가로·세로 비율에 따라 각각 맞춥니다.'],
          ['keep', '그대로 두기', '캔버스 크기만 바꾸고 내용은 움직이지 않습니다.']], '캔버스 크기 변경');
       if (!mode) return;
-      this.doc.resizeCanvas(w, h, mode);
+      if (mode === 'reflow') {
+        const source = this.doc.reflowTo(w);
+        const natural = this.doc.height;
+        this.doc.height = Math.max(h, natural); // never cut the content off
+        this.doc.rememberLayout(source, natural);
+      } else {
+        this.doc.resizeCanvas(w, h, mode);
+      }
       this.doc.saveState();
       this.handleResize();
       this.fitToScreen ? this.fitToScreen() : this.renderer.centerArtboard();
       this.refreshUI();
-      StudioToast.show(`캔버스 크기: ${w}×${h}px`);
+      StudioToast.show(`캔버스 크기: ${this.doc.width}×${this.doc.height}px`);
     }
 
     // Resize without asking (inspector fields, artboard handles).
@@ -11975,11 +13001,23 @@ ${sprite.type === 'text' ? `
       w = Math.round(w); h = Math.round(h);
       if (!(w > 0 && h > 0) || (w === this.doc.width && h === this.doc.height)) return false;
       this.endLivePreview();
-      this.doc.resizeCanvas(w, h, mode);
+      if (mode === 'reflow') {
+        if (w === this.doc.width) {
+          this.doc.resizeCanvas(w, h, 'keep'); // only the height was typed
+        } else {
+          const typedHeight = h !== this.doc.height;
+          const source = this.doc.reflowTo(w);
+          const natural = this.doc.height;
+          if (typedHeight) this.doc.height = h;
+          this.doc.rememberLayout(source, natural);
+        }
+      } else {
+        this.doc.resizeCanvas(w, h, mode);
+      }
       this.doc.saveState();
       this.fitToScreen();
       this.refreshUI();
-      if (!quiet) StudioToast.show(`캔버스 크기: ${w}×${h}px`);
+      if (!quiet) StudioToast.show(`캔버스 크기: ${this.doc.width}×${this.doc.height}px`);
       return true;
     }
 
@@ -12003,7 +13041,7 @@ ${sprite.type === 'text' ? `
       if (this.menuBar) this.menuBar.render();
       const label = { desktop: '데스크톱', tablet: '태블릿', mobile: '모바일' }[name];
       StudioToast.show(first
-        ? `${label} 화면을 만들었습니다. 데스크톱 배치를 축소한 상태에서 시작하니, 이 화면에서 위치·크기·글자 크기·표시 여부를 따로 조정하세요.`
+        ? `${label} 화면을 만들었습니다. 데스크톱 배치를 이 폭에 맞춰 재배치한 상태에서 시작하니, 이 화면에서 위치·크기·글자 크기·표시 여부를 따로 조정하세요.`
         : `${label} 화면 편집 중`, first ? 5000 : 1800);
     }
 
@@ -12638,6 +13676,18 @@ ${sprite.type === 'text' ? `
       // Module interactions / keyframes run on the exported DOM via the engine.
       const disabledIds = this.nodeEditor ? this.nodeEditor.getDisabledModuleIds() : null;
       const docJson = doc.toJSON();
+      // What the page lays out from: the design of every responsive view.
+      const designs = {};
+      for (const v of DocumentModel.viewNames()) {
+        if (!doc.hasView(v)) continue;
+        let design = doc;
+        if (v !== 'desktop') {
+          design = new DocumentModel();
+          design.loadFromData(Object.assign({}, docJson, { activeView: 'desktop' }), false);
+          design.switchView(v);
+        }
+        designs[v] = Reflow.describe(design, PhotoshopCanvas.fontStack);
+      }
       const runtimeScript = (PhotoshopJSExporter.needsEngine(docJson, disabledIds, true) || PhotoshopJSExporter.hasKeyframes(docJson))
         ? `<script>${PhotoshopJSExporter.webRuntimeScript(doc, disabledIds, forExport ? null : allowedScripts)}<\/script>` : '';
       const W = Number(doc.width) || 1440;
@@ -12849,7 +13899,7 @@ ${sprite.type === 'text' ? `
             line-height: 1.35;
             user-select: none;
             text-decoration: none;
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s, box-shadow 0.2s, background-color 0.2s, color 0.2s, border-color 0.2s, filter 0.2s;
           `;
         elementsHtml += `
           <${tag} class="${escapeHtml(classAttr)}" ${anchorAttr} data-sid="${escapeHtml(sprite.id)}" ${hrefAttr} style="${escapeHtml(styleAttr)}">${innerContent}</${tag}>
@@ -12951,9 +14001,9 @@ ${sprite.type === 'text' ? `
   </div>
 
   ${forExport ? '' : `  <!-- Sleek Monochromatic Preview Control Bar -->
-  <div id="previewToolbar" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#18181b;border:1px solid #3f3f46;border-radius:24px;padding:6px 14px;display:flex;align-items:center;gap:8px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:12px;color:#f4f4f5;user-select:none;">
-    <span style="font-weight:700;color:#e4e4e7;margin-right:2px;">화면 배율:</span>
-    <span id="valZoomPercent" style="min-width:44px;font-weight:600;color:#a1a1aa;">100%</span>
+  <div id="previewToolbar" style="max-width:calc(100% - 16px);width:max-content;overflow-x:auto;white-space:nowrap;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#18181b;border:1px solid #3f3f46;border-radius:24px;padding:6px 14px;display:flex;align-items:center;gap:8px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:12px;color:#f4f4f5;user-select:none;">
+    <span style="font-weight:700;color:#e4e4e7;margin-right:2px;">화면 폭:</span>
+    <span id="valScreenWidth" style="min-width:52px;font-weight:600;color:#a1a1aa;"></span>
     <button class="pv-btn active" data-mode="fit" style="background:#3f3f46;color:#ffffff;border:1px solid #71717a;padding:3px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:600;">창 맞춤 (Fit)</button>
     <button class="pv-btn" data-mode="100" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">100%</button>
     <button class="pv-btn" data-mode="768" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">태블릿 (768)</button>
@@ -12961,7 +14011,11 @@ ${sprite.type === 'text' ? `
   </div>`}
 
   <script>
-    // Responsive Dynamic Scaling
+    // Responsive layout: the page reflows to the window's width
+    ${PhotoshopJSExporter.compactSource(Reflow.toString())}
+    const DESIGNS = ${jsonForScript(designs)};
+    let flows = {};
+    let lastLayout = null;
     document.documentElement.classList.add('jspen-js');
     let currentZoomMode = 'fit';
     const baseW = ${W};
@@ -12985,11 +14039,48 @@ ${sprite.type === 'text' ? `
     function applyView(view) {
       const root = document.documentElement;
       ['desktop', 'tablet', 'mobile'].forEach(v => root.classList.toggle('jspen-view-' + v, v === view));
-      window.JSPenView = { current: view };
+      window.JSPenView = { current: view, layout: view === currentView ? lastLayout : null };
       if (view !== currentView) {
         currentView = view;
+        lastLayout = null;
         window.dispatchEvent(new CustomEvent('jspen-view', { detail: view }));
       }
+    }
+
+    let elements = null;
+    function applyLayout(view, width) {
+      if (lastLayout && lastLayout.width === width) return;
+      if (!flows[view]) flows[view] = new Reflow(DESIGNS[view]);
+      const layout = flows[view].layout(width);
+      if (!elements) {
+        elements = Array.from(document.querySelectorAll('#webArtboard [data-sid]'), el => ({
+          el, id: el.getAttribute('data-sid'), transform: el.style.transform, fontSize: el.style.fontSize
+        }));
+      }
+      const designed = new Map(DESIGNS[view].items.map(it => [it.id, it]));
+      for (const { el, id, transform, fontSize } of elements) {
+        const box = layout.boxes[id], it = designed.get(id);
+        if (!box || !it) continue;
+        // important: responsive view rules use !important
+        el.style.setProperty('left', (box.x - box.width / 2) + 'px', 'important');
+        el.style.setProperty('top', (box.y - box.height / 2) + 'px', 'important');
+        el.style.setProperty('width', box.width + 'px', 'important');
+        el.style.setProperty('height', box.height + 'px', 'important');
+        if (box.fontSize) el.style.setProperty('font-size', box.fontSize + 'px', 'important');
+        else el.style.setProperty('font-size', fontSize);
+        if (box.scaleX !== it.scaleX || box.scaleY !== it.scaleY) {
+          const rotate = (transform.match(/rotate\([^)]*\)/) || [''])[0];
+          el.style.setProperty('transform', rotate + ' scale(' + box.scaleX + ',' + box.scaleY + ')', 'important');
+        } else {
+          el.style.setProperty('transform', transform);
+        }
+      }
+      const artboard = document.getElementById('webArtboard');
+      artboard.style.setProperty('width', width + 'px', 'important');
+      artboard.style.setProperty('min-height', layout.height + 'px', 'important');
+      lastLayout = layout;
+      window.JSPenView.layout = layout;
+      window.dispatchEvent(new CustomEvent('jspen-layout', { detail: layout }));
     }
 
     function updatePreviewScale() {
@@ -13003,24 +14094,21 @@ ${sprite.type === 'text' ? `
       applyView(view);
       const viewW = VIEW_WIDTHS[view] || baseW;
       let scale = 1;
-      if (currentZoomMode === 'fit') {
-        scale = Math.max(0.15, availW / viewW);
-        artboard.style.width = viewW + 'px';
-      } else if (currentZoomMode === '100') {
-        scale = 1;
-        artboard.style.width = viewW + 'px';
-      } else {
-        const fixedW = VIEW_WIDTHS[view] && view !== 'desktop' ? viewW : (parseInt(currentZoomMode, 10) || baseW);
-        scale = Math.min(1, availW / fixedW);
-        artboard.style.width = fixedW + 'px';
+      let width = availW;
+      if (currentZoomMode === '100') {
+        width = viewW;
+      } else if (currentZoomMode !== 'fit') {
+        width = VIEW_WIDTHS[view] && view !== 'desktop' ? viewW : (parseInt(currentZoomMode, 10) || baseW);
+        scale = Math.min(1, availW / width); // a device wider than the window
       }
+      applyLayout(view, width);
 
-      scaler.style.transform = "scale(" + scale + ")";
+      scaler.style.transform = scale === 1 ? 'none' : "scale(" + scale + ")";
       const scaledH = (artboard.offsetHeight || baseH) * scale;
       if (stage) stage.style.height = scaledH + 'px';
 
-      const lbl = document.getElementById('valZoomPercent');
-      if (lbl) lbl.textContent = Math.round(scale * 100) + '%';
+      const lbl = document.getElementById('valScreenWidth');
+      if (lbl) lbl.textContent = width + 'px';
     }
 
     window.addEventListener('resize', () => {
@@ -13030,6 +14118,14 @@ ${sprite.type === 'text' ? `
     window.addEventListener('DOMContentLoaded', updatePreviewScale);
     updatePreviewScale(); // pick the view before the module runtime starts
     setTimeout(updatePreviewScale, 30);
+    // Text is measured: lay out again once web fonts have arrived.
+    if (document.fonts && document.fonts.addEventListener) {
+      document.fonts.addEventListener('loadingdone', () => {
+        flows = {};
+        lastLayout = null;
+        updatePreviewScale();
+      });
+    }
 
     document.querySelectorAll('.pv-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -13377,6 +14473,8 @@ ${sprite.type === 'text' ? `
           const edge = this.renderer.hitArtboardHandle(ms.x, ms.y);
           if (edge) {
             this.artboardDrag = { edge, start: { x: mw.x, y: mw.y }, w: this.doc.width, h: this.doc.height };
+            // Lay out from the design at the start of the drag, so dragging back restores it.
+            if (edge !== 'b' && this.inspector.canvasMode !== 'keep') this.artboardDrag.source = this.doc.reflowSource();
             this.requestRender();
             return;
           }
@@ -13454,7 +14552,16 @@ ${sprite.type === 'text' ? `
           const snap = v => e.shiftKey ? Math.round(v / 10) * 10 : Math.round(v);
           const w = d.edge === 'b' ? d.w : Math.max(50, Math.min(10000, snap(d.w + mw.x - d.start.x)));
           const h = d.edge === 'r' ? d.h : Math.max(50, Math.min(20000, snap(d.h + mw.y - d.start.y)));
-          if (w !== this.doc.width || h !== this.doc.height) {
+          if (d.source) {
+            if (w === d.lastW && h === d.lastH) return;
+            d.lastW = w; d.lastH = h;
+            this.doc.reflowTo(w, d.source);
+            d.natural = this.doc.height;
+            // The corner also sets the height, on top of what the content needs.
+            if (d.edge === 'rb') this.doc.height = Math.max(50, h + d.natural - d.h);
+            this.handleResize();
+            this.requestRender();
+          } else if (w !== this.doc.width || h !== this.doc.height) {
             this.doc.resizeCanvas(w, h, 'keep');
             this.handleResize();
             this.requestRender();
@@ -13490,6 +14597,7 @@ ${sprite.type === 'text' ? `
           const d = this.artboardDrag;
           this.artboardDrag = null;
           if (this.doc.width !== d.w || this.doc.height !== d.h) {
+            if (d.source) this.doc.rememberLayout(d.source, d.natural);
             this.doc.saveState();
             StudioToast.show(`캔버스 크기: ${this.doc.width}×${this.doc.height}px`);
           }
