@@ -444,7 +444,7 @@
     },
     viewport_visibility: {
       category: 'sensor', name: '화면 가시성 감지', icon: 'VIEW',
-      description: '스프라이트가 화면(스크롤 영역) 안에 보이면 트리거를 발동하고 신호를 보냅니다.',
+      description: '이 스프라이트 자신이 화면(스크롤 영역) 안에 보이면 발동하고 신호를 보냅니다. 화면의 정해진 위치를 기준으로 하려면 "화면 트리거"를 쓰세요.',
       defaultParams: { condition: 'always', triggerOnce: false, signalName: 'visible' },
       paramLabels: { triggerOnce: '한 번만 발동', signalName: '진입 신호 이름' }
     },
@@ -480,7 +480,7 @@
     },
     math_calculate: {
       category: 'logic', name: '수학 계산 (Math)', icon: 'CALC',
-      description: '사칙연산, 삼각함수, 비교, 클램프 연산을 수행하여 변형 속성 또는 포토샵 필터(블러, 밝기, 대비, 알파 등)를 실시간 조작합니다.',
+      description: '계산 결과를 이 스프라이트의 속성(위치·회전·크기·필터 등)에 바로 적용합니다. 값을 다음 모듈로 넘기기만 하려면 "계산 및 설정 노드"를 쓰세요.',
       defaultParams: {
         condition: 'always',
         operation: 'add', // add, subtract, multiply, divide, sin, cos, min, max, clamp, lerp
@@ -498,7 +498,7 @@
     },
     screen_trigger: {
       category: 'sensor', name: '화면 트리거 (뷰포트)', icon: 'TRIG',
-      description: '화면 스크롤이 이 위치에 도달하거나 마우스가 진입했을 때 지정된 신호를 방출하거나 모듈/필터 애니메이션을 발동합니다.',
+      description: '스크롤이 화면의 정해진 위치에 닿거나 마우스가 들어오면 신호를 보내거나 모듈을 발동합니다. 스프라이트가 보이는지를 기준으로 하려면 "화면 가시성 감지"를 쓰세요.',
       defaultParams: {
         condition: 'always',
         triggerEvent: 'viewport_enter', // viewport_enter, viewport_exit, mouse_enter, mouse_move, scroll_reach, click
@@ -616,7 +616,7 @@
     },
     node_math: {
       category: 'logic', name: '계산 및 설정 노드', icon: 'CALC',
-      description: '이전 모듈이 전달한 수치에 연산(값 = 연산(입력, 계수) + 오프셋)을 적용해 다음 모듈로 넘깁니다.',
+      description: '이전 모듈이 넘긴 숫자를 계산(값 = 연산(입력, 계수) + 오프셋)해 다음 모듈로 넘깁니다. 속성에 바로 적용하려면 "수학 계산"을 쓰세요.',
       defaultParams: { condition: 'always', op: 'multiply', factor: 1.5, offset: 0 },
       paramOptions: { op: [['add', '더하기'], ['subtract', '빼기'], ['multiply', '곱하기'], ['divide', '나누기'], ['power', '거듭제곱'], ['min', '최솟값'], ['max', '최댓값'], ['clamp', '0~계수 범위 제한'], ['modulo', '나머지']] },
       paramLabels: { op: '연산', factor: '계수', offset: '오프셋' }
@@ -1933,8 +1933,19 @@
       }
     }
 
+    // The multi-selection only counts while it still contains the primary
+    // selection: drawing or clicking a new sprite moves selectedSpriteId
+    // without clearing the set, and a stale set must never act on sprites
+    // the user can no longer see as selected.
+    getMultiSelection() {
+      const multi = this.selectedSpriteIds;
+      if (!multi || multi.size === 0) return new Set();
+      if (this.selectedSpriteId && !multi.has(this.selectedSpriteId)) return new Set();
+      return multi;
+    }
+
     deleteSelected() {
-      const idsToDelete = new Set(this.selectedSpriteIds);
+      const idsToDelete = new Set(this.getMultiSelection());
       if (this.selectedSpriteId) idsToDelete.add(this.selectedSpriteId);
       if (idsToDelete.size === 0) return false;
 
@@ -1953,7 +1964,6 @@
       const curLayer = this.getSelectedLayer();
       if (curLayer && curLayer.sprites.length > 0) {
         this.selectedSpriteId = curLayer.sprites[curLayer.sprites.length - 1].id;
-        this.selectedSpriteIds.add(this.selectedSpriteId);
       }
 
       if (deleted) {
@@ -2060,11 +2070,37 @@
           const hw = Math.max(8, (sprite.width || 20) / 2);
           const hh = Math.max(8, (sprite.height || 20) / 2);
           if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) {
+            // A brush canvas covers the whole artboard; only its painted
+            // strokes should catch clicks, or it hides everything below it.
+            if (sprite.type === 'brush' && Array.isArray(sprite.strokes)) {
+              if (DocumentModel.hitsBrushStroke(sprite, lx, ly)) return sprite;
+              continue;
+            }
             return sprite;
           }
         }
       }
       return null;
+    }
+
+    // True when (lx, ly), in the sprite's local space, lies within a painted
+    // stroke (half its width plus `slop`).
+    static hitsBrushStroke(sprite, lx, ly, slop = 6) {
+      for (const st of sprite.strokes) {
+        const pts = st && st.points;
+        if (!pts || !pts.length) continue;
+        const r = (st.size || 6) / 2 + slop;
+        const r2 = r * r;
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i], b = pts[i + 1] || a;
+          const vx = b.x - a.x, vy = b.y - a.y;
+          const len2 = vx * vx + vy * vy;
+          const t = len2 ? Math.max(0, Math.min(1, ((lx - a.x) * vx + (ly - a.y) * vy) / len2)) : 0;
+          const dx = lx - (a.x + t * vx), dy = ly - (a.y + t * vy);
+          if (dx * dx + dy * dy <= r2) return true;
+        }
+      }
+      return false;
     }
 
     sortLayers() {
@@ -2515,7 +2551,13 @@
       const hw = (target.width * target.scaleX) / 2;
       const hh = (target.height * target.scaleY) / 2;
 
-      if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) return 'body';
+      if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) {
+        // A selected brush canvas is dragged by its strokes only, so the
+        // sprites under the rest of the artboard stay clickable.
+        if (target.type === 'brush' && Array.isArray(target.strokes) &&
+            !DocumentModel.hitsBrushStroke(target, lx / (target.scaleX || 1), ly / (target.scaleY || 1))) return null;
+        return 'body';
+      }
       return null;
     }
 
@@ -2760,8 +2802,17 @@
       }
 
       if (this.doc.autoKey && this.doc.isPlaying === false) {
+        const frame = this.doc.currentFrame;
+        const tracks = target.keyframes || {};
         ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'width', 'height'].forEach(p => {
-          if (target[p] !== this.origLayer[p]) target.addKeyframe(p, this.doc.currentFrame, target[p]);
+          if (target[p] === this.origLayer[p]) return;
+          const animated = Array.isArray(tracks[p]) && tracks[p].length > 0;
+          // Arranging things at frame 0 is layout, not animation: no keys
+          // until a property is animated or the playhead is elsewhere.
+          if (!animated && frame === 0) return;
+          // First key away from frame 0: keep where it started as the start key.
+          if (!animated) target.addKeyframe(p, 0, this.origLayer[p]);
+          target.addKeyframe(p, frame, target[p]);
         });
       }
 
@@ -2960,8 +3011,9 @@
         }
 
         // Draw selection outlines for all other selected sprites (e.g. from Ctrl+A / multi-selection)
-        if (this.doc.selectedSpriteIds && this.doc.selectedSpriteIds.size > 1 && (activeTool === 'move' || activeTool === 'direct')) {
-          for (const spId of this.doc.selectedSpriteIds) {
+        const multiSel = this.doc.getMultiSelection ? this.doc.getMultiSelection() : (this.doc.selectedSpriteIds || new Set());
+        if (multiSel.size > 1 && (activeTool === 'move' || activeTool === 'direct')) {
+          for (const spId of multiSel) {
             if (selSprite && spId === selSprite.id) continue;
             let otherSp = null;
             for (const layer of this.doc.layers) {
@@ -2985,7 +3037,7 @@
           // Visual Feedback HUD Badge
           ctx.save();
           ctx.setTransform(1, 0, 0, 1, 0, 0);
-          const badgeText = `선택된 스프라이트: ${this.doc.selectedSpriteIds.size}개`;
+          const badgeText = `선택된 스프라이트: ${multiSel.size}개`;
           ctx.font = 'bold 11px sans-serif';
           const tw = ctx.measureText(badgeText).width;
           ctx.fillStyle = 'rgba(24, 24, 27, 0.9)';
@@ -3702,19 +3754,44 @@
           resultLines.push('');
           continue;
         }
+        // Break between words, like CSS `word-break: keep-all` (Korean words
+        // stay whole too); a single word wider than the box is split by
+        // character so it never overflows.
+        const fits = s => ctx.measureText(s).width <= maxWidth;
         let curLine = '';
-        for (let i = 0; i < para.length; i++) {
-          const char = para[i];
-          const testLine = curLine + char;
-          const testW = ctx.measureText(testLine).width;
-          if (testW <= maxWidth || curLine === '') {
-            curLine = testLine;
+        const tokens = para.split(/(\s+)/).filter(t => t !== '');
+        for (let ti = 0; ti < tokens.length; ti++) {
+          const tok = tokens[ti];
+          if (/^\s+$/.test(tok)) {
+            // Keep indentation at the start of a paragraph; drop the spaces
+            // a wrap lands on, as CSS does.
+            if (curLine !== '' || ti === 0) curLine += tok;
+            continue;
+          }
+          const testLine = curLine + tok;
+          if (curLine === '' || fits(testLine)) {
+            if (curLine === '' && !fits(tok)) {
+              // Overlong word: fill lines character by character.
+              for (const ch of tok) {
+                if (curLine === '' || fits(curLine + ch)) curLine += ch;
+                else { resultLines.push(curLine); curLine = ch; }
+              }
+            } else {
+              curLine = testLine;
+            }
           } else {
-            resultLines.push(curLine);
-            curLine = char;
+            resultLines.push(curLine.replace(/\s+$/, ''));
+            curLine = '';
+            if (fits(tok)) curLine = tok;
+            else {
+              for (const ch of tok) {
+                if (curLine === '' || fits(curLine + ch)) curLine += ch;
+                else { resultLines.push(curLine); curLine = ch; }
+              }
+            }
           }
         }
-        if (curLine) resultLines.push(curLine);
+        if (curLine) resultLines.push(curLine.replace(/\s+$/, ''));
       }
       if (sprite) {
         sprite._wrapCache = { text, maxWidth, font: fontKey, lines: resultLines };
@@ -3892,7 +3969,10 @@
 
       ctx.fillStyle = '#71717a';
       ctx.font = '9px monospace';
-      for (let wx = 0; wx <= this.doc.width; wx += 50) {
+      // Label spacing follows the zoom so the numbers never run together.
+      const steps = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
+      const step = steps.find(s => s * this.zoom >= 48) || steps[steps.length - 1];
+      for (let wx = 0; wx <= this.doc.width; wx += step) {
         const sx = this.worldToScreen(wx, 0).x;
         if (sx >= rSize && sx <= cw) {
           ctx.beginPath(); ctx.moveTo(sx, rSize - 5); ctx.lineTo(sx, rSize); ctx.stroke();
@@ -4040,10 +4120,12 @@
           this.renderer.zoom = 1;
           this.renderer.centerArtboard();
         } else {
-          const factor = e.shiftKey ? 0.8 : 1.25;
-          this.zoomAt(sx, sy, factor);
+          // Left click zooms in; right click (or Shift+click) zooms out.
+          const zoomOut = (e && e.button === 2) || (e && e.shiftKey);
+          this.zoomAt(sx, sy, zoomOut ? 0.8 : 1.25);
         }
         if (this.onCanvasRender) this.onCanvasRender();
+        if (this.onZoomChange) this.onZoomChange();
         return;
       }
 
@@ -4065,13 +4147,14 @@
       if (this.activeTool === 'text') {
         const text = '텍스트';
         const sp = activeLayer.addSprite({
-          name: '텍스트: ' + text,
+          name: text,
           type: 'text',
           text: text,
           x: wx, y: wy,
           fontSize: 24,
           fill: '#ffffff'
         });
+        DrawingTools.fitTextBox(sp);
         this.doc.selectedSpriteId = sp.id;
         this.doc.saveState();
         if (this.onCommit) this.onCommit();
@@ -4079,6 +4162,26 @@
         if (typeof this.onTextCreated === 'function') this.onTextCreated(sp, true);
         return;
       }
+    }
+
+    // Size a text sprite's box to its text (one line per paragraph), so the
+    // selection frame and W/H match what is drawn. Returns false (and leaves
+    // the box alone) once the user has resized it by hand.
+    static fitTextBox(sp, force = false) {
+      if (!sp || sp.type !== 'text') return false;
+      if (!DrawingTools._textFit) DrawingTools._textFit = new WeakMap(); // sizes we set (not saved)
+      const last = DrawingTools._textFit.get(sp);
+      if (!force && last && (last.w !== sp.width || last.h !== sp.height)) return false;
+      const c = DrawingTools._measureCtx || (DrawingTools._measureCtx = document.createElement('canvas').getContext('2d'));
+      const fs = sp.fontSize || 16;
+      c.font = `${sp.fontWeight || 'normal'} ${fs}px ${PhotoshopCanvas.fontStack(sp.fontFamily)}`;
+      const lines = String(sp.text || ' ').split('\n');
+      const w = Math.max(...lines.map(l => c.measureText(l || ' ').width));
+      sp.width = Math.max(24, Math.ceil(w + 12));
+      sp.height = Math.max(fs + 8, Math.ceil(lines.length * fs * 1.35 + 8));
+      sp._wrapCache = null;
+      DrawingTools._textFit.set(sp, { w: sp.width, h: sp.height });
+      return true;
     }
 
     handleMouseMove(wx, wy) {
@@ -6606,7 +6709,12 @@
       const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
       const hw = (sprite.width * sprite.runtime.scaleX) / 2;
       const hh = (sprite.height * sprite.runtime.scaleY) / 2;
-      return Math.abs(lx) <= hw && Math.abs(ly) <= hh;
+      if (!(Math.abs(lx) <= hw && Math.abs(ly) <= hh)) return false;
+      // A full-artboard brush canvas is only "under the pointer" on its strokes.
+      if (sprite.type === 'brush' && Array.isArray(sprite.strokes) && typeof DocumentModel !== 'undefined' && DocumentModel.hitsBrushStroke) {
+        return DocumentModel.hitsBrushStroke(sprite, lx / (sprite.runtime.scaleX || 1), ly / (sprite.runtime.scaleY || 1));
+      }
+      return true;
     }
   }
 
@@ -7345,7 +7453,7 @@ ${this.getRuntimeSource(withEngine)}
           <button class="btn btn-primary btn-sm" id="btnOptNodeMode" style="height:24px;font-size:11px;padding:2px 10px;display:flex;align-items:center;gap:5px;font-weight:600;" title="모듈 노드 모드 / 스튜디오 전환 (Shift+Tab)">
             ${window.jspenApp?.isNodeMode ? '스튜디오로 복귀 (Shift+Tab)' : '모듈 노드 모드 (Shift+Tab)'}
           </button>
-          <button class="btn btn-secondary btn-sm" id="btnOptWebPreview" style="height:24px;font-size:11px;padding:2px 8px;color:#e4e4e7;border-color:#e4e4e7;display:flex;align-items:center;gap:4px;" title="새 창에서 실시간 웹 미리보기 (Alt+W / Ctrl+Space)">
+          <button class="btn btn-secondary btn-sm" id="btnOptWebPreview" style="height:24px;font-size:11px;padding:2px 8px;color:#e4e4e7;border-color:#e4e4e7;display:flex;align-items:center;gap:4px;" title="새 창에서 웹 미리보기 (Alt+W) — 캔버스에서 바로 실행하려면 Ctrl+Space">
             웹 미리보기
           </button>
         </div>
@@ -7398,8 +7506,10 @@ ${this.getRuntimeSource(withEngine)}
       } else if (t === 'zoom') {
         html += `
           <div class="ps-option-group">
-            <span class="ps-option-label">배율: ${Math.round(this.tools.renderer.zoom * 100)}%</span>
-            <button class="btn btn-secondary btn-sm" id="btnZoomReset">100% 리셋 (Alt+클릭)</button>
+            <span class="ps-option-label" id="optZoomLabel">배율: ${Math.round(this.tools.renderer.zoom * 100)}%</span>
+            <button class="btn btn-secondary btn-sm" id="btnZoomFit" title="캔버스 전체가 보이게 (Ctrl+0)">화면에 맞추기</button>
+            <button class="btn btn-secondary btn-sm" id="btnZoomReset" title="Alt+클릭 / Ctrl+1">100% 리셋</button>
+            <span class="ps-option-label ps-option-hint">클릭: 확대 · 우클릭 또는 Shift+클릭: 축소</span>
           </div>
         `;
       }
@@ -7433,6 +7543,10 @@ ${this.getRuntimeSource(withEngine)}
         this.tools.renderer.zoom = 1.0;
         this.tools.renderer.centerArtboard();
         this.onUpdate();
+        this.render();
+      });
+      this.el.querySelector('#btnZoomFit')?.addEventListener('click', () => {
+        window.jspenApp?.fitToScreen();
         this.render();
       });
 
@@ -7487,6 +7601,15 @@ ${this.getRuntimeSource(withEngine)}
     }
 
     render() {
+      // Re-rendering replaces the list; keep the user's scroll position.
+      const prevList = this.el.querySelector('.ps-layer-list');
+      const prevScroll = prevList ? prevList.scrollTop : 0;
+      this._renderList();
+      const list = this.el.querySelector('.ps-layer-list');
+      if (list && prevScroll) list.scrollTop = prevScroll;
+    }
+
+    _renderList() {
       const reversedLayers = [...this.doc.layers].reverse();
       this.el.innerHTML = `
         <div class="ps-dock-header krita-docker-titlebar">
@@ -7529,13 +7652,13 @@ ${this.getRuntimeSource(withEngine)}
                     const isFolded = s.collapsed === true;
                     return `
                     <div class="ps-sprite-item-wrap">
-                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : (this.doc.selectedSpriteIds && this.doc.selectedSpriteIds.has(s.id) ? 'multi-selected' : '')}" data-act="select-sprite" data-sprite-id="${escapeHtml(s.id)}" data-layer-id="${escapeHtml(l.id)}" draggable="true">
+                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : (this.doc.getMultiSelection().has(s.id) ? 'multi-selected' : '')}" data-act="select-sprite" data-sprite-id="${escapeHtml(s.id)}" data-layer-id="${escapeHtml(l.id)}" draggable="true">
                         <button class="ps-sp-fold-btn" data-act="toggle-sprite-fold" title="모듈 접기/펼치기" style="${hasMods ? '' : 'visibility:hidden;'}">
                           ${isFolded ? '▶' : '▼'}
                         </button>
                         <button class="ps-layer-vis-btn ${s.visible ? '' : 'muted'}" data-act="vis-sprite" title="스프라이트 가시성">${s.visible ? '●' : '○'}</button>
                         ${(s.isMask || (s.maskMode && s.maskMode !== 'none')) ? '<span title="클리핑 마스크 적용됨" style="color:#a855f7;font-weight:bold;margin-right:2px;font-size:12px;">↳</span>' : ''}
-                        <span class="ps-sp-icon">${s.type === 'rect' ? '▭' : (s.type === 'circle' ? '○' : (s.type === 'text' ? 'T' : (s.type === 'path' ? '⟿' : '✎')))}</span>
+                        <span class="ps-sp-icon" title="${escapeHtml(s.type)}">${({ rect: '▭', bevel_rect: '⬠', circle: '○', star: '☆', text: 'T', path: '⟿', brush: '✎', image: '▣', form_field: '▤', screen_trigger: '⌖' })[s.type] || '◇'}</span>
                         
                         ${this.renamingId === s.id ? `
                           <input type="text" class="ps-layer-title-input" value="${escapeHtml(s.name)}" autofocus>
@@ -7654,7 +7777,9 @@ ${this.getRuntimeSource(withEngine)}
         const modRow = e.target.closest('[data-mod-id]');
         const modId = modRow?.dataset.modId;
 
-        const act = btn ? btn.dataset.act : (spriteItem ? 'select-sprite' : (layerGroup ? 'select-layer' : null));
+        // Anywhere on a module row (badge, condition tag, gap) selects that module.
+        const act = btn ? btn.dataset.act
+          : (modRow ? 'select-mod' : (spriteItem ? 'select-sprite' : (layerGroup ? 'select-layer' : null)));
 
         if (act === 'fold-layer' && layer) {
           layer.expanded = !layer.expanded;
@@ -7943,16 +8068,20 @@ ${this.getRuntimeSource(withEngine)}
       if (!target) return;
       if (!target.modules) target.modules = [];
 
-      // Clean up any lingering modal first
-      document.querySelectorAll('.modal-overlay').forEach(m => m.remove());
+      // Clean up a lingering module picker only. The settings, export and other
+      // dialogs are long-lived .modal-overlay elements and must stay.
+      document.querySelectorAll('.ps-module-library-overlay').forEach(m => m.remove());
 
       const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
+      modal.className = 'modal-overlay ps-module-library-overlay';
       modal.innerHTML = `
         <div class="ps-module-modal">
           <div class="ps-modal-header">
             <div class="ps-modal-title">${isLayer ? '레이어 모듈 장착' : '스프라이트 모듈 장착'} (${escapeHtml(target.name)})</div>
             <button class="ps-modal-close" id="closeModal">✕</button>
+          </div>
+          <div class="ps-module-search">
+            <input type="search" id="modSearch" placeholder="모듈 검색 (이름이나 설명, 예: 클릭, 드래그, 신호)" autocomplete="off" spellcheck="false" />
           </div>
           <div class="mod-category-tabs">
             <button class="mod-category-tab ${this.activeCategory==='all'?'active':''}" data-cat="all">전체</button>
@@ -7971,9 +8100,16 @@ ${this.getRuntimeSource(withEngine)}
       `;
       document.body.appendChild(modal);
 
+      const searchInput = modal.querySelector('#modSearch');
       const renderGrid = () => {
         const grid = modal.querySelector('#modalModGrid');
+        const q = (searchInput.value || '').trim().toLowerCase();
         const keys = Object.keys(MODULE_REGISTRY).filter(k => {
+          // A search looks through every module, whatever tab is open.
+          if (q) {
+            const m = MODULE_REGISTRY[k];
+            return [k, m.name, m.description].some(s => String(s || '').toLowerCase().includes(q));
+          }
           // Code-only modules are listed only under "고급".
           if (MODULE_REGISTRY[k].advanced) return this.activeCategory === 'advanced';
           if (this.activeCategory === 'advanced') return false;
@@ -7983,10 +8119,10 @@ ${this.getRuntimeSource(withEngine)}
           return MODULE_REGISTRY[k].category === this.activeCategory;
         });
 
-        grid.innerHTML = keys.map(k => {
+        grid.innerHTML = keys.length ? keys.map(k => {
           const m = MODULE_REGISTRY[k];
           return `
-            <div class="ps-module-card" data-key="${escapeHtml(k)}">
+            <div class="ps-module-card" data-key="${escapeHtml(k)}" title="${escapeHtml(m.description)}">
               <div class="ps-mod-badge">${escapeHtml(m.icon)}</div>
               <div class="ps-mod-info">
                 <div class="ps-mod-name">${escapeHtml(m.name)}</div>
@@ -7994,7 +8130,7 @@ ${this.getRuntimeSource(withEngine)}
               </div>
             </div>
           `;
-        }).join('');
+        }).join('') : `<div class="ps-module-empty">"${escapeHtml(searchInput.value.trim())}"에 맞는 모듈이 없습니다.</div>`;
 
         grid.querySelectorAll('.ps-module-card').forEach(c => {
           c.addEventListener('click', () => {
@@ -8008,9 +8144,18 @@ ${this.getRuntimeSource(withEngine)}
               params: JSON.parse(JSON.stringify(def.defaultParams || {}))
             };
             target.modules.push(newMod);
+            // Select what the module was added to, so the inspector shows the
+            // new module's settings straight away.
+            const owner = isLayer ? target : this.doc.layers.find(l => l.sprites.includes(target));
+            if (owner) { this.doc.selectedLayerId = owner.id; owner.expanded = true; }
+            if (isLayer) this.doc.selectedSpriteId = null;
+            else { this.doc.selectedSpriteId = target.id; this.doc.selectedSpriteIds = new Set([target.id]); target.collapsed = false; }
             this.doc.selectedModuleId = newMod.id;
+            this.doc.saveState();
             modal.remove();
+            window.removeEventListener('keydown', onKeyDown);
             this.cb.onUpdate();
+            this.scrollToSelected?.();
           });
         });
       };
@@ -8024,14 +8169,20 @@ ${this.getRuntimeSource(withEngine)}
         });
       });
 
+      searchInput.addEventListener('input', renderGrid);
+      searchInput.addEventListener('keydown', ev => {
+        // Enter adds the first match.
+        if (ev.key === 'Enter') { ev.preventDefault(); modal.querySelector('.ps-module-card')?.click(); }
+      });
       renderGrid();
+      setTimeout(() => searchInput.focus(), 0);
 
-      const closeModal = () => modal.remove();
+      const closeModal = () => { modal.remove(); window.removeEventListener('keydown', onKeyDown); };
       modal.querySelector('#closeModal').addEventListener('click', closeModal);
       modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
-      const onKeyDown = ev => {
-        if (ev.key === 'Escape') { closeModal(); window.removeEventListener('keydown', onKeyDown); }
-      };
+      function onKeyDown(ev) {
+        if (ev.key === 'Escape') closeModal();
+      }
       window.addEventListener('keydown', onKeyDown);
     }
   }
@@ -10853,10 +11004,32 @@ ${sprite.type === 'text' ? `
       }
     }
 
-    syncFromDoc() {
-      const existingPositions = new Map();
+    // Zoom and pan so every node is in view (never above 100%).
+    fitView() {
+      const area = this.container.querySelector('#nodeGraphArea');
+      if (!area || !this.nodes.length) return;
+      const W = area.clientWidth, H = area.clientHeight;
+      if (!W || !H) return;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (const n of this.nodes) {
-        existingPositions.set(n.id, { x: n.x, y: n.y });
+        const el = this.container.querySelector('#' + CSS.escape(n.id));
+        const w = el ? el.offsetWidth : 220, h = el ? el.offsetHeight : 120;
+        x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + w); y1 = Math.max(y1, n.y + h);
+      }
+      const pad = 40;
+      this.zoom = Math.max(0.3, Math.min(1, (W - pad * 2) / (x1 - x0), (H - pad * 2) / (y1 - y0)));
+      this.pan = { x: Math.round(pad - x0 * this.zoom), y: Math.round(pad - y0 * this.zoom) };
+      this.updateTransform();
+      if (this.renderWires) this.renderWires();
+    }
+
+    // relayout: forget the nodes' positions and lay them out again (자동 정렬).
+    syncFromDoc({ relayout = false } = {}) {
+      const existingPositions = new Map();
+      if (!relayout) {
+        for (const n of this.nodes) {
+          existingPositions.set(n.id, { x: n.x, y: n.y });
+        }
       }
 
       this.nodes = [];
@@ -10868,7 +11041,7 @@ ${sprite.type === 'text' ? `
         id: 'output_master',
         category: 'output',
         type: 'output_master',
-        title: '최종 웹사이트 출력 (OUTPUT)',
+        title: '최종 출력 (OUTPUT)',
         badge: 'MASTER',
         x: masterPos.x, y: masterPos.y,
         inputs: [{ name: 'In', type: 'flow', label: '← 연결된 모듈 작동',
@@ -10971,6 +11144,17 @@ ${sprite.type === 'text' ? `
         }
 
         curY += 240;
+      }
+
+      // OUTPUT sits to the right of the longest module chain. A position the
+      // user chose is kept unless it now covers a module node.
+      const master = this.nodes[0];
+      const others = this.nodes.slice(1);
+      const rightmost = others.length ? Math.max(...others.map(n => n.x)) : 80;
+      const covers = others.some(n => Math.abs(n.x - master.x) < 250 && Math.abs(n.y - master.y) < 170);
+      if (!existingPositions.has('output_master') || covers) {
+        master.x = rightmost + 300;
+        master.y = 60;
       }
 
       // Preserve existing valid wires
@@ -11088,7 +11272,9 @@ ${sprite.type === 'text' ? `
       const activeMods = this.getActiveModuleIds();
 
       nodesLayer.innerHTML = this.nodes.map(n => {
-        const isActive = n.type === 'output_master' || (n.modId && activeMods.has(n.modId));
+        // A sprite node is "ON" when any of its modules reaches OUTPUT.
+        const spriteActive = n.type === 'output_sprite' && this.nodes.some(m => m.spriteId === n.spriteId && m.modId && activeMods.has(m.modId));
+        const isActive = n.type === 'output_master' || spriteActive || (n.modId && activeMods.has(n.modId));
         const catClass = 'cat-' + (n.category || 'motion');
 
         // Main input/output ports (excluding parameter inputs)
@@ -11356,8 +11542,9 @@ ${sprite.type === 'text' ? `
 
       // Auto Layout
       this.container.querySelector('#btnNodeAutoLayout')?.addEventListener('click', () => {
-        this.syncFromDoc();
+        this.syncFromDoc({ relayout: true });
         this.render();
+        this.fitView();
       });
 
       // Knife Cut Mode Toggle Button Info
@@ -11832,8 +12019,8 @@ ${sprite.type === 'text' ? `
       this.recordingId = null;
 
       this.defaultShortcuts = [
-        { id: 'webPreview', name: '실시간 웹 미리보기 (Alt+W)', key: 'Alt + W' },
-        { id: 'preview', name: '실시간 웹 미리보기 (Ctrl+Space)', key: 'Ctrl + Space' },
+        { id: 'webPreview', name: '새 창에서 웹 미리보기', key: 'Alt + W' },
+        { id: 'preview', name: '실시간 모듈 미리보기 (캔버스에서 실행)', key: 'Ctrl + Space' },
         { id: 'delete', name: '선택 스프라이트 삭제 (Delete)', key: 'Delete' },
         { id: 'nodeMode', name: '모듈 노드 모드 / 스튜디오 전환', key: 'Shift + Tab' },
         { id: 'selectAll', name: '전체 스프라이트 선택', key: 'Ctrl + A' },
@@ -11975,6 +12162,14 @@ ${sprite.type === 'text' ? `
                 </tr>
               `;
             }).join('')}
+            ${[['새 도큐먼트', 'Ctrl + N'], ['열기', 'Ctrl + O'], ['저장 / 다른 이름으로 저장', 'Ctrl + S / Ctrl + Shift + S'],
+              ['자바스크립트 내보내기', 'Ctrl + E'], ['이미지 가져오기', 'Ctrl + Shift + I'], ['화면에 맞추기', 'Ctrl + 0'],
+              ['100% 보기', 'Ctrl + 1'], ['환경 설정', 'Ctrl + ,']].map(([n, k]) => `
+                <tr style="border-bottom:1px solid #1f1f23;">
+                  <td style="padding:8px 10px;color:#a1a1aa;">${escapeHtml(n)}</td>
+                  <td style="padding:8px 10px;"><span class="shortcut-key-badge">${escapeHtml(k)}</span></td>
+                  <td style="padding:8px 10px;text-align:right;color:#52525b;font-size:10.5px;">고정</td>
+                </tr>`).join('')}
           </tbody>
         </table>
       `;
@@ -13174,10 +13369,12 @@ ${sprite.type === 'text' ? `
       tip.className = 'jspen-tip';
       tip.setAttribute('role', 'tooltip');
       document.body.appendChild(tip);
-      let owner = null, timer = null;
+      let owner = null, timer = null, watch = null;
       const hide = () => {
         clearTimeout(timer);
         timer = null;
+        clearInterval(watch);
+        watch = null;
         tip.classList.remove('is-on');
         // The title goes back, so screen readers and the next hover still have it.
         if (owner && owner.dataset.tip !== undefined) { owner.setAttribute('title', owner.dataset.tip); delete owner.dataset.tip; }
@@ -13196,6 +13393,9 @@ ${sprite.type === 'text' ? `
           if (owner !== el || !el.isConnected) return;
           tip.textContent = text;
           tip.classList.add('is-on');
+          // A re-render can replace the hovered button without a mouseout;
+          // don't leave its tip floating over the new UI.
+          watch = setInterval(() => { if (!owner || !owner.isConnected || !owner.matches(':hover')) hide(); }, 250);
           const r = el.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight;
           const tw = tip.offsetWidth, th = tip.offsetHeight;
           let x = r.left + r.width / 2 - tw / 2, y = r.bottom + 6;
@@ -13552,6 +13752,7 @@ ${sprite.type === 'text' ? `
       });
 
       this.handleResize();
+      this.fitToScreen(); // start with the whole artboard in view
       this.initEvents();
       this.startLoop();
     }
@@ -13595,6 +13796,7 @@ ${sprite.type === 'text' ? `
         }
         this.doc.loadFromData(data, true);
         this.loadDocumentFonts();
+        this.fitToScreen(); // show the whole opened document, not the old view
         this.refreshUI();
         if (this.isNodeMode) {
           this.nodeEditor.syncFromDoc();
@@ -13730,12 +13932,17 @@ ${sprite.type === 'text' ? `
     }
 
     // Zoom so the whole artboard fits the viewport, then centre it.
+    // Long pages (a landing page, a mobile layout) would shrink until nothing
+    // is readable, so those fit the width instead and start at the top.
     fitToScreen() {
       const p = this.canvas.parentElement;
-      if (!p) return;
-      const z = Math.min((p.clientWidth - 80) / this.doc.width, (p.clientHeight - 80) / this.doc.height);
-      this.renderer.zoom = Math.max(0.05, Math.min(1, z));
+      if (!p || !p.clientWidth || !p.clientHeight) return;
+      const zw = Math.min(1, (p.clientWidth - 80) / this.doc.width);
+      const zh = (p.clientHeight - 80) / this.doc.height;
+      const tall = zh < zw * 0.5;
+      this.renderer.zoom = Math.max(0.05, tall ? zw : Math.min(zw, zh));
       this.renderer.centerArtboard();
+      if (tall) this.renderer.panY = 40;
       this.renderCanvas();
     }
 
@@ -13756,9 +13963,12 @@ ${sprite.type === 'text' ? `
     // ---------------- Forms ----------------
     insertFormElement(kind) {
       this.endLivePreview();
-      const layer = this.doc.getSelectedLayer() || this.doc.layers[this.doc.layers.length - 1] || this.doc.addLayer({ name: '레이어 1' });
-      const c = this.renderer.screenToWorld(this.canvas.width / 2, this.canvas.height / 2);
-      const x = Math.round(c.x), y0 = Math.round(c.y);
+      // The contact form set gets a layer of its own unless the current layer
+      // is still empty; single fields go into the selected layer.
+      const cur = this.doc.getSelectedLayer() || this.doc.layers[this.doc.layers.length - 1];
+      const layer = (kind === 'contact' && cur && cur.sprites.length > 0) ? this.doc.addLayer({ name: '문의 폼' })
+        : (cur || this.doc.addLayer({ name: '레이어 1' }));
+      const { x, y: y0 } = this.findFormSpot(kind);
       const field = (k, name, extra, dy = 0) => layer.addSprite(Object.assign({
         name: '폼: ' + name, type: 'form_field', x, y: y0 + dy, width: 320, height: k === 'textarea' ? 120 : 44,
         fill: '#ffffff', stroke: '#a1a1aa', strokeWidth: 1, cornerRadius: 6, fontSize: 15, textColor: '#18181b',
@@ -13794,9 +14004,56 @@ ${sprite.type === 'text' ? `
       this.doc.selectedSpriteId = last.id;
       this.doc.selectedSpriteIds = new Set([last.id]);
       this.doc.saveState();
+      // Bring the new form into view if it landed outside it.
+      const s = this.renderer.worldToScreen(x, y0);
+      if (s.y < 40 || s.y > this.canvas.height - 40 || s.x < 40 || s.x > this.canvas.width - 40) {
+        this.renderer.panX += this.canvas.width / 2 - s.x;
+        this.renderer.panY += this.canvas.height / 2 - s.y;
+      }
       this.refreshUI();
       StudioToast.show('폼 요소를 추가했습니다. Ctrl+Space 미리보기에서 입력해 볼 수 있습니다.');
       return last;
+    }
+
+    // Where a new form element (or the contact set) goes: an empty spot in the
+    // visible part of the artboard, else below everything on the page (the
+    // canvas grows to fit). Full-width backgrounds don't count as taken.
+    findFormSpot(kind) {
+      const ext = { contact: [-172, 158], textarea: [-60, 60], checkbox: [-14, 14], submit: [-24, 58] }[kind] || [-22, 22];
+      const W = this.doc.width, H = this.doc.height, half = 160, pad = 16;
+      const boxes = [];
+      for (const l of this.doc.layers) {
+        if (!l.visible) continue;
+        for (const sp of l.sprites) {
+          if (sp.visible === false || sp.type === 'screen_trigger' || sp.isBrushCanvas) continue;
+          const w = (sp.width || 0) * Math.abs(sp.scaleX || 1), h = (sp.height || 0) * Math.abs(sp.scaleY || 1);
+          if (w >= W * 0.9) continue; // section background
+          boxes.push([sp.x - w / 2, sp.y - h / 2, sp.x + w / 2, sp.y + h / 2]);
+        }
+      }
+      const free = (cx, cy) => {
+        const r = [cx - half - pad, cy + ext[0] - pad, cx + half + pad, cy + ext[1] + pad];
+        if (r[0] < 0 || r[2] > W || r[1] < 0 || r[3] > H) return false;
+        return !boxes.some(b => b[0] < r[2] && b[2] > r[0] && b[1] < r[3] && b[3] > r[1]);
+      };
+      const tl = this.renderer.screenToWorld(0, 0), br = this.renderer.screenToWorld(this.canvas.width, this.canvas.height);
+      const c = this.renderer.screenToWorld(this.canvas.width / 2, this.canvas.height / 2);
+      const cx0 = Math.round(Math.max(half + pad, Math.min(W - half - pad, c.x)));
+      // Visible area first, from the centre outwards, centre column then sides.
+      const ys = [];
+      for (let d = 0; d < Math.max(1, br.y - tl.y); d += 20) { ys.push(c.y + d); if (d) ys.push(c.y - d); }
+      for (const cx of [cx0, cx0 - 360, cx0 + 360]) {
+        for (const cy of ys) {
+          if (cy < tl.y || cy > br.y) continue;
+          if (free(cx, Math.round(cy))) return { x: cx, y: Math.round(cy) };
+        }
+      }
+      // Below all content.
+      const bottom = boxes.length ? Math.max(...boxes.map(b => b[3])) : 0;
+      const y = Math.round(bottom + 60 - ext[0]);
+      const need = y + ext[1] + 60;
+      if (need > H) this.doc.resizeCanvas(W, Math.ceil(need), 'keep');
+      return { x: Math.round(W / 2), y };
     }
 
     // Register uploaded document fonts and re-render when they are ready.
@@ -14173,9 +14430,12 @@ ${sprite.type === 'text' ? `
         this._textEditor = null;
         if (commit && val.trim() && val !== prevText) {
           sprite.text = val;
-          if (!sprite.name || sprite.name.startsWith('텍스트')) {
-            sprite.name = '텍스트: ' + val.replace(/\s+/g, ' ').slice(0, 24);
+          // Auto-named text sprites follow their text; a name the user gave stays.
+          const autoName = t => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 24);
+          if (!sprite.name || sprite.name === '텍스트' || sprite.name.startsWith('텍스트: ') || sprite.name === autoName(prevText)) {
+            sprite.name = autoName(val);
           }
+          DrawingTools.fitTextBox(sprite);
           sprite._wrapCache = null;
           if (isNew && this.doc.history.length > 0) {
             // Fold the edit into the "text created" undo step.
@@ -14339,6 +14599,7 @@ ${sprite.type === 'text' ? `
       if (this.isNodeMode) {
         this.nodeEditor.syncFromDoc();
         this.nodeEditor.render();
+        this.nodeEditor.fitView(); // the whole chain, OUTPUT included
       }
       this.menuBar.render();
       if (this.optionBar) this.optionBar.render();
@@ -14483,13 +14744,20 @@ ${sprite.type === 'text' ? `
           innerContent = `<img src="${escapeHtml(safeUrl(sprite.imageUrl, true))}" alt="${escapeHtml(sprite.alt || '')}" style="width:100%;height:100%;object-fit:${fit};display:block;border-radius:inherit;" />`;
           bgStyle = 'transparent';
         } else if (sprite.type === 'brush') {
-          const pts = sprite.brushStrokePoints || [];
-          if (pts.length > 0) {
-            let pathD = `M ${pts[0].x} ${pts[0].y}`;
-            for (let i = 1; i < pts.length; i++) {
-              pathD += ` L ${pts[i].x} ${pts[i].y}`;
-            }
-            innerContent = `<svg viewBox="${escapeHtml(`-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}`)}" style="width:100%;height:100%;overflow:visible;"><path d="${escapeHtml(pathD)}" stroke="${escapeHtml(sprite.stroke || '#ffffff')}" stroke-width="${escapeHtml(sprite.brushSize || 6)}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+          // Painted strokes ({points, size, color}, relative to the centre),
+          // or the older single-stroke brushStrokePoints format.
+          const strokes = Array.isArray(sprite.strokes) && sprite.strokes.length ? sprite.strokes
+            : (sprite.brushStrokePoints && sprite.brushStrokePoints.length
+              ? [{ points: sprite.brushStrokePoints, size: sprite.brushSize || 6, color: sprite.stroke || '#ffffff' }] : []);
+          const paths = strokes.filter(st => st && st.points && st.points.length).map(st => {
+            const pts = st.points;
+            let pathD = `M ${+pts[0].x || 0} ${+pts[0].y || 0}`;
+            for (let i = 1; i < pts.length; i++) pathD += ` L ${+pts[i].x || 0} ${+pts[i].y || 0}`;
+            if (pts.length === 1) pathD += ` l 0.1 0.1`;
+            return `<path d="${escapeHtml(pathD)}" stroke="${escapeHtml(st.color || '#ffffff')}" stroke-width="${escapeHtml(st.size || 6)}" fill="none" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:visibleStroke" />`;
+          }).join('');
+          if (paths) {
+            innerContent = `<svg viewBox="${escapeHtml(`-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}`)}" style="width:100%;height:100%;overflow:visible;pointer-events:none;">${paths}</svg>`;
           }
           bgStyle = 'transparent';
         } else if (sprite.type === 'path') {
@@ -14576,7 +14844,9 @@ ${sprite.type === 'text' ? `
 
         const textAlign = sprite.textAlign || 'center';
         const justify = textAlign === 'left' ? 'flex-start' : (textAlign === 'right' ? 'flex-end' : 'center');
-        const padding = (sprite.type === 'text' || sprite.type === 'form_field') ? '0' : '8px 16px';
+        const padding = (sprite.type === 'text' || sprite.type === 'form_field' || sprite.type === 'brush') ? '0' : '8px 16px';
+        // A brush canvas spans the artboard: let clicks reach what lies under it.
+        const passThrough = sprite.type === 'brush' ? 'pointer-events: none;' : '';
 
         const styleAttr = `
             position: absolute;
@@ -14592,6 +14862,7 @@ ${sprite.type === 'text' ? `
             border-radius: ${borderRadius};
             z-index: ${z};
             ${cursorStyle}
+            ${passThrough}
             ${filterStyle}
             ${clipStyle}
             display: flex;
@@ -14604,7 +14875,8 @@ ${sprite.type === 'text' ? `
             font-weight: ${(sprite.type !== 'text' && textMod && textMod.params) ? (textMod.params.fontWeight || 'normal') : (sprite.fontWeight || 'normal')};
             text-align: ${textAlign};
             white-space: pre-wrap;
-            word-break: break-word;
+            word-break: keep-all;
+            overflow-wrap: break-word;
             line-height: 1.35;
             user-select: none;
             text-decoration: none;
@@ -14944,6 +15216,12 @@ ${sprite.type === 'text' ? `
         this.tools.activeBrushStroke
       );
       if (this.timeline) this.timeline.updatePlayheadPosition();
+      // Keep the zoom tool's "배율" readout in step with wheel/tool/fit zooms.
+      const zl = document.getElementById('optZoomLabel');
+      if (zl) {
+        const txt = `배율: ${Math.round(this.renderer.zoom * 100)}%`;
+        if (zl.textContent !== txt) zl.textContent = txt;
+      }
     }
 
     requestRender() {
@@ -15222,8 +15500,18 @@ ${sprite.type === 'text' ? `
             this.transformBox.startDrag(mw.x, mw.y, 'body', clickedSprite);
             return;
           }
+          // Clicking empty canvas clears the selection, as in other editors.
+          if (e.button === 0 && (this.doc.selectedSpriteId || this.doc.selectedSpriteIds.size)) {
+            this.doc.selectedSpriteId = null;
+            this.doc.selectedSpriteIds = new Set();
+            this.doc.selectedModuleId = null;
+            this.refreshUI();
+            return;
+          }
         }
 
+        // Only the zoom tool uses the right button (zoom out).
+        if (e.button === 2 && this.tools.activeTool !== 'zoom') return;
         this.tools.handleMouseDown(mw.x, mw.y, ms.x, ms.y, e);
       });
 
@@ -15511,6 +15799,16 @@ ${sprite.type === 'text' ? `
         if (isInput) return;
 
         const k = e.key.toLowerCase();
+        const mod = e.ctrlKey || e.metaKey;
+        // Ctrl combinations first, so e.g. Ctrl+Shift+I is not taken by the I tool.
+        if (mod && (k === ',' || e.code === 'Comma')) { e.preventDefault(); this.settingsModal.show(); return; }
+        if (mod && (k === '0' || e.code === 'Digit0' || e.code === 'Numpad0')) { e.preventDefault(); this.fitToScreen(); return; }
+        if (mod && (k === '1' || e.code === 'Digit1' || e.code === 'Numpad1')) {
+          e.preventDefault(); this.renderer.zoom = 1; this.renderer.centerArtboard(); this.renderCanvas(); return;
+        }
+        if (mod && e.shiftKey && k === 'i') { e.preventDefault(); this.pickImage(); return; }
+        if (mod && !e.shiftKey && k === 'n') { e.preventDefault(); document.getElementById('mNew')?.click(); return; }
+        if (mod && !['e', 's', 'o'].includes(k)) return;
         if (k === 'v') this.tools.setTool('move');
         else if (k === 'a') this.tools.setTool('direct');
         else if (k === 'c') this.tools.setTool('curve');

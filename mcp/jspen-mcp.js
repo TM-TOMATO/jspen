@@ -123,7 +123,14 @@ const TOOLS = [
       if (data === undefined) throw new Error('template, project 또는 new 중 하나가 필요합니다.');
       const ok = await p.evaluate(d => { const r = window.jspenApp.loadProjectFromJSON(d); window.jspenApp.doc.markSaved && window.jspenApp.doc.markSaved(); return r !== false; }, typeof data === 'string' ? data : JSON.stringify(data));
       if (!ok) throw new Error('프로젝트를 불러오지 못했습니다.');
-      return text(await p.evaluate(SUMMARY));
+      // A short overview; jspen_state has every sprite and module.
+      return text(await p.evaluate(() => {
+        const d = window.jspenApp.doc;
+        return { name: d.name, width: d.width, height: d.height, view: d.activeView || 'desktop', dirty: window.jspenApp.isDirty(),
+          layers: d.layers.map(l => ({ id: l.id, name: l.name,
+            sprites: l.sprites.map(sp => ({ id: sp.id, name: sp.name, type: sp.type, modules: (sp.modules || []).length })) })),
+          hint: '위치·크기·모듈 세부는 jspen_state로 봅니다.' };
+      }));
     } },
   { name: 'jspen_state', description: '현재 문서 요약: 레이어, 스프라이트(위치·크기), 모듈, 선택, 미리보기 상태, 저장 안 된 변경.',
     inputSchema: { type: 'object', properties: { full: { type: 'boolean', description: 'true면 프로젝트 JSON 전체' } } },
@@ -133,8 +140,21 @@ const TOOLS = [
     run: async a => {
       const p = await page();
       const result = await p.evaluate(async code => {
-        // eslint-disable-next-line no-new-func
-        const fn = new Function('return (async () => {\n' + (/\breturn\b/.test(code) ? code : 'return (' + code + ');') + '\n})()');
+        // Accept a single expression, or statements whose last line is the
+        // result (or that `return` it). A `return` inside a nested function
+        // no longer changes how the code is read.
+        const make = body => new Function('return (async () => {\n' + body + '\n})()'); // eslint-disable-line no-new-func
+        const lines = code.replace(/\s+$/, '').split('\n');
+        const lastLine = lines[lines.length - 1];
+        const exprLike = !/^\s*(return\b|const\b|let\b|var\b|if\b|for\b|while\b|do\b|switch\b|try\b|function\b|class\b|throw\b|\}|\/\/)/.test(lastLine);
+        const attempts = ['return (\n' + code + '\n);'];
+        if (exprLike) attempts.push(lines.slice(0, -1).concat('return ' + lastLine.replace(/;\s*$/, '') + ';').join('\n'));
+        attempts.push(code);
+        let fn = null, err = null;
+        for (const body of attempts) {
+          try { fn = make(body); break; } catch (e) { if (!(e instanceof SyntaxError)) throw e; err = err || e; }
+        }
+        if (!fn) throw err;
         const v = await fn();
         try { return JSON.parse(JSON.stringify(v === undefined ? null : v)); } catch (e) { return String(v); }
       }, a.code);
@@ -196,8 +216,9 @@ const TOOLS = [
       else { await el.fill(a.value); await el.press('Enter'); }
       return text('set ' + a.selector + ' = ' + a.value);
     } },
-  { name: 'jspen_preview', description: '실시간 미리보기(모듈 실행): action "start" / "stop" / "wait"(ms 동안 실행) / "click"(문서 좌표 docX, docY 클릭). 결과로 스프라이트의 실행 중 위치·투명도·글자와 최근 신호, 변수를 돌려줍니다.',
-    inputSchema: { type: 'object', properties: { action: { type: 'string', enum: ['start', 'stop', 'wait', 'click'] }, ms: { type: 'number' }, docX: { type: 'number' }, docY: { type: 'number' } }, required: ['action'] },
+  { name: 'jspen_preview', description: '실시간 미리보기(모듈 실행): action "start" / "stop" / "wait"(ms 동안 실행) / "click"(문서 좌표 docX, docY 클릭). 결과로 최근 신호, 변수와 편집 상태에서 달라진 스프라이트(위치·회전·크기·투명도·글자)를 돌려줍니다. ids로 볼 스프라이트를 정하거나 all: true면 모두.',
+    inputSchema: { type: 'object', properties: { action: { type: 'string', enum: ['start', 'stop', 'wait', 'click'] }, ms: { type: 'number' }, docX: { type: 'number' }, docY: { type: 'number' },
+      ids: { type: 'array', items: { type: 'string' } }, all: { type: 'boolean' } }, required: ['action'] },
     run: async a => {
       const p = await page();
       if (a.action === 'start') await p.evaluate(() => window.jspenApp.toggleModulePreview(true));
@@ -207,14 +228,24 @@ const TOOLS = [
         await p.mouse.click(pt[0], pt[1]);
       }
       await p.waitForTimeout(a.ms !== undefined ? a.ms : (a.action === 'wait' ? 500 : 150));
-      return text(await p.evaluate(() => {
+      return text(await p.evaluate(({ ids, all }) => {
         const e = window.jspenApp.moduleEngine;
+        const list = window.jspenApp.doc.layers.flatMap(l => l.sprites).map(sp => {
+          const rt = sp.runtime || {};
+          const r = { id: sp.id, name: sp.name,
+            x: +(rt.x ?? sp.x).toFixed(1), y: +(rt.y ?? sp.y).toFixed(1), rotation: +(rt.rotation || 0).toFixed(1), scale: +(rt.scaleX || 1).toFixed(3),
+            opacity: +(rt.opacity ?? 1).toFixed(3), visible: sp.visible !== false && rt.visible !== false, fill: sp.fill, text: e.constructor.getText(sp) };
+          // Changed from the edited state (only meaningful while running).
+          r.changed = Math.abs(r.x - sp.x) > 0.05 || Math.abs(r.y - sp.y) > 0.05 || Math.abs(r.rotation - (sp.rotation || 0)) > 0.05 ||
+            Math.abs(r.scale - (sp.scaleX || 1)) > 0.001 || Math.abs(r.opacity - (sp.opacity ?? 1)) > 0.001 || !r.visible || (rt.fill && rt.fill !== sp.fill) ||
+            (sp.text !== undefined && r.text !== sp.text);
+          return r;
+        });
+        const sprites = all ? list : (ids && ids.length ? list.filter(s => ids.includes(s.id)) : list.filter(s => s.changed));
         return { running: !!e.active, time: +e.bus.time.toFixed(2), vars: Object.fromEntries(e.bus.vars || []),
           signals: [...e.bus.signals.entries()].map(([n, v]) => ({ name: n, at: +v.time.toFixed(2) })),
-          sprites: window.jspenApp.doc.layers.flatMap(l => l.sprites).map(sp => ({ id: sp.id, name: sp.name,
-            x: +sp.runtime.x.toFixed(1), y: +sp.runtime.y.toFixed(1), rotation: +(sp.runtime.rotation || 0).toFixed(1), scale: +(sp.runtime.scaleX || 1).toFixed(3),
-            opacity: +(sp.runtime.opacity ?? 1).toFixed(3), visible: sp.visible !== false && sp.runtime.visible !== false, fill: sp.fill, text: e.constructor.getText(sp) })) };
-      }));
+          sprites, ...((all || (ids && ids.length)) ? {} : { note: `달라진 스프라이트 ${sprites.length}개 / 전체 ${list.length}개 (all: true면 모두)` }) };
+      }, { ids: a.ids || null, all: !!a.all }));
     } },
   { name: 'jspen_export', description: '내보낸 결과를 새 탭에서 열어 스크린샷과 오류를 돌려줍니다. kind: "website"(HTML 사이트, 기본) 또는 "canvas"(캔버스 페이지). width로 창 폭을 정하고, clicks(스프라이트 id 목록)로 차례로 클릭해 볼 수 있습니다.',
     inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['website', 'canvas'] }, width: { type: 'number' }, height: { type: 'number' },
