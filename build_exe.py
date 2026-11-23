@@ -1,9 +1,10 @@
 """
 Build JSPen Studio into a standalone app with PyInstaller.
 
-    python build_exe.py            # folder build: dist/JSPenStudio/JSPenStudio(.exe)  (recommended)
-    python build_exe.py --onefile  # single file: dist/JSPenStudio(.exe) (slower start: unpacks QtWebEngine)
-    python build_exe.py --check    # only verify the environment
+    python build_exe.py              # folder build: dist/JSPenStudio/JSPenStudio(.exe)  (recommended)
+    python build_exe.py --installer  # folder build + Windows installer: dist/installer/JSPenStudio-Setup-<version>.exe
+    python build_exe.py --onefile    # single file: dist/JSPenStudio(.exe) (slower start: unpacks QtWebEngine)
+    python build_exe.py --check      # only verify the environment
 
 Runs PyInstaller through `python -m PyInstaller`, so it works even when the
 `pyinstaller` command is not on PATH, and uses the right --add-data separator
@@ -12,6 +13,7 @@ for the current OS (';' on Windows, ':' elsewhere).
 
 import argparse
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -98,6 +100,42 @@ def selftest(exe):
     print("자체 점검 통과")
 
 
+def app_version():
+    with open(os.path.join(ROOT, "package.json"), encoding="utf-8") as f:
+        return json.load(f).get("version", "0.0.0")
+
+
+def find_iscc():
+    """Inno Setup 6 compiler: PATH, the usual install folders, or INNO_SETUP."""
+    candidates = [os.environ.get("INNO_SETUP", ""), shutil.which("ISCC") or "", shutil.which("iscc") or ""]
+    for base in (os.environ.get("LOCALAPPDATA"), os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
+        if base:
+            candidates.append(os.path.join(base, "Programs" if base == os.environ.get("LOCALAPPDATA") else "", "Inno Setup 6", "ISCC.exe"))
+    return next((c for c in candidates if c and os.path.isfile(c)), None)
+
+
+def build_installer(app_dir):
+    """Windows installer from the folder build (per-user install, no admin rights)."""
+    if os.name != "nt":
+        fail("설치 파일은 Windows에서만 만들 수 있습니다.")
+    iscc = find_iscc()
+    if not iscc:
+        fail("Inno Setup 6을 찾을 수 없습니다. https://jrsoftware.org/isdl.php 에서 설치하거나,\n"
+             "  INNO_SETUP 환경 변수에 ISCC.exe 경로를 지정하세요.")
+    out_dir = os.path.join(ROOT, "dist", "installer")
+    version = app_version()
+    cmd = [iscc, "/Q", f"/DAppVersion={version}", f"/DSourceDir={app_dir}", f"/DOutputDir={out_dir}",
+           os.path.join(ROOT, "installer", "JSPenStudio.iss")]
+    print("설치 파일 만드는 중...")
+    if subprocess.run(cmd, cwd=ROOT).returncode != 0:
+        fail("설치 파일을 만들지 못했습니다. 위 로그를 확인하세요.")
+    setup = os.path.join(out_dir, f"JSPenStudio-Setup-{version}.exe")
+    if not os.path.isfile(setup):
+        fail(f"설치 파일을 찾을 수 없습니다: {setup}")
+    print(f"\n[설치 파일 완료] {setup}  ({os.path.getsize(setup) / 1024 / 1024:.0f} MB)")
+    return setup
+
+
 def build(onefile, do_prune=True):
     sep = ";" if os.name == "nt" else ":"
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", NAME,
@@ -126,15 +164,20 @@ def build(onefile, do_prune=True):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--onefile", action="store_true", help="단일 실행 파일로 빌드")
+    ap.add_argument("--installer", action="store_true", help="폴더 빌드 후 Windows 설치 파일(Inno Setup 6)까지 만들기")
     ap.add_argument("--check", action="store_true", help="환경만 확인")
     ap.add_argument("--no-selftest", action="store_true", help="빌드 후 자체 점검 생략")
     ap.add_argument("--no-prune", action="store_true", help="사용하지 않는 Qt 파일 정리 생략")
     args = ap.parse_args()
+    if args.installer and args.onefile:
+        fail("--installer는 폴더 빌드로만 만듭니다. --onefile 없이 실행하세요.")
     check_environment()
     if not args.check:
         out = build(args.onefile, do_prune=not args.no_prune)
         if not args.no_selftest:
             selftest(out)
+        if args.installer:
+            build_installer(os.path.dirname(out))
 
 
 if __name__ == "__main__":

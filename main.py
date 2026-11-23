@@ -673,8 +673,10 @@ class MainWindow(QMainWindow):
 
 
 def register_windows_file_association():
-    """Register the .jspen extension under HKCU (no admin rights needed)."""
-    if sys.platform != "win32":
+    """Register the .jspen extension under HKCU (no admin rights needed).
+    Only when running from source: the installer owns the association of an
+    installed build (it is optional there and removed on uninstall)."""
+    if sys.platform != "win32" or getattr(sys, "frozen", False):
         return
     try:
         import ctypes

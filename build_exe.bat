@@ -16,12 +16,12 @@ echo [1/2] Installing packages (requirements.txt + pyinstaller)...
 if errorlevel 1 goto error
 
 echo [2/2] Building...
-rem Options: --onefile (single exe), --no-prune, --no-selftest
+rem Options: --installer (Setup.exe, needs Inno Setup 6), --onefile (single exe), --no-prune, --no-selftest
 %PY% build_exe.py %*
 if errorlevel 1 goto error
 
 echo.
-echo Done: dist\JSPenStudio\JSPenStudio.exe
+echo Done: dist\JSPenStudio\JSPenStudio.exe  (installer: dist\installer)
 pause
 exit /b 0
 

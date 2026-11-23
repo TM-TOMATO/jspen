@@ -30,6 +30,12 @@
   보안을 위해 기본적으로 `127.0.0.1`에만 바인딩됩니다 (`HOST`, `PORT` 환경 변수로 변경 가능).
   브라우저 모드에서 `Ctrl+S`는 `.jspen` 파일 다운로드, `Ctrl+O`는 파일 선택 창으로 동작합니다.
 
+* **테스터에게 나눠 줄 설치 파일**: `build_exe.bat --installer`(또는 `python build_exe.py --installer`)를 실행하면
+  `dist\installer\JSPenStudio-Setup-<버전>.exe`가 만들어집니다 ([Inno Setup 6](https://jrsoftware.org/isdl.php) 필요).
+  받은 사람은 설치 파일만 실행하면 되고, 관리자 권한이 필요 없습니다. 시작 메뉴(선택: 바탕화면)의 `JSPen Studio`로 실행하며,
+  `.jspen` 파일 연결은 설치 중에 고를 수 있고 `설정 > 앱`에서 제거하면 함께 지워집니다.
+  PR과 푸시마다 GitHub Actions의 `JSPenStudio-Setup` 결과물로도 받을 수 있습니다.
+  코드 서명이 없어서 처음 실행할 때 Windows SmartScreen 경고가 나오면 `추가 정보 > 실행`을 누르면 됩니다.
 * 단독 실행 파일(.exe) 생성:
   `build_exe.bat`(또는 `python build_exe.py`)을 실행하면 파이썬이 없는 PC에서도 실행되는
   `dist\JSPenStudio\JSPenStudio.exe`가 만들어지고, 빌드 직후 자동으로 실행 점검(`--selftest`)을 합니다.

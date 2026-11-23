@@ -72,10 +72,37 @@ jobs:
         run: python tests/desktop_security.py
         env:
           QT_QPA_PLATFORM: offscreen
-      - name: Build (folder) and self-test the exe
-        run: python build_exe.py
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+      - name: Build (folder), self-test the exe and make the installer
+        run: python build_exe.py --installer
+      - name: Install, run and uninstall the installer
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist/installer/JSPenStudio-Setup-*.exe | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP 'JSPen Studio'
+          Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$dir", '/TASKS=associate' -Wait
+          $out = & (Join-Path $dir 'JSPenStudio.exe') --selftest | Out-String
+          Write-Output $out
+          if ($LASTEXITCODE -ne 0) { throw 'installed app failed its self-test' }
+          if ((Get-ItemProperty 'HKCU:\Software\Classes\JSPenStudio.Project\shell\open\command').'(default)' -notlike "*$dir*") { throw 'file association missing' }
+          Start-Process (Join-Path $dir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          Start-Sleep -Seconds 3
+          if (Test-Path (Join-Path $dir 'JSPenStudio.exe')) { throw 'uninstall left the app behind' }
+          if (Test-Path 'HKCU:\Software\Classes\JSPenStudio.Project') { throw 'uninstall left the file association behind' }
+        env:
+          QT_QPA_PLATFORM: offscreen
       - uses: actions/upload-artifact@v4
         with:
           name: JSPenStudio-windows
           path: dist/JSPenStudio
           retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JSPenStudio-Setup
+          path: dist/installer/*.exe
+          retention-days: 14
