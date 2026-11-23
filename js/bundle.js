@@ -1253,6 +1253,500 @@
   }
 
   // ==========================================================================
+  // Reflow: lay a fixed-position design out for another width, like a website
+  // ==========================================================================
+  // The design is read as boxes inside boxes, split into rows and columns:
+  //   * full-width backgrounds and bands follow the width
+  //   * content keeps its size while it fits: the margins shrink first, then
+  //     the gaps, then the boxes
+  //   * text keeps its size and wraps (only big headings get smaller), and
+  //     what is below moves down
+  //   * columns that no longer fit continue on the next line
+  //   * a row with items at both edges (a navigation bar) keeps them there
+  //   * overlapping artwork scales as one piece
+  // Pure: the same design and width always give the same layout, and the
+  // design's own width gives the design back. Also embedded in exported pages,
+  // so it must not refer to anything outside the class.
+  class Reflow {
+    // Serializable description of a document's current layout.
+    static describe(doc, fontStack) {
+      const items = [];
+      for (const layer of doc.layers) {
+        for (const sp of layer.sprites) {
+          const sx = Math.abs(sp.scaleX) || 1, sy = Math.abs(sp.scaleY) || 1;
+          let w = sp.width * sx, h = sp.height * sy;
+          const angle = ((sp.rotation || 0) % 180) * Math.PI / 180;
+          if (angle) {
+            const c = Math.abs(Math.cos(angle)), s = Math.abs(Math.sin(angle));
+            [w, h] = [w * c + h * s, w * s + h * c];
+          }
+          const item = {
+            id: sp.id, type: sp.type, x: Reflow.rest(sp, 'x', doc.activeView) - w / 2, y: Reflow.rest(sp, 'y', doc.activeView) - h / 2, w, h,
+            cx: Reflow.rest(sp, 'x', doc.activeView), cy: Reflow.rest(sp, 'y', doc.activeView),
+            width: sp.width, height: sp.height, scaleX: sp.scaleX, scaleY: sp.scaleY,
+            hidden: layer.visible === false || sp.visible === false || sp.type === 'screen_trigger',
+            // Drawn relative to the centre: can only be scaled as a whole.
+            rigid: !!angle || sx !== 1 || sy !== 1 || ['path', 'brush', 'circle'].includes(sp.type) ||
+              !!sp.isBrushCanvas || !!(sp.strokes && sp.strokes.length)
+          };
+          const label = (sp.modules || []).find(m => m.type === 'text_label' && m.enabled !== false && m.params);
+          if (sp.type === 'text') {
+            if (sp.text) {
+              item.text = { value: String(sp.text), size: sp.fontSize || 16, weight: sp.fontWeight || 'normal',
+                family: fontStack(sp.fontFamily), line: 1.35, padX: 0, padY: 0 };
+            }
+          } else if (sp.type !== 'form_field') {
+            const value = label ? label.params.text : sp.text;
+            if (value) {
+              const p = label ? label.params : {};
+              item.text = { value: String(value), size: Number(p.fontSize) || sp.fontSize || 14, weight: p.fontWeight || sp.fontWeight || 'normal',
+                family: fontStack(p.fontFamily), line: Math.max(1.35, Number(p.lineHeight) || 0), padX: 16, padY: 8, label: !!label };
+            }
+          }
+          items.push(item);
+        }
+      }
+      return { width: doc.width, height: doc.height, items };
+    }
+
+    // An animated sprite is laid out where its animation ends. Animations hold
+    // desktop values, so in a responsive view the view's own position counts.
+    static rest(sp, prop, view) {
+      const track = sp.keyframes && sp.keyframes[prop];
+      return track && track.length && (!view || view === 'desktop') ? track[track.length - 1].value : sp[prop];
+    }
+
+    constructor(design) {
+      this.design = design;
+      this.widths = new Map();
+      this.mins = new Map();
+      this.ctx = document.createElement('canvas').getContext('2d');
+      const W = design.width, H = design.height;
+      this.flow = [];
+      this.loose = []; // not part of the flow: moves along with what it is next to
+      for (const it of design.items) {
+        const outside = it.x + it.w <= 0 || it.x >= W || it.y + it.h <= 0 || it.y >= H;
+        const bleeds = it.x < -2 || it.x + it.w > W + 2;
+        const spans = it.x <= 2 && it.x + it.w >= W - 2;
+        const backdrop = spans && it.y <= 2 && it.y + it.h >= H - 2;
+        if (it.hidden || outside || backdrop || (bleeds && !spans)) this.loose.push({ it, backdrop, spans });
+        else this.flow.push(it);
+      }
+      this.root = this.flow.length ? this.nest(this.flow) : null;
+    }
+
+    // Boxes that contain others become their parents.
+    nest(items) {
+      const boxes = items.filter(it => !it.rigid && ['rect', 'bevel_rect', 'image'].includes(it.type));
+      const children = new Map(), top = [];
+      for (const it of items) {
+        let parent = null;
+        for (const b of boxes) {
+          if (b === it || b.w * b.h <= it.w * it.h * 1.02) continue;
+          if (it.x < b.x - 1 || it.y < b.y - 1 || it.x + it.w > b.x + b.w + 1 || it.y + it.h > b.y + b.h + 1) continue;
+          if (!parent || b.w * b.h < parent.w * parent.h) parent = b;
+        }
+        if (!parent) top.push(it);
+        else if (children.has(parent)) children.get(parent).push(it);
+        else children.set(parent, [it]);
+      }
+      const toNode = it => ({ kind: 'box', x: it.x, y: it.y, w: it.w, h: it.h, item: it,
+        inner: children.has(it) ? this.split(children.get(it).map(toNode)) : null });
+      return this.split(top.map(toNode));
+    }
+
+    static group(kind, parts) {
+      const x = Math.min(...parts.map(p => p.x)), y = Math.min(...parts.map(p => p.y));
+      return { kind, parts, x, y,
+        w: Math.max(...parts.map(p => p.x + p.w)) - x,
+        h: Math.max(...parts.map(p => p.y + p.h)) - y };
+    }
+
+    // Rows, inside them columns, inside those rows again.
+    split(nodes) {
+      if (nodes.length === 1) return nodes[0];
+      const rows = Reflow.separate(nodes, 'y', 'h');
+      if (rows.length > 1) return Reflow.group('stack', rows.map(r => this.split(r)));
+      const columns = Reflow.separate(nodes, 'x', 'w');
+      if (columns.length > 1) return Reflow.group('row', columns.map(c => this.split(c)));
+      return Reflow.group('overlay', nodes);
+    }
+
+    // Sets of nodes that do not share space along an axis (slight overlaps allowed).
+    static separate(nodes, pos, size) {
+      const sorted = nodes.slice().sort((a, b) => a[pos] - b[pos]);
+      let sets = [];
+      for (const n of sorted) {
+        const joined = [], apart = [];
+        for (const set of sets) {
+          const shares = set.some(m => Math.min(m[pos] + m[size], n[pos] + n[size]) - n[pos] > 0.3 * Math.min(m[size], n[size]));
+          (shares ? joined : apart).push(set);
+        }
+        sets = apart.concat([[].concat(...joined, [n])]);
+      }
+      return sets.sort((a, b) => Math.min(...a.map(n => n[pos])) - Math.min(...b.map(n => n[pos])));
+    }
+
+    // ---------------- Text ----------------
+    charWidths(text, size) {
+      const font = `${text.weight} ${size}px ${text.family}`;
+      if (!this.widths.has(font)) this.widths.set(font, new Map());
+      const known = this.widths.get(font);
+      let ready = false;
+      return (ch) => {
+        if (!known.has(ch)) {
+          if (!ready) { this.ctx.font = font; ready = true; }
+          known.set(ch, this.ctx.measureText(ch).width);
+        }
+        return known.get(ch);
+      };
+    }
+
+    longestLine(text) {
+      const width = this.charWidths(text, text.size);
+      return Math.max(...text.value.split('\n').map(line => Array.from(line).reduce((sum, ch) => sum + width(ch), 0)));
+    }
+
+    // The canvas wraps at any character, a browser between words (CJK: between
+    // characters, but punctuation never starts or ends a line on its own).
+    // Use whichever needs more lines, so both fit.
+    lineCount(text, size, room) {
+      const width = this.charWidths(text, size);
+      const limit = Math.max(20, room); // no tolerance: browsers wrap at a fraction of a pixel
+      let total = 0;
+      for (const line of text.value.split('\n')) {
+        let byChar = 1, used = 0;
+        for (const ch of line) {
+          const w = width(ch);
+          if (used && used + w > limit) { byChar++; used = w; } else used += w;
+        }
+        let byWord = 1;
+        used = 0;
+        for (const word of line.match(/[(\[{\u201C\u2018]*[\u2E80-\u9FFF\uAC00-\uD7A3][.,!?:;)\]}%\u201D\u2019\u2026\u3001\u3002]*|[^\s\u2E80-\u9FFF\uAC00-\uD7A3]+|\s+/g) || []) {
+          let w = 0;
+          for (const ch of word) w += width(ch);
+          if (!word.trim()) { used += w; continue; }
+          if (used && used + w > limit) { byWord++; used = 0; }
+          while (w > limit) { byWord++; w -= limit; }
+          used += w;
+        }
+        total += Math.max(byChar, byWord);
+      }
+      return total;
+    }
+
+    // The narrowest a node may get before its row breaks.
+    minWidth(node) {
+      if (!this.mins.has(node)) this.mins.set(node, this.measureMinWidth(node));
+      return this.mins.get(node);
+    }
+
+    measureMinWidth(node) {
+      if (node.kind === 'stack' || node.kind === 'row') return Math.max(...node.parts.map(p => this.minWidth(p)));
+      if (node.kind === 'overlay') return Math.min(node.w, 160);
+      const it = node.item;
+      if (node.inner) return Math.min(node.w, Math.max(200, this.minWidth(node.inner) + 24));
+      if (it.rigid) return Math.min(node.w, 120);
+      if (it.text) {
+        const needed = this.longestLine(it.text) + it.text.padX * 2 + 2;
+        // Buttons and menu items never wrap; paragraphs and cards do.
+        return Math.min(node.w, it.h <= 64 && needed <= 240 ? needed : 240);
+      }
+      if (it.type === 'form_field') return Math.min(node.w, 160);
+      return Math.min(node.w, node.w <= 120 ? node.w : 200);
+    }
+
+    // ---------------- Layout ----------------
+    layout(width) {
+      const d = this.design, boxes = Object.create(null);
+      const W = d.width, T = Math.max(50, width);
+      if (Math.abs(T - W) < 0.5) {
+        // The design's own width: exactly the design, unrounded.
+        for (const it of d.items) boxes[it.id] = { x: it.cx, y: it.cy, width: it.width, height: it.height, scaleX: it.scaleX, scaleY: it.scaleY };
+        return { width: T, height: d.height, boxes };
+      }
+      this.out = new Map();
+      this.target = T;
+      let grown = 0;
+      if (this.root) grown = this.place(this.root, { x0: 0, w0: W, x: 0, w: T }, this.root.y) - this.root.h;
+      const height = Math.max(50, d.height + grown);
+
+      const ratio = Math.min(1, T / W);
+      for (const { it, backdrop, spans } of this.loose) {
+        // Follows whatever flow item ends closest above it.
+        let above = null;
+        for (const f of this.flow) if (f.y <= it.y && (!above || f.y > above.y)) above = f;
+        const dy = above && this.out.has(above) ? this.out.get(above).y - above.y : 0;
+        const right = W - it.x - it.w;
+        let x, w = it.w, h = it.h;
+        if (spans) {
+          x = it.x; w = Math.max(1, T - it.x - right);
+          if (backdrop) h = Math.max(1, it.h + grown);
+          if (it.rigid) { w = it.w; x = (T - w) / 2; h = it.h; }
+        } else if (it.x < W * 0.1 && it.x < right) x = it.x;
+        else if (right < W * 0.1) x = T - right - w;
+        else x = T / 2 + (it.x + w / 2 - W / 2) * ratio - w / 2;
+        this.out.set(it, { x, y: backdrop ? it.y : it.y + dy, w, h, k: 1 });
+      }
+      for (const [it, r] of this.out) {
+        boxes[it.id] = Reflow.result(it, r);
+      }
+      return { width: T, height, boxes };
+    }
+
+    // The sprite values for a laid-out box (x / y are the centre).
+    static result(it, r) {
+      const fix = v => Math.round(v * 100) / 100;
+      const box = { x: fix(r.x + r.w / 2), y: fix(r.y + r.h / 2), width: it.width, height: it.height, scaleX: it.scaleX, scaleY: it.scaleY };
+      if (it.rigid) {
+        box.scaleX = it.scaleX * r.k; box.scaleY = it.scaleY * r.k;
+      } else {
+        if (Math.abs(r.w - it.w) > 0.001) box.width = fix(r.w);
+        if (Math.abs(r.h - it.h) > 0.001) box.height = fix(r.h);
+        if (r.size) box.fontSize = fix(r.size);
+      }
+      return box;
+    }
+
+    // Where a node sits in its frame. Frame: the span it was designed in
+    // (x0, w0) and the span it gets now (x, w).
+    align(node, f, width) {
+      const left = node.x - f.x0, right = f.x0 + f.w0 - node.x - node.w;
+      const ratio = Math.min(1, f.w / f.w0);
+      const gl = Math.min(16, Math.max(0, left)), gr = Math.min(16, Math.max(0, right));
+      let x;
+      if (node.w < f.w0 * 0.8 && left < f.w0 * 0.1 && left < right - 2) x = f.x + left * ratio;
+      else if (node.w < f.w0 * 0.8 && right < f.w0 * 0.1 && right < left - 2) x = f.x + f.w - right * ratio - width;
+      else x = f.x + f.w / 2 + (node.x + node.w / 2 - f.x0 - f.w0 / 2) * ratio - width / 2;
+      return Math.max(f.x + gl, Math.min(x, f.x + f.w - gr - width));
+    }
+
+    available(node, f) {
+      const left = node.x - f.x0, right = f.x0 + f.w0 - node.x - node.w;
+      return Math.max(20, f.w - Math.min(16, Math.max(0, left)) - Math.min(16, Math.max(0, right)));
+    }
+
+    static fills(node, f) {
+      return node.x - f.x0 <= 2 && f.x0 + f.w0 - node.x - node.w <= 2;
+    }
+
+    // Lays a node out with its top at `top`; returns its height.
+    place(node, f, top) {
+      if (node.kind === 'stack') return this.placeStack(node, f, top);
+      if (node.kind === 'row') return this.placeRow(node, f, top);
+      if (node.kind === 'overlay') return this.placeScaled(node, f, top);
+      return this.placeBox(node, f, top);
+    }
+
+    placeStack(node, f, top) {
+      let shift = 0, bottom = top;
+      for (const part of node.parts) {
+        const y = top + part.y - node.y + shift;
+        const h = this.place(part, f, y);
+        shift += h - part.h;
+        bottom = Math.max(bottom, y + h);
+      }
+      return bottom - top;
+    }
+
+    placeScaled(node, f, top) {
+      const k = Math.min(1, this.available(node, f) / node.w);
+      const left = this.align(node, f, node.w * k);
+      const put = (n) => {
+        if (n.item) {
+          this.out.set(n.item, { x: left + (n.x - node.x) * k, y: top + (n.y - node.y) * k, w: n.w * k, h: n.h * k, k,
+            size: n.item.text && k !== 1 ? n.item.text.size * k : undefined });
+        }
+        if (n.inner) put(n.inner);
+        for (const p of n.parts || []) put(p);
+      };
+      put(node);
+      return node.h * k;
+    }
+
+    placeBox(node, f, top) {
+      const it = node.item;
+      const fills = Reflow.fills(node, f) && !it.rigid;
+      const w = fills ? Math.max(1, f.w - (node.x - f.x0) - (f.x0 + f.w0 - node.x - node.w)) : Math.min(node.w, this.available(node, f));
+      const x = fills ? f.x + node.x - f.x0 : this.align(node, f, w);
+      let h = node.h, k = 1, size;
+      if (it.rigid) {
+        k = w / node.w;
+        h = node.h * k;
+        if (it.text && k !== 1) size = it.text.size * k;
+      } else {
+        if (it.type === 'image' && !node.inner && w < node.w) h = node.h * w / node.w;
+        const t = it.text;
+        if (t) {
+          let fs = t.size;
+          if (fs > 28 && this.target < this.design.width) {
+            fs = Math.max(28, Math.round(fs * (0.45 + 0.55 * this.target / this.design.width) * 10) / 10);
+            if (fs !== t.size) size = fs;
+          }
+          if (w < node.w || size) {
+            const before = this.lineCount(t, t.size, node.w - t.padX * 2) * t.size * t.line + t.padY * 2;
+            const after = this.lineCount(t, fs, w - t.padX * 2) * fs * t.line + t.padY * 2;
+            h += Math.max(0, after - Math.max(node.h, before));
+          }
+        }
+        if (node.inner) {
+          const inner = node.inner;
+          const grown = this.place(inner, { x0: node.x, w0: node.w, x, w }, top + inner.y - node.y) - inner.h;
+          h = Math.max(h, node.h + grown);
+        }
+      }
+      this.out.set(it, { x, y: top, w, h, k, size });
+      return h;
+    }
+
+    // Places a row's part in exactly the given span.
+    placePart(part, x, w, top) {
+      return this.place(part, { x0: part.x, w0: part.w, x, w }, top);
+    }
+
+    placeRow(node, f, top) {
+      const parts = node.parts;
+      const gaps = parts.slice(1).map((p, i) => p.x - parts[i].x - parts[i].w);
+      const left = node.x - f.x0, right = f.x0 + f.w0 - node.x - node.w;
+      const wide = [];
+      gaps.forEach((g, i) => { if (g > f.w0 * 0.12) wide.push(i); });
+      if (wide.length && left < f.w0 * 0.1 && right < f.w0 * 0.1) return this.placeSpread(node, f, top, wide);
+
+      // Panels that share the whole width keep sharing it.
+      if (f.w > f.w0 && Reflow.fills(node, f) && gaps.every(g => g <= 2)) {
+        let x = f.x + left, height = 0;
+        for (const p of parts) {
+          const w = p.w * f.w / f.w0, y = p.y - node.y;
+          height = Math.max(height, y + this.placePart(p, x, w, top + y));
+          x += w;
+        }
+        return height;
+      }
+      return this.placePacked(node, f, top, gaps);
+    }
+
+    placePacked(node, f, top, gaps) {
+      const parts = node.parts, room = this.available(node, f);
+      // Small items (menu entries) may move closer together than cards.
+      const closest = parts.every(q => q.w <= 120) ? 8 : 16;
+      const tight = gaps.map(g => Math.min(g, closest));
+      const sum = list => list.reduce((a, b) => a + b, 0);
+      const mins = parts.map(p => Math.min(room, this.minWidth(p)));
+
+      // Break into lines, as few as possible, with no lone item if avoidable.
+      let lines = [];
+      let line = [], used = 0;
+      parts.forEach((p, i) => {
+        const gap = line.length ? tight[i - 1] : 0;
+        if (line.length && used + gap + mins[i] > room + 0.5) {
+          lines.push(line);
+          line = [i]; used = mins[i];
+        } else {
+          line.push(i); used += gap + mins[i];
+        }
+      });
+      lines.push(line);
+      const last = lines[lines.length - 1], prev = lines[lines.length - 2];
+      if (prev && last.length === 1 && prev.length > 2) last.unshift(prev.pop());
+
+      const sameSize = parts.every(p => p.kind === 'box' && Math.abs(p.h - parts[0].h) < 1 && Math.abs(p.y - parts[0].y) < 1);
+      const between = Math.max(8, Math.min(24, ...gaps.filter(g => g > 0)));
+      let y = top;
+      lines.forEach((ids, n) => {
+        const inner = ids.slice(1).map(i => gaps[i - 1]), least = ids.slice(1).map(i => tight[i - 1]);
+        const natural = ids.map(i => parts[i].w), narrow = ids.map(i => mins[i]);
+        let widths = natural, space = inner;
+        if (sum(natural) + sum(inner) > room + 0.01) {
+          if (sum(natural) + sum(least) <= room) {
+            const t = (room - sum(natural) - sum(least)) / Math.max(1e-6, sum(inner) - sum(least));
+            space = inner.map((g, i) => least[i] + (g - least[i]) * t);
+          } else {
+            space = least;
+            const t = Math.max(0, (room - sum(least) - sum(narrow)) / Math.max(1e-6, sum(natural) - sum(narrow)));
+            widths = natural.map((w, i) => narrow[i] + (w - narrow[i]) * Math.min(1, t));
+          }
+        }
+        let x = this.align(node, f, sum(widths) + sum(space));
+        let height = 0;
+        const placed = [];
+        ids.forEach((id, i) => {
+          const p = parts[id], offset = lines.length > 1 ? 0 : p.y - node.y;
+          const h = this.placePart(p, x, widths[i], y + offset);
+          height = Math.max(height, offset + h);
+          placed.push(p);
+          x += widths[i] + (i < space.length ? space[i] : 0);
+        });
+        // Equal cards stay equally tall.
+        if (sameSize) {
+          for (const p of placed) {
+            if (!p.item.rigid && p.item.type !== 'image') this.out.get(p.item).h = height;
+          }
+        }
+        y += height + (n < lines.length - 1 ? between : 0);
+      });
+      return y - top;
+    }
+
+    // Items at both edges stay there, what is between them stays centred.
+    placeSpread(node, f, top, wide) {
+      const parts = node.parts;
+      if (!node.sides) {
+        const make = list => (list.length === 1 ? list[0] : Reflow.group('row', list));
+        const first = wide[0], last = wide[wide.length - 1];
+        node.sides = { start: make(parts.slice(0, first + 1)), end: make(parts.slice(last + 1)),
+          middle: last > first ? make(parts.slice(first + 1, last + 1)) : null };
+      }
+      const { start, end, middle } = node.sides;
+      const left = node.x - f.x0, right = f.x0 + f.w0 - node.x - node.w;
+      const gl = Math.min(16, Math.max(0, left)), gr = Math.min(16, Math.max(0, right));
+      const ratio = Math.min(1, f.w / f.w0);
+      const oneLine = start.w + end.w + (middle ? middle.w + 32 : 16);
+      const slack = f.w - gl - gr - oneLine;
+      let height = 0;
+      if (slack >= 0) {
+        const l = Math.max(gl, Math.min(left * ratio, gl + slack / 2));
+        const r = Math.max(gr, Math.min(right * ratio, gr + slack / 2));
+        const put = (part, x) => {
+          const offset = part.y - node.y;
+          height = Math.max(height, offset + this.placePart(part, x, part.w, top + offset));
+        };
+        put(start, f.x + l);
+        put(end, f.x + f.w - r - end.w);
+        if (middle) {
+          const centre = f.x + f.w / 2 + (middle.x + middle.w / 2 - f.x0 - f.w0 / 2) * ratio;
+          put(middle, Math.max(f.x + l + start.w + 16, Math.min(centre - middle.w / 2, f.x + f.w - r - end.w - 16 - middle.w)));
+        }
+        return height;
+      }
+
+      // Too narrow: the edges share the first line, the middle goes below.
+      const room = Math.max(20, f.w - gl - gr);
+      const need = this.minWidth(start) + this.minWidth(end) + 16;
+      let bottom;
+      if (need <= room) {
+        const t = Math.min(1, (room - need) / Math.max(1e-6, start.w + end.w + 16 - need));
+        const a = this.minWidth(start) + (start.w - this.minWidth(start)) * t;
+        const b = this.minWidth(end) + (end.w - this.minWidth(end)) * t;
+        const base = Math.min(start.y, end.y);
+        bottom = top + Math.max(start.y - base + this.placePart(start, f.x + gl, a, top + start.y - base),
+          end.y - base + this.placePart(end, f.x + f.w - gr - b, b, top + end.y - base));
+      } else {
+        bottom = top + this.placePart(start, f.x + gl, Math.min(room, start.w), top);
+        bottom += 12;
+        bottom += this.placePart(end, f.x + gl, Math.min(room, end.w), bottom);
+      }
+      if (middle) {
+        // Centred in the full span, whatever side it was designed on.
+        const span = { x0: middle.x, w0: middle.w, x: f.x + gl, w: Math.min(room, middle.w) };
+        span.x += (room - span.w) / 2;
+        bottom += 12;
+        bottom += this.place(middle, span, bottom);
+      }
+      return bottom - top;
+    }
+  }
+
+  // ==========================================================================
   // 4. Document Model
   // ==========================================================================
   class DocumentModel {
@@ -1586,7 +2080,7 @@
       sp._wrapCache = null;
     }
 
-    // First layout for a new view: the desktop layout scaled to its width.
+    // For a sprite added after its view was created: desktop values scaled.
     static scaledView(desk, s) {
       const o = Object.assign({}, desk);
       for (const k of ['x', 'y', 'width', 'height']) if (isFinite(o[k])) o[k] = Math.round(o[k] * s);
@@ -1594,6 +2088,107 @@
       if (isFinite(o.fontSize)) o.fontSize = Math.max(1, Math.round(o.fontSize * s));
       if (isFinite(o.labelFontSize)) o.labelFontSize = Math.max(1, Math.round(o.labelFontSize * s));
       return o;
+    }
+
+    // ---------------- Reflow ----------------
+    // The values a layout changes, as they are before it.
+    static geometryOf(sp, view) {
+      const g = { width: sp.width, height: sp.height, scaleX: sp.scaleX, scaleY: sp.scaleY, fontSize: sp.fontSize,
+        x: Reflow.rest(sp, 'x', view), y: Reflow.rest(sp, 'y', view), tracks: {} };
+      const label = DocumentModel.labelOf(sp);
+      if (label && Number(label.params.fontSize)) g.labelFontSize = Number(label.params.fontSize);
+      for (const k of ['x', 'y', 'width', 'height', 'scaleX', 'scaleY']) {
+        const track = sp.keyframes && sp.keyframes[k];
+        if (track && track.length) g.tracks[k] = track.map(kf => Object.assign({}, kf));
+      }
+      return g;
+    }
+
+    captureGeometry() {
+      const map = new Map();
+      for (const l of this.layers) for (const sp of l.sprites) map.set(sp.id, DocumentModel.geometryOf(sp, this.activeView));
+      return map;
+    }
+
+    // Set a layout from Reflow. `geometry` is captureGeometry() of the design
+    // it was computed from. Sprites that are moving keep moving: their runtime
+    // values shift along. withTracks: move the animations too.
+    applyLayout(layout, geometry, withTracks = true) {
+      for (const l of this.layers) {
+        for (const sp of l.sprites) {
+          const box = layout.boxes[sp.id], g = geometry.get(sp.id);
+          if (!box || !g) continue;
+          const old = { x: sp.x, y: sp.y, scaleX: sp.scaleX, scaleY: sp.scaleY };
+          for (const k of ['x', 'y', 'width', 'height', 'scaleX', 'scaleY']) sp[k] = box[k];
+          const label = DocumentModel.labelOf(sp);
+          // A label without a size of its own uses the sprite's.
+          if (label && g.labelFontSize) {
+            sp.fontSize = g.fontSize;
+            label.params.fontSize = box.fontSize || g.labelFontSize;
+          } else {
+            sp.fontSize = box.fontSize || g.fontSize;
+          }
+          if (withTracks && Object.keys(g.tracks).length) {
+            for (const k of Object.keys(g.tracks)) {
+              // Positions move to end in the new place; sizes scale along.
+              const moves = k === 'x' || k === 'y', track = g.tracks[k];
+              const end = track[track.length - 1].value;
+              sp.keyframes[k] = track.map(kf => Object.assign({}, kf,
+                { value: moves ? kf.value + box[k] - end : (g[k] ? kf.value * box[k] / g[k] : kf.value) }));
+            }
+            sp.evaluateKeyframes(this.currentFrame);
+          }
+          const rt = sp.runtime;
+          if (rt) {
+            rt.x += sp.x - old.x; rt.y += sp.y - old.y;
+            if (rt._px !== undefined) { rt._px += sp.x - old.x; rt._py += sp.y - old.y; }
+            if (old.scaleX) rt.scaleX *= sp.scaleX / old.scaleX;
+            if (old.scaleY) rt.scaleY *= sp.scaleY / old.scaleY;
+          }
+          sp._wrapCache = null;
+        }
+      }
+      this.width = layout.width;
+      this.height = Math.round(layout.height);
+    }
+
+    // Undo what applyLayout did to the animations.
+    restoreTracks(geometry) {
+      for (const l of this.layers) {
+        for (const sp of l.sprites) {
+          const g = geometry.get(sp.id);
+          if (g) for (const k of Object.keys(g.tracks)) sp.keyframes[k] = g.tracks[k].map(kf => Object.assign({}, kf));
+        }
+      }
+    }
+
+    // Identifies the current arrangement (the canvas height does not matter).
+    layoutKey() {
+      return JSON.stringify([this.activeView, this.width, this.layers.map(l => [l.visible, l.sprites.map(sp => {
+        const g = DocumentModel.geometryOf(sp, this.activeView), label = DocumentModel.labelOf(sp);
+        return [sp.id, sp.visible, sp.rotation, g, sp.text, label && label.params.text];
+      })])]);
+    }
+
+    // The design to lay out from. While the result of the last resize has not
+    // been edited, that is the design before it, so resizing back and forth
+    // loses nothing (like resizing a browser window).
+    reflowSource() {
+      const known = this._reflowed && this._reflowed.get(this.layoutKey());
+      if (known) return Object.assign({}, known.source, { extra: known.source.extra + this.height - known.height });
+      return { flow: new Reflow(Reflow.describe(this, PhotoshopCanvas.fontStack)), geometry: this.captureGeometry(), extra: 0 };
+    }
+
+    reflowTo(width, source = this.reflowSource()) {
+      this.applyLayout(source.flow.layout(width), source.geometry, (this.activeView || 'desktop') === 'desktop');
+      this.height = Math.max(50, this.height + source.extra);
+      return source;
+    }
+
+    rememberLayout(source, height = this.height) {
+      this._reflowed = this._reflowed || new Map();
+      this._reflowed.set(this.layoutKey(), { source, height });
+      if (this._reflowed.size > this.maxHistory) this._reflowed.delete(this._reflowed.keys().next().value);
     }
 
     hasView(name) {
@@ -1617,11 +2212,18 @@
       if (name === 'desktop') {
         for (const sp of all) { if (sp._desktop) DocumentModel.applyView(sp, sp._desktop); delete sp._desktop; }
         this.width = desk.width; this.height = desk.height;
-      } else {
-        if (!this.views[name]) {
-          const w = DocumentModel.viewWidths()[name];
-          this.views[name] = { width: w, height: Math.max(200, Math.round(desk.height * w / desk.width)) };
+      } else if (!this.views[name]) {
+        // A new view starts as the desktop design reflowed to its width.
+        for (const sp of all) {
+          if (sp._desktop) DocumentModel.applyView(sp, sp._desktop);
+          else sp._desktop = DocumentModel.captureView(sp);
         }
+        this.width = desk.width; this.height = desk.height;
+        const flow = new Reflow(Reflow.describe(this, PhotoshopCanvas.fontStack));
+        // Animations are shared by all views: they are left as they are.
+        this.applyLayout(flow.layout(DocumentModel.viewWidths()[name]), this.captureGeometry(), false);
+        this.views[name] = { width: this.width, height: this.height };
+      } else {
         const s = this.views[name].width / desk.width;
         for (const sp of all) {
           const deskVals = sp._desktop || DocumentModel.captureView(sp);
@@ -5745,7 +6347,7 @@
     // shapes, paths, brush strokes, text and text_label modules, gradients,
     // images, filters, masks and timeline keyframes.
     static getRuntimeSource(withEngine = true) {
-      const parts = [safeUrl, Sprite, Layer, DocumentModel, PhotoshopCanvas];
+      const parts = [safeUrl, Sprite, Layer, Reflow, DocumentModel, PhotoshopCanvas];
       if (withEngine) parts.push(FormRuntime, ModuleEngine);
       let src = parts.map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
       if (!withEngine) {
@@ -5772,7 +6374,7 @@
       const allowed = jsonForScript(allowedScripts);
       const data = jsonForScript(doc.toJSON());
       const disabled = jsonForScript(disabledModuleIds ? [...disabledModuleIds] : []);
-      const engineSrc = [safeUrl, Sprite, Layer, DocumentModel, FormRuntime, ModuleEngine].map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
+      const engineSrc = [safeUrl, Sprite, Layer, Reflow, DocumentModel, FormRuntime, ModuleEngine].map(c => PhotoshopJSExporter.compactSource(c.toString())).join('\n');
       const player = function () {
         const artboard = document.getElementById('webArtboard');
         if (!artboard) return;
@@ -5780,8 +6382,8 @@
         model.loadFromData(DOC_DATA, false);
         model.selectedSpriteIds = new Set();
         const startView = (window.JSPenView && window.JSPenView.current) || 'desktop';
-        if (startView !== 'desktop' && model.hasView(startView)) model.switchView(startView);
         model.setFrame(0);
+        if (startView !== 'desktop' && model.hasView(startView)) model.switchView(startView);
         for (const l of model.layers) l.resetRuntime();
         const engine = new ModuleEngine(model);
         engine.disabledModuleIds = new Set(DISABLED_MODULE_IDS);
@@ -5798,6 +6400,22 @@
         const base = new Map();
         const captureBase = () => { base.clear(); for (const l of model.layers) for (const s of l.sprites) base.set(s.id, { x: s.x, y: s.y, opacity: s.opacity }); };
         captureBase();
+        // The page script lays the elements out; the model follows it.
+        let authored = model.captureGeometry(), authoredSize = { width: model.width, height: model.height };
+        const followLayout = (layout) => {
+          model.applyLayout(layout, authored);
+          for (const [id, b] of base) {
+            const box = layout.boxes[id];
+            if (box) { b.x = box.x; b.y = box.y; }
+          }
+        };
+        const unfollowLayout = () => {
+          const boxes = Object.create(null);
+          for (const [id, g] of authored) boxes[id] = { x: g.x, y: g.y, width: g.width, height: g.height, scaleX: g.scaleX, scaleY: g.scaleY };
+          followLayout({ width: authoredSize.width, height: authoredSize.height, boxes });
+          model.restoreTracks(authored);
+        };
+        if (window.JSPenView && window.JSPenView.layout) followLayout(window.JSPenView.layout);
         const cssFilter = sp => {
           const out = [];
           const srcs = [];
@@ -5949,11 +6567,25 @@
           engine.forms.sync(model);
           apply();
         };
+        // A new width: everything moves, nothing restarts.
+        window.addEventListener('jspen-layout', e => {
+          followLayout(e.detail);
+          fx.width = model.width; fx.height = model.height;
+          fx.style.width = model.width + 'px'; fx.style.height = model.height + 'px';
+          for (const it of items) {
+            it.transform = transformOf(it.sp, it.b);
+            if (it.owned) it.el.style.setProperty('transform', it.transform, 'important');
+            it.snap = snapshot(it.sp);
+          }
+        });
         // Responsive view changes (window resize / preview toolbar).
         window.addEventListener('jspen-view', e => {
           const v = e.detail;
           if (!model.hasView(v) && v !== 'desktop') return;
+          // Never store a reflowed arrangement as a view's own layout.
+          unfollowLayout();
           model.switchView(v);
+          authored = model.captureGeometry(); authoredSize = { width: model.width, height: model.height };
           for (const l of model.layers) l.resetRuntime();
           captureBase();
           engine.start();
@@ -6232,28 +6864,65 @@ ${this.getRuntimeSource(withEngine)}
     }
   };
 
-  // Responsive views: pick the layout for the available width.
+  // Responsive views: pick the layout for the available width, then reflow it.
+  const availableWidth = () => {
+    const box = canvas.parentElement;
+    if (!box || !box.clientWidth) return window.innerWidth;
+    const css = getComputedStyle(box);
+    return Math.max(50, box.clientWidth - (parseFloat(css.paddingLeft) || 0) - (parseFloat(css.paddingRight) || 0));
+  };
   const pickView = () => {
-    const w = (canvas.parentElement && canvas.parentElement.clientWidth) || window.innerWidth;
+    const w = availableWidth();
     if (model.hasView('mobile') && w <= 600) return 'mobile';
     if (model.hasView('tablet') && w <= 1024) return 'tablet';
     return 'desktop';
   };
+  let source = null, shownWidth = 0;
   const useView = (v) => {
     if (v === (model.activeView || 'desktop')) return false;
+    if (source) {
+      // Never store a reflowed arrangement as a view's own layout.
+      model.applyLayout(source.flow.layout(source.width), source.geometry);
+      model.restoreTracks(source.geometry);
+      source = null;
+    }
     model.switchView(v);
     for (const l of model.layers) l.resetRuntime();
     if (engine.active) engine.start();
     return true;
   };
-  useView(pickView());
-  player.resize();
-  model.setFrame(0);
-  for (const l of model.layers) l.resetRuntime();
-  window.addEventListener('resize', () => {
+  const fitWidth = () => {
     const changed = useView(pickView());
-    if (changed || Math.max(1, window.devicePixelRatio || 1) !== player.dpr) player.resize();
-  });
+    if (!source) {
+      source = { design: Reflow.describe(model, PhotoshopCanvas.fontStack), geometry: model.captureGeometry(), width: model.width };
+      source.flow = new Reflow(source.design);
+      shownWidth = 0;
+    }
+    const w = Math.round(availableWidth());
+    const moved = w !== shownWidth;
+    if (moved) {
+      shownWidth = w;
+      model.applyLayout(source.flow.layout(w), source.geometry);
+    }
+    if (changed || moved || Math.max(1, window.devicePixelRatio || 1) !== player.dpr) player.resize();
+  };
+  model.setFrame(0);
+  useView(pickView());
+  for (const l of model.layers) l.resetRuntime();
+  fitWidth();
+  window.addEventListener('resize', fitWidth);
+  if (typeof ResizeObserver !== 'undefined' && canvas.parentElement) {
+    new ResizeObserver(() => requestAnimationFrame(fitWidth)).observe(canvas.parentElement);
+  }
+  // Text is measured: lay out again once web fonts have arrived.
+  if (document.fonts && document.fonts.addEventListener) {
+    document.fonts.addEventListener('loadingdone', () => {
+      if (!source) return;
+      source.flow = new Reflow(source.design);
+      shownWidth = 0;
+      fitWidth();
+    });
+  }
 
   let last = performance.now();
   let frameAcc = 0;
@@ -6299,7 +6968,8 @@ ${this.getRuntimeSource(withEngine)}
   <title>${escapeHtml(doc.name || 'JSPen Output')}</title>
   <style>
     html, body { margin: 0; min-height: 100%; background: #000; }
-    body { display: flex; align-items: flex-start; justify-content: center; overflow: auto; }
+    /* Always a scrollbar: its appearing must not change the width to lay out for. */
+    body { display: flex; align-items: flex-start; justify-content: center; overflow-x: auto; overflow-y: scroll; }
     canvas { display: block; max-width: 100%; height: auto; letter-spacing: normal; box-shadow: 0 10px 40px rgba(0,0,0,0.8); }
   </style>
 </head>
@@ -7142,7 +7812,7 @@ ${this.getRuntimeSource(withEngine)}
     // Canvas (artboard) size: free W/H inputs. The artboard edges can also be
     // dragged on the canvas (handles on the right / bottom / corner).
     renderCanvasSection() {
-      const mode = this.canvasMode || 'keep';
+      const mode = this.canvasMode || 'reflow';
       const view = this.doc.activeView && this.doc.activeView !== 'desktop' ? ` (${this.doc.activeView === 'mobile' ? '모바일' : '태블릿'} 화면)` : '';
       return `
         <div class="ps-prop-section" id="canvasSizeSection">
@@ -7159,12 +7829,13 @@ ${this.getRuntimeSource(withEngine)}
           <div class="ps-prop-row">
             <label class="ps-prop-label">작업물 처리:</label>
             <select class="ps-select" id="inpCanvasMode">
+              <option value="reflow" ${mode === 'reflow' ? 'selected' : ''}>웹사이트처럼 재배치</option>
               <option value="keep" ${mode === 'keep' ? 'selected' : ''}>그대로 두기</option>
               <option value="fit" ${mode === 'fit' ? 'selected' : ''}>비율 유지하며 맞추기</option>
               <option value="stretch" ${mode === 'stretch' ? 'selected' : ''}>캔버스에 맞춰 늘리기</option>
             </select>
           </div>
-          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;line-height:1.5;margin-top:4px;">값을 입력하고 Enter. 캔버스 오른쪽·아래 가장자리의 손잡이를 끌어도 바뀝니다 (Shift: 10px 단위).</div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;line-height:1.5;margin-top:4px;">값을 입력하고 Enter. 캔버스 오른쪽·아래 가장자리의 손잡이를 끌어도 바뀝니다 (Shift: 10px 단위). 손잡이는 '그대로 두기'일 때만 내용을 고정하고, 나머지는 웹사이트처럼 재배치합니다.</div>
         </div>`;
     }
 
@@ -7175,7 +7846,7 @@ ${this.getRuntimeSource(withEngine)}
       const apply = () => {
         const w = Math.round(parseFloat(wEl.value)), h = Math.round(parseFloat(hEl.value));
         if (!(w >= 50 && h >= 50)) { wEl.value = this.doc.width; hEl.value = this.doc.height; return; }
-        window.jspenApp?.setCanvasSize(Math.min(10000, w), Math.min(20000, h), this.canvasMode || 'keep');
+        window.jspenApp?.setCanvasSize(Math.min(10000, w), Math.min(20000, h), this.canvasMode || 'reflow');
       };
       wEl.addEventListener('change', apply);
       hEl.addEventListener('change', apply);
@@ -11958,16 +12629,24 @@ ${sprite.type === 'text' ? `
       const hasContent = this.doc.layers.some(l => l.sprites.length > 0);
       const mode = !hasContent ? 'keep' : await StudioModal.choose(
         `캔버스를 ${this.doc.width}×${this.doc.height} → ${w}×${h}px로 바꿉니다. 작업물은 어떻게 할까요?`,
-        [['fit', '비율 유지하며 맞추기', '내용 전체를 같은 비율로 줄이거나 키워 가운데에 배치합니다.'],
+        [['reflow', '웹사이트처럼 재배치', '글자 크기를 유지한 채 폭에 맞춰 배치합니다. 내용이 길어지면 세로도 늘어납니다.'],
+         ['fit', '비율 유지하며 맞추기', '내용 전체를 같은 비율로 줄이거나 키워 가운데에 배치합니다.'],
          ['stretch', '캔버스에 맞춰 늘리기', '위치와 크기를 가로·세로 비율에 따라 각각 맞춥니다.'],
          ['keep', '그대로 두기', '캔버스 크기만 바꾸고 내용은 움직이지 않습니다.']], '캔버스 크기 변경');
       if (!mode) return;
-      this.doc.resizeCanvas(w, h, mode);
+      if (mode === 'reflow') {
+        const source = this.doc.reflowTo(w);
+        const natural = this.doc.height;
+        this.doc.height = Math.max(h, natural); // never cut the content off
+        this.doc.rememberLayout(source, natural);
+      } else {
+        this.doc.resizeCanvas(w, h, mode);
+      }
       this.doc.saveState();
       this.handleResize();
       this.fitToScreen ? this.fitToScreen() : this.renderer.centerArtboard();
       this.refreshUI();
-      StudioToast.show(`캔버스 크기: ${w}×${h}px`);
+      StudioToast.show(`캔버스 크기: ${this.doc.width}×${this.doc.height}px`);
     }
 
     // Resize without asking (inspector fields, artboard handles).
@@ -11975,11 +12654,23 @@ ${sprite.type === 'text' ? `
       w = Math.round(w); h = Math.round(h);
       if (!(w > 0 && h > 0) || (w === this.doc.width && h === this.doc.height)) return false;
       this.endLivePreview();
-      this.doc.resizeCanvas(w, h, mode);
+      if (mode === 'reflow') {
+        if (w === this.doc.width) {
+          this.doc.resizeCanvas(w, h, 'keep'); // only the height was typed
+        } else {
+          const typedHeight = h !== this.doc.height;
+          const source = this.doc.reflowTo(w);
+          const natural = this.doc.height;
+          if (typedHeight) this.doc.height = h;
+          this.doc.rememberLayout(source, natural);
+        }
+      } else {
+        this.doc.resizeCanvas(w, h, mode);
+      }
       this.doc.saveState();
       this.fitToScreen();
       this.refreshUI();
-      if (!quiet) StudioToast.show(`캔버스 크기: ${w}×${h}px`);
+      if (!quiet) StudioToast.show(`캔버스 크기: ${this.doc.width}×${this.doc.height}px`);
       return true;
     }
 
@@ -12003,7 +12694,7 @@ ${sprite.type === 'text' ? `
       if (this.menuBar) this.menuBar.render();
       const label = { desktop: '데스크톱', tablet: '태블릿', mobile: '모바일' }[name];
       StudioToast.show(first
-        ? `${label} 화면을 만들었습니다. 데스크톱 배치를 축소한 상태에서 시작하니, 이 화면에서 위치·크기·글자 크기·표시 여부를 따로 조정하세요.`
+        ? `${label} 화면을 만들었습니다. 데스크톱 배치를 이 폭에 맞춰 재배치한 상태에서 시작하니, 이 화면에서 위치·크기·글자 크기·표시 여부를 따로 조정하세요.`
         : `${label} 화면 편집 중`, first ? 5000 : 1800);
     }
 
@@ -12638,6 +13329,18 @@ ${sprite.type === 'text' ? `
       // Module interactions / keyframes run on the exported DOM via the engine.
       const disabledIds = this.nodeEditor ? this.nodeEditor.getDisabledModuleIds() : null;
       const docJson = doc.toJSON();
+      // What the page lays out from: the design of every responsive view.
+      const designs = {};
+      for (const v of DocumentModel.viewNames()) {
+        if (!doc.hasView(v)) continue;
+        let design = doc;
+        if (v !== 'desktop') {
+          design = new DocumentModel();
+          design.loadFromData(Object.assign({}, docJson, { activeView: 'desktop' }), false);
+          design.switchView(v);
+        }
+        designs[v] = Reflow.describe(design, PhotoshopCanvas.fontStack);
+      }
       const runtimeScript = (PhotoshopJSExporter.needsEngine(docJson, disabledIds, true) || PhotoshopJSExporter.hasKeyframes(docJson))
         ? `<script>${PhotoshopJSExporter.webRuntimeScript(doc, disabledIds, forExport ? null : allowedScripts)}<\/script>` : '';
       const W = Number(doc.width) || 1440;
@@ -12849,7 +13552,7 @@ ${sprite.type === 'text' ? `
             line-height: 1.35;
             user-select: none;
             text-decoration: none;
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s, box-shadow 0.2s, background-color 0.2s, color 0.2s, border-color 0.2s, filter 0.2s;
           `;
         elementsHtml += `
           <${tag} class="${escapeHtml(classAttr)}" ${anchorAttr} data-sid="${escapeHtml(sprite.id)}" ${hrefAttr} style="${escapeHtml(styleAttr)}">${innerContent}</${tag}>
@@ -12951,9 +13654,9 @@ ${sprite.type === 'text' ? `
   </div>
 
   ${forExport ? '' : `  <!-- Sleek Monochromatic Preview Control Bar -->
-  <div id="previewToolbar" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#18181b;border:1px solid #3f3f46;border-radius:24px;padding:6px 14px;display:flex;align-items:center;gap:8px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:12px;color:#f4f4f5;user-select:none;">
-    <span style="font-weight:700;color:#e4e4e7;margin-right:2px;">화면 배율:</span>
-    <span id="valZoomPercent" style="min-width:44px;font-weight:600;color:#a1a1aa;">100%</span>
+  <div id="previewToolbar" style="max-width:calc(100% - 16px);width:max-content;overflow-x:auto;white-space:nowrap;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#18181b;border:1px solid #3f3f46;border-radius:24px;padding:6px 14px;display:flex;align-items:center;gap:8px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-size:12px;color:#f4f4f5;user-select:none;">
+    <span style="font-weight:700;color:#e4e4e7;margin-right:2px;">화면 폭:</span>
+    <span id="valScreenWidth" style="min-width:52px;font-weight:600;color:#a1a1aa;"></span>
     <button class="pv-btn active" data-mode="fit" style="background:#3f3f46;color:#ffffff;border:1px solid #71717a;padding:3px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:600;">창 맞춤 (Fit)</button>
     <button class="pv-btn" data-mode="100" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">100%</button>
     <button class="pv-btn" data-mode="768" style="background:transparent;color:#a1a1aa;border:1px solid #52525b;padding:3px 8px;border-radius:12px;cursor:pointer;font-size:11px;">태블릿 (768)</button>
@@ -12961,7 +13664,11 @@ ${sprite.type === 'text' ? `
   </div>`}
 
   <script>
-    // Responsive Dynamic Scaling
+    // Responsive layout: the page reflows to the window's width
+    ${PhotoshopJSExporter.compactSource(Reflow.toString())}
+    const DESIGNS = ${jsonForScript(designs)};
+    let flows = {};
+    let lastLayout = null;
     document.documentElement.classList.add('jspen-js');
     let currentZoomMode = 'fit';
     const baseW = ${W};
@@ -12985,11 +13692,48 @@ ${sprite.type === 'text' ? `
     function applyView(view) {
       const root = document.documentElement;
       ['desktop', 'tablet', 'mobile'].forEach(v => root.classList.toggle('jspen-view-' + v, v === view));
-      window.JSPenView = { current: view };
+      window.JSPenView = { current: view, layout: view === currentView ? lastLayout : null };
       if (view !== currentView) {
         currentView = view;
+        lastLayout = null;
         window.dispatchEvent(new CustomEvent('jspen-view', { detail: view }));
       }
+    }
+
+    let elements = null;
+    function applyLayout(view, width) {
+      if (lastLayout && lastLayout.width === width) return;
+      if (!flows[view]) flows[view] = new Reflow(DESIGNS[view]);
+      const layout = flows[view].layout(width);
+      if (!elements) {
+        elements = Array.from(document.querySelectorAll('#webArtboard [data-sid]'), el => ({
+          el, id: el.getAttribute('data-sid'), transform: el.style.transform, fontSize: el.style.fontSize
+        }));
+      }
+      const designed = new Map(DESIGNS[view].items.map(it => [it.id, it]));
+      for (const { el, id, transform, fontSize } of elements) {
+        const box = layout.boxes[id], it = designed.get(id);
+        if (!box || !it) continue;
+        // important: responsive view rules use !important
+        el.style.setProperty('left', (box.x - box.width / 2) + 'px', 'important');
+        el.style.setProperty('top', (box.y - box.height / 2) + 'px', 'important');
+        el.style.setProperty('width', box.width + 'px', 'important');
+        el.style.setProperty('height', box.height + 'px', 'important');
+        if (box.fontSize) el.style.setProperty('font-size', box.fontSize + 'px', 'important');
+        else el.style.setProperty('font-size', fontSize);
+        if (box.scaleX !== it.scaleX || box.scaleY !== it.scaleY) {
+          const rotate = (transform.match(/rotate\([^)]*\)/) || [''])[0];
+          el.style.setProperty('transform', rotate + ' scale(' + box.scaleX + ',' + box.scaleY + ')', 'important');
+        } else {
+          el.style.setProperty('transform', transform);
+        }
+      }
+      const artboard = document.getElementById('webArtboard');
+      artboard.style.setProperty('width', width + 'px', 'important');
+      artboard.style.setProperty('min-height', layout.height + 'px', 'important');
+      lastLayout = layout;
+      window.JSPenView.layout = layout;
+      window.dispatchEvent(new CustomEvent('jspen-layout', { detail: layout }));
     }
 
     function updatePreviewScale() {
@@ -13003,24 +13747,21 @@ ${sprite.type === 'text' ? `
       applyView(view);
       const viewW = VIEW_WIDTHS[view] || baseW;
       let scale = 1;
-      if (currentZoomMode === 'fit') {
-        scale = Math.max(0.15, availW / viewW);
-        artboard.style.width = viewW + 'px';
-      } else if (currentZoomMode === '100') {
-        scale = 1;
-        artboard.style.width = viewW + 'px';
-      } else {
-        const fixedW = VIEW_WIDTHS[view] && view !== 'desktop' ? viewW : (parseInt(currentZoomMode, 10) || baseW);
-        scale = Math.min(1, availW / fixedW);
-        artboard.style.width = fixedW + 'px';
+      let width = availW;
+      if (currentZoomMode === '100') {
+        width = viewW;
+      } else if (currentZoomMode !== 'fit') {
+        width = VIEW_WIDTHS[view] && view !== 'desktop' ? viewW : (parseInt(currentZoomMode, 10) || baseW);
+        scale = Math.min(1, availW / width); // a device wider than the window
       }
+      applyLayout(view, width);
 
-      scaler.style.transform = "scale(" + scale + ")";
+      scaler.style.transform = scale === 1 ? 'none' : "scale(" + scale + ")";
       const scaledH = (artboard.offsetHeight || baseH) * scale;
       if (stage) stage.style.height = scaledH + 'px';
 
-      const lbl = document.getElementById('valZoomPercent');
-      if (lbl) lbl.textContent = Math.round(scale * 100) + '%';
+      const lbl = document.getElementById('valScreenWidth');
+      if (lbl) lbl.textContent = width + 'px';
     }
 
     window.addEventListener('resize', () => {
@@ -13030,6 +13771,14 @@ ${sprite.type === 'text' ? `
     window.addEventListener('DOMContentLoaded', updatePreviewScale);
     updatePreviewScale(); // pick the view before the module runtime starts
     setTimeout(updatePreviewScale, 30);
+    // Text is measured: lay out again once web fonts have arrived.
+    if (document.fonts && document.fonts.addEventListener) {
+      document.fonts.addEventListener('loadingdone', () => {
+        flows = {};
+        lastLayout = null;
+        updatePreviewScale();
+      });
+    }
 
     document.querySelectorAll('.pv-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -13377,6 +14126,8 @@ ${sprite.type === 'text' ? `
           const edge = this.renderer.hitArtboardHandle(ms.x, ms.y);
           if (edge) {
             this.artboardDrag = { edge, start: { x: mw.x, y: mw.y }, w: this.doc.width, h: this.doc.height };
+            // Lay out from the design at the start of the drag, so dragging back restores it.
+            if (edge !== 'b' && this.inspector.canvasMode !== 'keep') this.artboardDrag.source = this.doc.reflowSource();
             this.requestRender();
             return;
           }
@@ -13454,7 +14205,16 @@ ${sprite.type === 'text' ? `
           const snap = v => e.shiftKey ? Math.round(v / 10) * 10 : Math.round(v);
           const w = d.edge === 'b' ? d.w : Math.max(50, Math.min(10000, snap(d.w + mw.x - d.start.x)));
           const h = d.edge === 'r' ? d.h : Math.max(50, Math.min(20000, snap(d.h + mw.y - d.start.y)));
-          if (w !== this.doc.width || h !== this.doc.height) {
+          if (d.source) {
+            if (w === d.lastW && h === d.lastH) return;
+            d.lastW = w; d.lastH = h;
+            this.doc.reflowTo(w, d.source);
+            d.natural = this.doc.height;
+            // The corner also sets the height, on top of what the content needs.
+            if (d.edge === 'rb') this.doc.height = Math.max(50, h + d.natural - d.h);
+            this.handleResize();
+            this.requestRender();
+          } else if (w !== this.doc.width || h !== this.doc.height) {
             this.doc.resizeCanvas(w, h, 'keep');
             this.handleResize();
             this.requestRender();
@@ -13490,6 +14250,7 @@ ${sprite.type === 'text' ? `
           const d = this.artboardDrag;
           this.artboardDrag = null;
           if (this.doc.width !== d.w || this.doc.height !== d.h) {
+            if (d.source) this.doc.rememberLayout(d.source, d.natural);
             this.doc.saveState();
             StudioToast.show(`캔버스 크기: ${this.doc.width}×${this.doc.height}px`);
           }
