@@ -239,3 +239,76 @@ test('canvas export reflows with the window and draws at 1:1', async () => {
     assert.ok(heights[2] > heights[1] && heights[1] > heights[0], `taller as it narrows: ${heights}`);
   });
 });
+
+// ---------------- "화면 폭이 바뀌면": chosen places, and the width slider ----------------
+
+test('pins: a sprite keeps the side it is pinned to, or stretches with the width (canvas and website)', async () => {
+  const { page } = s;
+  const project = { name: 'pins', width: 1200, height: 400, layers: [{ id: 'L', name: 'L', sprites: [
+    { id: 'auto', name: 'auto', type: 'rect', x: 500, y: 60, width: 200, height: 40 },
+    { id: 'left', name: 'left', type: 'rect', x: 500, y: 140, width: 200, height: 40 },
+    { id: 'right', name: 'right', type: 'rect', x: 500, y: 220, width: 200, height: 40 },
+    { id: 'wide', name: 'wide', type: 'rect', x: 600, y: 300, width: 1000, height: 40 }] }] };
+  // chosen with the buttons in the sprite panel
+  await page.evaluate(d => { jspenApp.loadProjectFromJSON(d); }, project);
+  const pick = async (id, pin) => {
+    await page.evaluate(i => { jspenApp.doc.selectedSpriteId = i; jspenApp.doc.selectedModuleId = null; jspenApp.refreshUI(); }, id);
+    await page.locator(`.jspen-pin[data-pin="${pin}"]`).scrollIntoViewIfNeeded();
+    await page.click(`.jspen-pin[data-pin="${pin}"]`);
+    assert.equal(await page.getAttribute(`.jspen-pin[data-pin="${pin}"]`, 'aria-pressed'), 'true');
+  };
+  await pick('left', 'left'); await pick('right', 'right'); await pick('wide', 'stretch');
+  const edges = () => page.evaluate(() => Object.fromEntries(jspenApp.doc.layers[0].sprites.map(p => [p.id, [+(p.x - p.width / 2).toFixed(1), +(1200 - (p.x + p.width / 2)).toFixed(1), +p.width.toFixed(1)]])));
+  const before = await edges();
+  await page.evaluate(() => jspenApp.setCanvasSize(1800, jspenApp.doc.height, 'reflow'));
+  const wide = await page.evaluate(() => Object.fromEntries(jspenApp.doc.layers[0].sprites.map(p => [p.id, [p.x - p.width / 2, 1800 - (p.x + p.width / 2), p.width]])));
+  assert.equal(wide.left[0], before.left[0], 'keeps its left margin');
+  assert.equal(wide.right[1], before.right[1], 'keeps its right margin');
+  assert.deepEqual([wide.wide[0], wide.wide[1], wide.wide[2]], [100, 100, 1600], 'both margins kept, wider');
+  // changing a pin after resizing still lets the design come back exactly
+  await page.evaluate(() => { jspenApp.doc.setPin(jspenApp.doc.findSpriteById('auto'), 'right'); jspenApp.doc.saveState(); });
+  await page.evaluate(() => jspenApp.setCanvasSize(1200, jspenApp.doc.height, 'reflow'));
+  assert.deepEqual(await edges(), before);
+  // pins are saved with the project and drive the exported website too
+  const json = await page.evaluate(() => jspenApp.doc.toJSON());
+  assert.deepEqual(json.layers[0].sprites.map(p => p.pin), ['right', 'left', 'right', 'stretch']);
+  const html = await page.evaluate(() => jspenApp.generateWebsiteHTML(true));
+  await withPage(html, 1200, async q => {
+    await resize(q, 1800);
+    const r = await q.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-sid]')].map(el => {
+      const b = el.getBoundingClientRect(), a = document.getElementById('webArtboard').getBoundingClientRect();
+      return [el.dataset.sid, [Math.round(b.left - a.left), Math.round(a.right - b.right), Math.round(b.width)]];
+    })));
+    assert.deepEqual(r.left[0], before.left[0]);
+    assert.deepEqual(r.right[1], before.right[1]);
+    assert.deepEqual(r.wide, [100, 100, 1600]);
+  });
+  // an unknown value in a file is dropped
+  const cleaned = await page.evaluate(() => { jspenApp.loadProjectFromJSON({ name: 'x', width: 400, height: 300, layers: [{ name: 'L', sprites: [{ id: 'a', type: 'rect', x: 1, y: 1, width: 5, height: 5, pin: '<img>' }] }] }); return jspenApp.doc.findSpriteById('a').pin; });
+  assert.equal(cleaned, undefined);
+});
+
+test('canvas: the width slider reflows live; letting go is one undo step and sliding back is exact', async () => {
+  const { page } = s;
+  await page.evaluate(d => {
+    jspenApp.loadProjectFromJSON(d);
+    jspenApp.doc.selectedSpriteId = null; jspenApp.doc.selectedLayerId = null; jspenApp.refreshUI();
+  }, read('full_landing.jspen'));
+  const geometry = () => page.evaluate(() => ({ W: jspenApp.doc.width, H: jspenApp.doc.height,
+    boxes: jspenApp.doc.layers.flatMap(l => l.sprites.map(p => [p.x, p.y, p.width, p.height])) }));
+  const original = await geometry();
+  await page.waitForSelector('#inpScreenWidth');
+  const slide = (w) => page.$eval('#inpScreenWidth', (el, w) => {
+    el.value = w; el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, w);
+  await slide(900); await slide(600); await slide(390);
+  const during = await geometry();
+  assert.equal(during.W, 390);
+  assert.equal(await page.textContent('#valScreenW'), '390px');
+  await page.$eval('#inpScreenWidth', el => el.dispatchEvent(new Event('change', { bubbles: true })));
+  await slide(1000); await slide(original.W);
+  await page.$eval('#inpScreenWidth', el => el.dispatchEvent(new Event('change', { bubbles: true })));
+  assert.deepEqual(await geometry(), original);
+  await page.evaluate(() => { document.activeElement?.blur(); jspenApp.doc.undo(); });
+  assert.equal((await geometry()).W, 390, 'each slide is one undo step');
+});

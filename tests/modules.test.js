@@ -72,7 +72,9 @@ test('every registry module has an engine implementation or renderer support', a
   const missing = await s.page.evaluate(() => {
     const src = jspenApp.moduleEngine.constructor.toString();
     const renderOnly = ['text_label', 'substance_mask'];
-    return Object.keys(MODULE_REGISTRY).filter(k => !renderOnly.includes(k) && !src.includes(`case '${k}'`));
+    // Action blocks run before the per-module switch (they keep running after their trigger).
+    const handled = k => src.includes(`case '${k}'`) || src.includes(`mod.type === '${k}'`);
+    return Object.keys(MODULE_REGISTRY).filter(k => !renderOnly.includes(k) && !handled(k));
   });
   assert.deepEqual(missing, []);
 });

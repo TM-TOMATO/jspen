@@ -13,10 +13,10 @@ after(async () => {
 });
 
 // Text a person writes (messages, links, names). Everything else is chosen.
+// Signal and variable names are picked from lists (with "+ 새 … 만들기"), so they are not here;
+// signalPrefix names a series (step_1, step_2, ...).
 const FREE_TEXT = new Set(['text', 'url', 'audioUrl', 'anchorId', 'customClass', 'subject', 'successMessage', 'errorMessage',
-  'prefix', 'suffix', 'cursor', 'displayTemplate',
-  // names that connect modules: chosen from lists in the next step
-  'signalName', 'inputSignal', 'outputSignal', 'listenSignal', 'signalPrefix', 'signalTrue', 'signalFalse', 'successSignal', 'errorSignal', 'varName']);
+  'prefix', 'suffix', 'cursor', 'signalPrefix']);
 const COLORS = ['particleColor', 'hoverFill', 'pressFill', 'hoverStroke', 'hoverTextColor', 'color'];
 
 function load(type, params) {

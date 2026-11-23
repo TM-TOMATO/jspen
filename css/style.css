@@ -3723,3 +3723,55 @@ body.jspen-live-preview #viewportContainer {
 .jspen-module-hud .hud-more,
 .jspen-module-hud .hud-empty { margin-top: 4px; color: #a1a1aa; }
 .jspen-module-hud .hud-sec b { color: #e4e4e7; }
+
+/* Signals and variables picked from lists, with the other end shown below */
+.jspen-link-pick { flex: 1; min-width: 0; }
+.jspen-link-note { font-size: 10.5px; line-height: 1.45; color: #a1a1aa; margin: -2px 0 6px; padding-left: 2px; overflow-wrap: anywhere; }
+.jspen-link-note.is-warn { color: #fbbf24; }
+.jspen-link-note.is-info { color: #71717a; }
+.jspen-new-name { flex: 1; min-width: 0; border-color: #38bdf8 !important; }
+.jspen-template-row input { flex: 1 1 0; min-width: 0; }
+.jspen-template-value { font-size: 10.5px; color: #38bdf8; font-weight: 700; padding: 0 2px; }
+
+/* Ranged numbers: a fill bar like Blender's sliders; a unit inside the field */
+.blender-scrub-group.is-factor {
+  background-image: linear-gradient(90deg, #2f3a4a var(--fill, 0%), transparent var(--fill, 0%));
+}
+.jspen-unit { padding: 0 6px 0 2px; color: #71717a; font-size: 10.5px; pointer-events: none; user-select: none; white-space: nowrap; }
+.ps-prop-row .jspen-scrub-label { cursor: ew-resize; user-select: none; }
+.jspen-dial { flex: 0 0 auto; width: 22px; height: 22px; margin-left: 6px; border-radius: 50%; border: 1px solid #3f3f46; background: #121215;
+  position: relative; cursor: grab; touch-action: none; }
+.jspen-dial:active { cursor: grabbing; border-color: #38bdf8; }
+.jspen-dial-needle { position: absolute; left: 50%; top: 2px; width: 2px; height: 9px; margin-left: -1px; background: #38bdf8; border-radius: 1px;
+  transform-origin: 50% 9px; pointer-events: none; }
+
+/* Action blocks: "언제 → 무엇을" */
+.jspen-actions-help { font-size: 11px; line-height: 1.5; color: #a1a1aa; margin: 4px 0 8px; }
+.jspen-action-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.jspen-action { border: 1px solid #2e2e34; border-left: 3px solid #38bdf8; border-radius: 4px; background: #17171b; padding: 6px 8px; }
+.jspen-action-head { display: flex; align-items: center; gap: 6px; }
+.jspen-action-num { flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; background: #0c4a6e; color: #e0f2fe; font-size: 10.5px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center; }
+.jspen-action-title { flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 700; color: #f1f5f9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jspen-action-tools { flex: 0 0 auto; display: flex; gap: 2px; }
+.jspen-action-tools button { background: transparent; border: 1px solid transparent; color: #a1a1aa; font-size: 10.5px; padding: 1px 4px; border-radius: 2px; cursor: pointer; }
+.jspen-action-tools button:hover:not(:disabled) { border-color: #3f3f46; color: #f4f4f5; }
+.jspen-action-tools button:disabled { opacity: 0.3; cursor: default; }
+.jspen-action-sum { font-size: 10.5px; color: #7dd3fc; margin: 3px 0 4px 24px; line-height: 1.45; overflow-wrap: anywhere; }
+.jspen-action-fields .ps-prop-row { margin-bottom: 4px; }
+.jspen-actions-empty { font-size: 11px; color: #71717a; padding: 8px 0; text-align: center; }
+.jspen-action-add { flex: 1; min-width: 0; font-weight: 700; }
+
+/* Code-only features are kept under "고급" */
+.jspen-advanced-note { font-size: 10.5px; line-height: 1.5; color: #fbbf24; background: #2a2210; border: 1px solid #4a3a12; border-radius: 4px; padding: 6px 8px; margin: 2px 0 8px; }
+.jspen-advanced { margin-top: 10px; border: 1px solid #27272a; border-radius: 4px; padding: 6px 10px; }
+.jspen-advanced > summary { cursor: pointer; font-size: 12px; font-weight: 700; color: #a1a1aa; }
+.jspen-advanced[open] > summary { margin-bottom: 8px; }
+
+/* "화면 폭이 바뀌면": where a sprite sticks; the width slider */
+.jspen-pin-buttons { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; margin-top: 6px; }
+.jspen-pin { background: #18181b; border: 1px solid #2e2e34; color: #a1a1aa; font-size: 10.5px; padding: 4px 0; border-radius: 3px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jspen-pin:hover { color: #f4f4f5; border-color: #52525b; }
+.jspen-pin.is-on { background: #0c4a6e; border-color: #38bdf8; color: #e0f2fe; font-weight: 700; }
+.jspen-width-slider { flex: 1; min-width: 0; accent-color: #38bdf8; }
