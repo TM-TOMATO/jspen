@@ -84,13 +84,17 @@ jobs:
         shell: pwsh
         run: |
           $setup = Get-ChildItem dist/installer/JSPenStudio-Setup-*.exe | Select-Object -First 1
-          $dir = Join-Path $env:RUNNER_TEMP 'JSPen Studio'
-          Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$dir", '/TASKS=associate' -Wait
+          # No space in the path: Start-Process does not quote its arguments.
+          $dir = Join-Path $env:RUNNER_TEMP 'JSPenStudio-install'
+          $log = Join-Path $env:RUNNER_TEMP 'jspen-setup.log'
+          $p = Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$dir", '/TASKS=associate', "/LOG=$log" -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or -not (Test-Path (Join-Path $dir 'JSPenStudio.exe'))) { Get-Content $log -ErrorAction SilentlyContinue; throw "installer failed (exit $($p.ExitCode))" }
           $out = & (Join-Path $dir 'JSPenStudio.exe') --selftest | Out-String
           Write-Output $out
           if ($LASTEXITCODE -ne 0) { throw 'installed app failed its self-test' }
           if ((Get-ItemProperty 'HKCU:\Software\Classes\JSPenStudio.Project\shell\open\command').'(default)' -notlike "*$dir*") { throw 'file association missing' }
-          Start-Process (Join-Path $dir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          $u = Start-Process (Join-Path $dir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($u.ExitCode -ne 0) { throw "uninstaller failed (exit $($u.ExitCode))" }
           Start-Sleep -Seconds 3
           if (Test-Path (Join-Path $dir 'JSPenStudio.exe')) { throw 'uninstall left the app behind' }
           if (Test-Path 'HKCU:\Software\Classes\JSPenStudio.Project') { throw 'uninstall left the file association behind' }
