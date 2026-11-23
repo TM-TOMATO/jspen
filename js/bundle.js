@@ -8339,15 +8339,15 @@ ${this.getRuntimeSource(withEngine)}
             </div>
           </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">코너 라운딩 (px):</label>
+            <label class="ps-prop-label" title="모서리를 둥글게 만듭니다">모서리 둥글게 (px):</label>
             <div class="blender-scrub-group">
               <input type="number" class="blender-scrub-input" id="inpCornerRadius" min="0" max="500" value="${escapeHtml(sprite.cornerRadius || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">베벨 수치:</label>
+            <label class="ps-prop-label" title="모서리를 비스듬히 잘라 냅니다 (둥글게와 함께 쓰면 잘린 모서리가 둥글어집니다)">모서리 깎기 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpBevelChamfer" min="0" max="500" value="${escapeHtml(sprite.bevelChamfer || 0)}">
+              <input type="number" class="blender-scrub-input" id="inpBevel" min="0" max="500" value="${escapeHtml(sprite.bevel || 0)}">
             </div>
           </div>
         </div>
@@ -9767,15 +9767,6 @@ ${sprite.type === 'text' ? `
               val = Math.max(minVal, val);
             }
             sprite[prop] = val;
-            if (prop === 'cornerRadius') {
-              sprite.bevelChamfer = sprite.cornerRadius;
-              const bEl = this.el.querySelector('#inpBevelChamfer');
-              if (bEl) bEl.value = sprite.cornerRadius;
-            } else if (prop === 'bevelChamfer') {
-              sprite.cornerRadius = sprite.bevelChamfer;
-              const cEl = this.el.querySelector('#inpCornerRadius');
-              if (cEl) cEl.value = sprite.bevelChamfer;
-            }
             if (this.cb.onCanvasRender) this.cb.onCanvasRender();
           });
 
@@ -9792,7 +9783,7 @@ ${sprite.type === 'text' ? `
         bindProp('inpRot', 'rotation', true, null);
         bindProp('inpOpacity', 'opacity', true, 0);
         bindProp('inpCornerRadius', 'cornerRadius', true, 0);
-        bindProp('inpBevelChamfer', 'bevelChamfer', true, 0);
+        bindProp('inpBevel', 'bevel', true, 0);
         bindProp('inpFill', 'fill', false);
         bindProp('inpStroke', 'stroke', false);
         bindProp('inpStrokeWidth', 'strokeWidth', true, 0);
@@ -13231,6 +13222,54 @@ ${sprite.type === 'text' ? `
   // studio; steps with a task move on when the task is done. The studio
   // stays fully usable while it runs (nothing is blocked).
   // ==========================================================================
+  // Tooltips for buttons and fields: shown quickly, in readable colours (the
+  // native ones are slow, and the desktop app draws them dark on dark).
+  class StudioTooltip {
+    static install() {
+      if (StudioTooltip.el) return;
+      const tip = StudioTooltip.el = document.createElement('div');
+      tip.className = 'jspen-tip';
+      tip.setAttribute('role', 'tooltip');
+      document.body.appendChild(tip);
+      let owner = null, timer = null;
+      const hide = () => {
+        clearTimeout(timer);
+        timer = null;
+        tip.classList.remove('is-on');
+        // The title goes back, so screen readers and the next hover still have it.
+        if (owner && owner.dataset.tip !== undefined) { owner.setAttribute('title', owner.dataset.tip); delete owner.dataset.tip; }
+        owner = null;
+      };
+      document.addEventListener('mouseover', e => {
+        const el = e.target.closest ? e.target.closest('[title]') : null;
+        if (!el || el === owner) return;
+        hide();
+        const text = el.getAttribute('title');
+        if (!text) return;
+        owner = el;
+        el.dataset.tip = text;
+        el.removeAttribute('title');
+        timer = setTimeout(() => {
+          if (owner !== el || !el.isConnected) return;
+          tip.textContent = text;
+          tip.classList.add('is-on');
+          const r = el.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight;
+          const tw = tip.offsetWidth, th = tip.offsetHeight;
+          let x = r.left + r.width / 2 - tw / 2, y = r.bottom + 6;
+          // Tool buttons on the left edge: beside the button.
+          if (r.left < 80 && r.width < 60) { x = r.right + 8; y = r.top + r.height / 2 - th / 2; }
+          if (y + th > H - 4) y = r.top - th - 6;
+          tip.style.left = Math.max(4, Math.min(x, W - tw - 4)) + 'px';
+          tip.style.top = Math.max(4, Math.min(y, H - th - 4)) + 'px';
+        }, 300);
+      });
+      document.addEventListener('mouseout', e => {
+        if (owner && !(e.relatedTarget && owner.contains(e.relatedTarget))) hide();
+      });
+      for (const ev of ['mousedown', 'wheel', 'keydown']) window.addEventListener(ev, hide, true);
+    }
+  }
+
   class Tutorial {
     constructor(app) {
       this.app = app;
@@ -13252,7 +13291,7 @@ ${sprite.type === 'text' ? `
         { title: 'JSPen에 오신 것을 환영합니다',
           text: '코드 없이 버튼과 다이얼만으로 움직이는 웹 화면을 만드는 도구입니다. 사각형 하나에 움직임을 붙여 보면서 기본을 익혀요. 직접 따라 하면 다음 단계로 넘어갑니다.' },
         { title: '가운데: 캔버스', target: () => q('#viewportContainer'),
-          text: '만든 결과가 그대로 보이는 미리보기 화면입니다. 휠로 확대·축소하고, 스페이스를 누른 채 끌면 화면을 옮깁니다.' },
+          text: '만든 결과가 그대로 보이는 미리보기 화면입니다. 휠로 확대·축소하고, 스페이스를 누른 채 끌면(또는 휠 버튼을 누른 채 끌면) 화면을 옮깁니다. 스페이스를 짧게 누르면 타임라인이 재생·정지됩니다.' },
         { title: '사각형 그리기', target: () => q('#leftToolbox [data-t="shape"]'),
           text: '도형 도구(U)를 누른 다음, 캔버스에서 끌어서 사각형을 하나 그려 보세요.',
           task: true, begin: () => { this.base = this.counts(); }, done: () => this.counts().sprites > this.base.sprites },
@@ -13261,10 +13300,10 @@ ${sprite.type === 'text' ? `
         { title: '움직임 붙이기: 모듈', target: () => q('.ps-sprite-sub-item.selected .ps-btn-add-module') || q('#layersContainer .ps-btn-add-module'),
           text: '레이어 목록에서 사각형 옆의 +fx를 눌러 모듈을 붙여 보세요. 모듈은 블렌더의 모디파이어처럼 차례로 쌓여 움직임을 만듭니다. "펄스 박동 효과"가 보기 쉬워요.',
           task: true, begin: () => { this.base = this.counts(); }, done: () => this.counts().modules > this.base.modules },
-        { title: '모듈 설정', target: () => q('#inspectorContainer'),
+        { title: '모듈 설정', target: () => q('#inspectorContainer'), begin: () => this.showModule(),
           text: '방금 붙인 모듈의 설정입니다. 숫자 칸을 끌어서 속도와 크기를 바꿔 보세요. 선택지는 목록에서 고르고, 색은 색 견본을 누릅니다.' },
-        { title: '언제 움직일까: 발동 조건', target: () => q('#modCondSection'),
-          text: '"항상"이면 바로 움직이고, "클릭했을 때"로 바꾸면 클릭해야 움직입니다. 키보드, 마우스 올리기, 신호도 고를 수 있어요.' },
+        { title: '언제 움직일까: 발동 조건', target: () => q('#modCondSection'), begin: () => this.showModule(),
+          text: '오른쪽 속성창의 "언제 작동하나요?"(보라색 줄) 상자입니다. "발동 조건"이 "항상"이면 바로 움직이고, "클릭했을 때"로 바꾸면 클릭해야 움직입니다. 키보드, 마우스 올리기, 신호도 고를 수 있어요.' },
         { title: '움직여 보기: 실시간 미리보기', target: () => q('#btnTlPreview'),
           text: 'Ctrl+Space를 누르거나 이 버튼을 눌러 실제로 움직이는 모습을 보세요. 다시 누르거나 Esc를 누르면 편집으로 돌아옵니다.',
           task: true, done: () => !!this.app.moduleEngine.active },
@@ -13273,6 +13312,18 @@ ${sprite.type === 'text' ? `
         { title: '저장하고 내보내기', target: () => q('#topMenuBar .ps-menu-items'),
           text: 'Ctrl+S로 저장합니다. 웹(W) 메뉴에서 웹 미리보기를 보고 HTML로 내보내면 그대로 웹사이트가 됩니다. 튜토리얼은 도움말(H) 메뉴에서 언제든 다시 볼 수 있어요.' }
       ];
+    }
+
+    // Steps about a module's settings: show the module the person just added.
+    showModule() {
+      const doc = this.app.doc;
+      const has = sp => sp && (sp.modules || []).length;
+      const sel = doc.getSelectedSprite(false);
+      const sp = has(sel) ? sel : doc.layers.flatMap(l => l.sprites).filter(has).pop();
+      if (!sp || sp.modules.some(m => m.id === doc.selectedModuleId)) return;
+      doc.selectedSpriteId = sp.id;
+      doc.selectedModuleId = sp.modules[sp.modules.length - 1].id;
+      this.app.refreshUI();
     }
 
     start() {
@@ -13319,6 +13370,7 @@ ${sprite.type === 'text' ? `
       this.index = Math.max(0, i);
       const step = this.list[this.index];
       this.finished = false;
+      this.scrolled = false;
       if (step.begin) step.begin();
       this.el.querySelector('.jspen-tutorial-progress').textContent = `${this.index + 1} / ${this.list.length}`;
       this.el.querySelector('.jspen-tutorial-title').textContent = step.title;
@@ -13353,9 +13405,17 @@ ${sprite.type === 'text' ? `
       spot.style.display = r ? '' : 'none';
       const W = window.innerWidth, H = window.innerHeight, cw = card.offsetWidth || 320, ch = card.offsetHeight || 180, gap = 14;
       let x = (W - cw) / 2, y = (H - ch) / 2;
+      if (r && !this.scrolled && r.width < W * 0.4) {
+        // A part of a scrolled panel (the inspector): bring it into view once.
+        this.scrolled = true;
+        target.scrollIntoView({ block: 'nearest' });
+      }
       if (r) {
         const pad = 6;
-        Object.assign(spot.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' });
+        // Kept on screen: a target at the very top (the menu bar) still shows its frame.
+        const top = Math.max(2, r.top - pad), left = Math.max(2, r.left - pad);
+        Object.assign(spot.style, { left: left + 'px', top: top + 'px',
+          width: Math.min(W - 2, r.right + pad) - left + 'px', height: Math.min(H - 2, r.bottom + pad) - top + 'px' });
         // Beside the target where there is room, otherwise below or above it.
         if (r.right + gap + cw <= W) { x = r.right + gap; y = r.top; }
         else if (r.left - gap - cw >= 0) { x = r.left - gap - cw; y = r.top; }
@@ -13537,6 +13597,7 @@ ${sprite.type === 'text' ? `
       this.exportModal = new ExportModalUI(this.doc);
       this.settingsModal = new SettingsModalUI(this.pluginManager);
       this.templateModal = new TemplateModalUI(this);
+      StudioTooltip.install();
       this.tutorial = new Tutorial(this);
       setTimeout(() => this.tutorial.offer(), 1200);
       this.nodeEditor = new NodeEditorUI(document.getElementById('nodeEditorContainer'), this.doc, {
@@ -15074,8 +15135,15 @@ ${sprite.type === 'text' ? `
       window.addEventListener('keyup', e => {
         const ks = this.moduleEngine.bus.keyState;
         delete ks[e.code]; delete ks[e.key];
+        if (e.code === 'Space' && this._space) {
+          const tap = !this._space.panned;
+          this._space = null;
+          this.canvas.style.cursor = '';
+          if (tap && !this.moduleEngine.active) { this.doc.isPlaying = !this.doc.isPlaying; this.timeline.render(); }
+        }
       });
       window.addEventListener('blur', () => {
+        this._space = null;
         this.moduleEngine.bus.keyState = {};
         this.pointer.isDown = false;
       });
@@ -15165,7 +15233,8 @@ ${sprite.type === 'text' ? `
           return;
         }
 
-        if (this.tools.activeTool === 'hand' || e.spaceKey || e.button === 1) {
+        if (this.tools.activeTool === 'hand' || this._space || e.button === 1) {
+          if (this._space) this._space.panned = true;
           isPanning = true;
           panStart = { x: e.clientX, y: e.clientY };
           initPan = { x: this.renderer.panX, y: this.renderer.panY };
@@ -15514,8 +15583,9 @@ ${sprite.type === 'text' ? `
           if (document.activeElement && document.activeElement !== document.body) {
             document.activeElement.blur();
           }
-          this.doc.isPlaying = !this.doc.isPlaying;
-          this.timeline.render();
+          // Held: drag the canvas (like Photoshop). A tap plays / pauses the
+          // timeline when the key comes up without a drag.
+          if (!this._space) { this._space = { panned: false }; this.canvas.style.cursor = 'grab'; }
           return;
         }
         else if (k === 'h') this.tools.setTool('hand');
