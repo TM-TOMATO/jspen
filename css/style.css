@@ -1378,6 +1378,19 @@ input, select, textarea, button {
   box-shadow: 0 0 0 1px #3f3f46, inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
+/* Module settings drawn like Blender properties */
+.jspen-param-scrub { flex: 1; min-width: 0; }
+.jspen-param-scrub.is-factor {
+  background-image: linear-gradient(90deg, #2f3a4a var(--fill, 0%), transparent var(--fill, 0%));
+}
+.jspen-checkbox { width: 15px; height: 15px; accent-color: #38bdf8; cursor: pointer; margin-right: auto; }
+.jspen-color-field { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.jspen-color-field input[type="color"] { width: 44px; height: 22px; padding: 0; border: 1px solid #2e2e34; border-radius: 2px; background: none; cursor: pointer; }
+.jspen-color-field.is-empty input[type="color"] { opacity: 0.35; }
+.jspen-color-clear { background: transparent; border: 1px solid #2e2e34; color: #a1a1aa; border-radius: 2px; font-size: 10.5px; padding: 2px 6px; cursor: pointer; }
+.jspen-key-field { cursor: pointer; text-align: center; font-weight: 700; }
+.jspen-key-field:focus { color: #38bdf8; }
+
 /* Blender-Style Draggable Numeric Scrub Field */
 .blender-scrub-group {
   display: flex;

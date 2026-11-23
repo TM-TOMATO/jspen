@@ -402,17 +402,25 @@
     hover_proximity: {
       category: 'sensor', name: '호버 및 근접 감지', icon: 'ZONE',
       description: '마우스가 스프라이트 위에 올라오거나 지정 반경에 진입했는지 감지합니다.',
-      defaultParams: { condition: 'always', detectionRadius: 60, scaleOnHover: 1.15 }
+      defaultParams: { condition: 'always', detectionRadius: 60, scaleOnHover: 1.15 },
+      paramLabels: { detectionRadius: '감지 거리 (px)', scaleOnHover: '올렸을 때 크기' },
+      paramRanges: { detectionRadius: [0, 400, 1], scaleOnHover: [0.5, 2, 0.01] }
     },
     click_gesture: {
       category: 'sensor', name: '클릭 및 제스처 감지', icon: 'TRG',
       description: '단일 클릭, 더블 클릭, 롱 프레스 이벤트를 발생시킵니다.',
-      defaultParams: { condition: 'always', gestureType: 'click', activeDuration: 0.2 }
+      defaultParams: { condition: 'always', gestureType: 'click', activeDuration: 0.2 },
+      paramLabels: { gestureType: '동작', activeDuration: '발동 유지 (초)' },
+      paramOptions: { gestureType: [['click', '클릭'], ['double_click', '더블 클릭'], ['long_press', '길게 누르기']] },
+      paramRanges: { activeDuration: [0, 3, 0.05] }
     },
     draggable: {
       category: 'sensor', name: '자유 드래그 모듈', icon: 'DRG',
       description: '마우스로 스프라이트를 집어 자유롭게 드래그 앤 드롭 이동합니다.',
-      defaultParams: { condition: 'always', constrainAxis: 'none', snapToGrid: false, gridSize: 20 }
+      defaultParams: { condition: 'always', constrainAxis: 'none', snapToGrid: false, gridSize: 20 },
+      paramLabels: { constrainAxis: '움직일 방향', snapToGrid: '격자에 맞추기', gridSize: '격자 간격 (px)' },
+      paramOptions: { constrainAxis: [['none', '자유롭게'], ['x', '가로만'], ['y', '세로만']] },
+      paramRanges: { gridSize: [1, 200, 1] }
     },
     scroll_wheel: {
       category: 'sensor', name: '스크롤 휠 감지', icon: 'WHL',
@@ -423,7 +431,10 @@
     keyboard_trigger: {
       category: 'sensor', name: '키보드 입력 감지', icon: 'KEY',
       description: '지정된 키(방향키, Space, Enter 등) 입력을 감지합니다.',
-      defaultParams: { condition: 'always', targetKey: 'ArrowRight', moveSpeed: 5 }
+      defaultParams: { condition: 'always', targetKey: 'ArrowRight', moveSpeed: 5 },
+      paramLabels: { targetKey: '키', moveSpeed: '이동 속도 (px)' },
+      paramTypes: { targetKey: 'key' },
+      paramRanges: { moveSpeed: [0, 50, 0.5] }
     },
     collision_detector: {
       category: 'sensor', name: '충돌 및 겹침 감지', icon: 'COL',
@@ -462,7 +473,10 @@
         offsetX: 0,
         offsetY: 0,
         rotateToTarget: false
-      }
+      },
+      paramLabels: { targetSpriteId: '따라갈 대상', trackMode: '따라가는 방식', smoothSpeed: '부드러움 (0~1)', constantSpeed: '속도 (px/초)', stiffness: '스프링 강도', damping: '감쇠', orbitRadius: '공전 반지름 (px)', orbitSpeed: '공전 속도 (도/초)', followAxis: '따라갈 축', offsetX: '가로 간격 (px)', offsetY: '세로 간격 (px)', rotateToTarget: '대상 쪽으로 회전' },
+      paramOptions: { trackMode: [['lerp', '부드럽게 감속'], ['spring', '스프링'], ['constant', '일정한 속도'], ['orbit', '주위를 공전'], ['direct', '바로 붙기']], followAxis: [['both', '가로·세로'], ['x_only', '가로만'], ['y_only', '세로만']] },
+      paramRanges: { smoothSpeed: [0, 1, 0.01], constantSpeed: [0, 2000, 1], stiffness: [0, 1, 0.01], damping: [0, 1, 0.01], orbitRadius: [0, 1000, 1], orbitSpeed: [-720, 720, 1] }
     },
     math_calculate: {
       category: 'logic', name: '수학 계산 (Math)', icon: 'CALC',
@@ -474,8 +488,13 @@
         inputB: 1,
         clampMin: 0,
         clampMax: 100,
+        targetVal: 0,
+        targetParam: 'none',
         outputProperty: 'x' // x, y, rotation, scaleX, scaleY, opacity, filter_blur, filter_brightness, filter_contrast, filter_opacity, filter_grayscale, filter_invert, filter_hueRotate
-      }
+      },
+      paramLabels: { operation: '연산', inputA: '값 A', inputB: '값 B', clampMin: '최솟값 (범위 제한)', clampMax: '최댓값 (범위 제한)', targetVal: '목표값 (보간)', targetParam: '결과 적용 대상' },
+      paramOptions: { operation: [['add', '더하기 (A + B)'], ['subtract', '빼기 (A − B)'], ['multiply', '곱하기 (A × B)'], ['divide', '나누기 (A ÷ B)'], ['min', '작은 값'], ['max', '큰 값'], ['modulo', '나머지 (A ÷ B)'], ['abs', '절댓값 (A)'], ['round', '반올림 (A)'], ['sin', '사인 (A)'], ['cos', '코사인 (A)'], ['clamp', '범위 제한 (A)'], ['lerp', '보간 (A → 목표값, 비율 B)']], targetParam: [['none', '적용 안 함 (값만 전달)'], ['x', 'X 위치'], ['y', 'Y 위치'], ['rotation', '회전 (도)'], ['scaleX', '가로 배율'], ['scaleY', '세로 배율'], ['opacity', '불투명도 (0~1)'], ['filter_blur', '필터: 흐림'], ['filter_brightness', '필터: 밝기'], ['filter_contrast', '필터: 대비'], ['filter_grayscale', '필터: 흑백'], ['filter_invert', '필터: 반전'], ['filter_hueRotate', '필터: 색조 회전'], ['filter_opacity', '필터: 불투명도']] },
+      paramHidden: ['outputProperty']
     },
     screen_trigger: {
       category: 'sensor', name: '화면 트리거 (뷰포트)', icon: 'TRIG',
@@ -490,7 +509,10 @@
         filterEffect: 'blur', // blur, brightness, contrast, saturate, grayscale, sepia, hueRotate, invert, opacity
         filterValue: 20,
         once: false
-      }
+      },
+      paramLabels: { triggerEvent: '발동 시점', action: '할 일', signalName: '보낼 신호 이름', targetSpriteId: '대상 스프라이트', filterEffect: '필터', filterValue: '필터 값', once: '한 번만 발동' },
+      paramOptions: { triggerEvent: [['viewport_enter', '화면에 들어올 때'], ['viewport_exit', '화면에서 나갈 때'], ['mouse_enter', '마우스가 올라올 때'], ['mouse_move', '위에서 마우스가 움직일 때'], ['scroll_reach', '스크롤이 닿았을 때'], ['click', '클릭했을 때']], action: [['emit_signal', '신호만 보내기'], ['show_sprite', '대상 보이기'], ['hide_sprite', '대상 숨기기'], ['pulse', '대상 강조 (펄스)'], ['animate_in', '대상 등장'], ['animate_filter', '대상 필터 서서히'], ['set_filter', '대상 필터 바로']], filterEffect: [['blur', '흐림'], ['brightness', '밝기'], ['contrast', '대비'], ['saturate', '채도'], ['grayscale', '흑백'], ['sepia', '세피아'], ['hueRotate', '색조 회전'], ['invert', '반전'], ['opacity', '불투명도']] },
+      paramRanges: { filterValue: [0, 200, 1] }
     },
     photoshop_filter: {
       category: 'motion', name: '그래픽 필터 (Filter FX)', icon: 'FLTR',
@@ -528,7 +550,12 @@
     look_at: {
       category: 'logic', name: '타겟 조준 (Look-At)', icon: 'AIM',
       description: '스프라이트가 항상 타겟 레이어나 마우스 방향을 바라보도록 자동 회전합니다.',
-      defaultParams: { condition: 'always', targetType: 'mouse', targetLayerId: null, rotationOffset: 0 }
+      defaultParams: { condition: 'always', targetType: 'mouse', targetLayerId: null, rotationOffset: 0 },
+      paramLabels: { targetLayerId: '바라볼 대상', rotationOffset: '회전 보정 (도)' },
+      paramTypes: { targetLayerId: 'layer' },
+      paramEmpty: { targetLayerId: '마우스 커서' },
+      paramRanges: { rotationOffset: [-180, 180, 1] },
+      paramHidden: ['targetType']
     },
     distance_rope: {
       category: 'logic', name: '거리 제한 로프', icon: 'ROPE',
@@ -561,17 +588,24 @@
         targetLayerId: '',
         filterEffect: 'invert',
         filterValue: 100
-      }
+      },
+      paramLabels: { inputSignal: '받을 신호', delaySec: '지연 (초)', outputSignal: '보낼 신호', action: '할 일', targetSpriteId: '대상 스프라이트', targetLayerId: '대상 레이어', filterEffect: '필터', filterValue: '필터 값' },
+      paramOptions: { action: [['emit_signal', '신호 다시 보내기'], ['toggle_active', '대상 켜기 / 끄기'], ['animate_filter', '대상 필터 적용'], ['set_filter', '대상 필터 바로']], filterEffect: [['blur', '흐림'], ['brightness', '밝기'], ['contrast', '대비'], ['saturate', '채도'], ['grayscale', '흑백'], ['sepia', '세피아'], ['hueRotate', '색조 회전'], ['invert', '반전'], ['opacity', '불투명도']] },
+      paramTypes: { targetLayerId: 'layer' },
+      paramEmpty: { targetLayerId: '없음' },
+      paramRanges: { delaySec: [0, 10, 0.05], filterValue: [0, 200, 1] }
     },
     toggle_switch: {
       category: 'logic', name: '토글 스위치', icon: 'TOG',
       description: '트리거 감지, 신호 수신 또는 클릭할 때마다 켜짐(ON)/꺼짐(OFF) 상태를 반전 전환하고 신호를 방출합니다.',
-      defaultParams: { condition: 'always', inputSignal: '', initialValue: false }
+      defaultParams: { condition: 'always', inputSignal: '', initialValue: false },
+      paramLabels: { inputSignal: '받을 신호 (비우면 클릭)', initialValue: '처음에 켜짐' }
     },
     counter_accumulator: {
       category: 'logic', name: '숫자 카운터', icon: 'CNT',
       description: '트리거 감지 또는 신호 발생 시마다 숫자를 증가시키고 텍스트/신호에 반영합니다.',
-      defaultParams: { condition: 'always', inputSignal: '', startVal: 0, stepVal: 1, maxVal: 9999 }
+      defaultParams: { condition: 'always', inputSignal: '', startVal: 0, stepVal: 1, maxVal: 9999 },
+      paramLabels: { inputSignal: '받을 신호 (비우면 클릭)', startVal: '시작값', stepVal: '증가량', maxVal: '최댓값' }
     },
     node_merge: {
       category: 'logic', name: '모듈 합치기', icon: 'MRG',
@@ -610,7 +644,10 @@
     particle_emitter: {
       category: 'motion', name: '파티클 분출기', icon: 'FX',
       description: '반짝이, 스파크, 먼지 등의 파티클을 마우스나 위치에서 방출합니다.',
-      defaultParams: { condition: 'always', rate: 10, speed: 80, particleColor: '#e4e4e7', lifetime: 0.8 }
+      defaultParams: { condition: 'always', rate: 10, speed: 80, particleColor: '#e4e4e7', lifetime: 0.8 },
+      paramLabels: { rate: '초당 개수', speed: '속도 (px/초)', particleColor: '색', lifetime: '수명 (초)' },
+      paramTypes: { particleColor: 'color' },
+      paramRanges: { rate: [0, 200, 1], speed: [0, 1000, 1], lifetime: [0.05, 10, 0.05] }
     },
     motion_wave: {
       category: 'motion', name: '부유 진동 (Wave)', icon: 'WAVE',
@@ -620,34 +657,49 @@
     pulse_scale: {
       category: 'motion', name: '펄스 박동 효과', icon: 'PULS',
       description: '심장 박동처럼 크기가 주기적으로 커졌다 작아지는 효과입니다.',
-      defaultParams: { condition: 'always', minScale: 0.92, maxScale: 1.08, speed: 2.0 }
+      defaultParams: { condition: 'always', minScale: 0.92, maxScale: 1.08, speed: 2.0 },
+      paramLabels: { minScale: '최소 크기', maxScale: '최대 크기', speed: '속도' },
+      paramRanges: { minScale: [0.1, 3, 0.01], maxScale: [0.1, 3, 0.01], speed: [0, 20, 0.1] }
     },
     shake_vibrate: {
       category: 'motion', name: '흔들림 및 진동', icon: 'SHK',
       description: '타격감이나 지진처럼 무작위로 화면을 진동시킵니다.',
-      defaultParams: { condition: 'always', intensity: 8, decay: 0.9 }
+      defaultParams: { condition: 'always', intensity: 8, decay: 0.9 },
+      paramLabels: { intensity: '세기 (px)' },
+      paramRanges: { intensity: [0, 100, 0.5] },
+      paramHidden: ['decay']
     },
     orbit_spin: {
       category: 'motion', name: '공전 및 자전', icon: 'SPIN',
       description: '자체 중심축으로 자전하거나 타겟 주위를 공전합니다.',
-      defaultParams: { condition: 'always', speedDegPerSec: 45, radius: 0 }
+      defaultParams: { condition: 'always', speedDegPerSec: 45, radius: 0 },
+      paramLabels: { speedDegPerSec: '회전 속도 (도/초)' },
+      paramRanges: { speedDegPerSec: [-1440, 1440, 1] },
+      paramHidden: ['radius']
     },
     wall_bounce: {
       category: 'motion', name: '벽면 튕기기 반사', icon: 'BOUN',
       description: '캔버스 가장자리에 닿으면 당구공처럼 튕겨져 나옵니다.',
-      defaultParams: { condition: 'always', speedX: 120, speedY: 90, elasticity: 0.95 }
+      defaultParams: { condition: 'always', speedX: 120, speedY: 90, elasticity: 0.95 },
+      paramLabels: { speedX: '가로 속도 (px/초)', speedY: '세로 속도 (px/초)' },
+      paramRanges: { speedX: [-2000, 2000, 1], speedY: [-2000, 2000, 1] },
+      paramHidden: ['elasticity']
     },
     rainbow_shift: {
       category: 'motion', name: '무지개 색상 순환', icon: 'RAIN',
       description: '시간 경과에 따라 색조(Hue)가 무지개색으로 부드럽게 순환합니다.',
-      defaultParams: { condition: 'always', cycleDuration: 3.0 }
+      defaultParams: { condition: 'always', speed: 60, cycleDuration: 3.0 },
+      paramLabels: { speed: '색 변화 속도 (도/초)' },
+      paramRanges: { speed: [0, 720, 1] },
+      paramHidden: ['cycleDuration']
     },
 
     // 4. Timing & Control
     timeline_keyframes: {
       category: 'timing', name: '타임라인 키프레임', icon: 'TL',
       description: '타임라인에 기록된 키프레임 보간 애니메이션을 모듈 단위로 실행하고 제어합니다.',
-      defaultParams: { condition: 'always', playMode: 'timeline', speed: 1.0 }
+      defaultParams: { condition: 'always', playMode: 'timeline', speed: 1.0 },
+      paramHidden: ['playMode', 'speed']
     },
     duration_delay: {
       category: 'timing', name: '듀레이션 및 지연', icon: 'DUR',
@@ -719,7 +771,9 @@
       category: 'web', name: '상태 전환 스타일', icon: 'STAT',
       description: '마우스를 올리거나 누를 때 채우기·테두리·글자색·크기를 부드럽게 바꿉니다. 버튼 호버 효과에 사용합니다. (빈 칸은 바꾸지 않음)',
       defaultParams: { condition: 'always', hoverFill: '#3f3f46', pressFill: '#52525b', hoverStroke: '', hoverTextColor: '', hoverScale: 1.04, pressScale: 0.97, transition: 0.15 },
-      paramLabels: { hoverFill: '호버 채우기 색', pressFill: '눌림 채우기 색', hoverStroke: '호버 테두리 색', hoverTextColor: '호버 글자 색', hoverScale: '호버 크기', pressScale: '눌림 크기', transition: '전환 시간 (초)' }
+      paramLabels: { hoverFill: '호버 채우기 색', pressFill: '눌림 채우기 색', hoverStroke: '호버 테두리 색', hoverTextColor: '호버 글자 색', hoverScale: '호버 크기', pressScale: '눌림 크기', transition: '전환 시간 (초)' },
+      paramTypes: { hoverFill: 'color', pressFill: 'color', hoverStroke: 'color', hoverTextColor: 'color' },
+      paramEmpty: { hoverFill: '바꾸지 않음', pressFill: '바꾸지 않음', hoverStroke: '바꾸지 않음', hoverTextColor: '바꾸지 않음' }
     },
     count_up: {
       category: 'web', name: '숫자 카운트업', icon: '123',
@@ -746,7 +800,8 @@
       description: '트레일: 커서를 따라 잔상 입자를 남깁니다. 커스텀 커서: 이 스프라이트가 시스템 커서를 대신합니다.',
       defaultParams: { condition: 'always', mode: 'trail', color: '#e4e4e7', size: 5, lifetime: 0.5, lag: 0 },
       paramOptions: { mode: [['trail', '커서 트레일'], ['cursor', '커스텀 커서 (이 스프라이트)']] },
-      paramLabels: { mode: '방식', color: '트레일 색', size: '트레일 크기', lifetime: '잔상 시간 (초)', lag: '따라오는 지연 (0~0.95)' }
+      paramLabels: { mode: '방식', color: '트레일 색', size: '트레일 크기', lifetime: '잔상 시간 (초)', lag: '따라오는 지연 (0~0.95)' },
+      paramTypes: { color: 'color' }
     },
     property_binding: {
       category: 'logic', name: '속성 바인딩', icon: 'BIND',
@@ -8423,10 +8478,16 @@ ${sprite.type === 'text' ? `
           </div>
         `;
       } else {
+        // Settings in the registry's order, then any extra ones a file carries.
+        const skip = ['condition', 'conditionMode', 'conditionDuration', 'condKey', 'condSignal', 'condStartFrame', 'condEndFrame', 'targetModuleId', 'outputResult']
+          .concat(def.paramHidden || []);
+        const keys = [...new Set([...Object.keys(def.defaultParams || {}), ...Object.keys(params)])].filter(k => !skip.includes(k));
         typeSpecificHtml = `
-          ${Object.keys(params).filter(k => !['condition', 'conditionMode', 'conditionDuration', 'condKey', 'condSignal', 'condStartFrame', 'condEndFrame', 'targetModuleId', 'outputResult'].includes(k)).map(key => {
+          ${keys.map(key => {
             const opts = def.paramOptions && def.paramOptions[key];
             const label = (def.paramLabels && def.paramLabels[key]) || key;
+            const value = params[key] !== undefined ? params[key] : (def.defaultParams || {})[key];
+            const type = def.paramTypes && def.paramTypes[key];
             if (key === 'targetSpriteId' || key === 'messageSpriteId') {
               return `
             <div class="ps-prop-row">
@@ -8437,16 +8498,66 @@ ${sprite.type === 'text' ? `
               </select>
             </div>`;
             }
-            if (opts) {
+            if (type === 'layer') {
               return `
             <div class="ps-prop-row">
               <label class="ps-prop-label">${escapeHtml(label)}:</label>
               <select class="ps-select" data-param-key="${escapeHtml(key)}">
-                ${opts.map(([v, l]) => `<option value="${escapeHtml(v)}" ${String(params[key]) === String(v) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+                <option value="">(${escapeHtml((def.paramEmpty && def.paramEmpty[key]) || '없음')})</option>
+                ${this.doc.layers.map(l => `<option value="${escapeHtml(l.id)}" ${value === l.id ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
               </select>
             </div>`;
             }
-            if (def.paramTypes && def.paramTypes[key] === 'code') {
+            if (opts) {
+              // A value from an older file that is not in the list stays visible.
+              const known = opts.some(([v]) => String(v) === String(value));
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <select class="ps-select" data-param-key="${escapeHtml(key)}">
+                ${known || value === undefined || value === '' ? '' : `<option value="${escapeHtml(value)}" selected>(이전 값: ${escapeHtml(value)})</option>`}
+                ${opts.map(([v, l]) => `<option value="${escapeHtml(v)}" ${String(value) === String(v) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+              </select>
+            </div>`;
+            }
+            if (type === 'color') {
+              const empty = def.paramEmpty && def.paramEmpty[key];
+              const hex = /^#[0-9a-f]{6}$/i.test(String(value)) ? value : (/^#[0-9a-f]{3}$/i.test(String(value)) ? '#' + String(value).slice(1).split('').map(c => c + c).join('') : '#000000');
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <span class="jspen-color-field ${value ? '' : 'is-empty'}">
+                <input type="color" data-param-key="${escapeHtml(key)}" data-param-type="color" value="${escapeHtml(hex)}" aria-label="${escapeHtml(label)}">
+                ${empty ? `<button type="button" class="jspen-color-clear" data-param-clear="${escapeHtml(key)}" title="${escapeHtml(empty)}">${value ? '×' : escapeHtml(empty)}</button>` : ''}
+              </span>
+            </div>`;
+            }
+            if (type === 'key') {
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <input type="text" readonly class="ps-input jspen-key-field" data-param-key="${escapeHtml(key)}" data-param-type="key" value="${escapeHtml(InspectorPanelUI.keyLabel(value))}" title="클릭한 뒤 원하는 키를 누르세요">
+            </div>`;
+            }
+            if (typeof value === 'boolean') {
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <input type="checkbox" class="jspen-checkbox" data-param-key="${escapeHtml(key)}" ${value ? 'checked' : ''} aria-label="${escapeHtml(label)}">
+            </div>`;
+            }
+            if (typeof value === 'number') {
+              const [min, max, step] = (def.paramRanges && def.paramRanges[key]) || [null, null, InspectorPanelUI.stepFor(value)];
+              const factor = min === 0 && max === 1;
+              return `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              <div class="blender-scrub-group jspen-param-scrub ${factor ? 'is-factor' : ''}" ${factor ? `style="--fill:${escapeHtml(Math.max(0, Math.min(1, value)) * 100)}%"` : ''}>
+                <input type="number" class="blender-scrub-input" data-param-key="${escapeHtml(key)}" step="${escapeHtml(step)}" ${min !== null ? `min="${escapeHtml(min)}"` : ''} ${max !== null ? `max="${escapeHtml(max)}"` : ''} value="${escapeHtml(value)}">
+              </div>
+            </div>`;
+            }
+            if (type === 'code') {
               return `
             <div class="ps-prop-row" style="flex-direction:column;align-items:stretch;gap:4px;">
               <label class="ps-prop-label">${escapeHtml(label)}: <span style="color:#71717a;font-weight:400;">(api.self, api.find(), api.mouse, api.time, api.vars, api.emit() …)</span></label>
@@ -8457,14 +8568,7 @@ ${sprite.type === 'text' ? `
             return `
             <div class="ps-prop-row">
               <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              ${typeof params[key] === 'boolean' ? `
-                <select class="ps-select" data-param-key="${escapeHtml(key)}">
-                  <option value="true" ${params[key] ? 'selected' : ''}>true</option>
-                  <option value="false" ${!params[key] ? 'selected' : ''}>false</option>
-                </select>
-              ` : `
-                <input type="${typeof params[key] === 'number' ? 'number' : 'text'}" ${typeof params[key] === 'number' ? 'step="any"' : ''} class="ps-input" data-param-key="${escapeHtml(key)}" value="${escapeHtml(params[key])}">
-              `}
+              <input type="text" class="ps-input" data-param-key="${escapeHtml(key)}" value="${escapeHtml(value)}">
             </div>`;
           }).join('')}
         `;
@@ -8530,6 +8634,23 @@ ${sprite.type === 'text' ? `
         on_toggle: ['토글이 켜져 있을 때', '이 스프라이트의 토글 스위치 모듈이 켜짐 상태일 때 작동합니다.'],
         timeline_active: ['타임라인 구간 안에서', '타임라인 재생 위치가 지정한 프레임 구간 안에 있을 때 작동합니다.']
       };
+    }
+
+    // Drag step for a number without a known range.
+    static stepFor(value) {
+      const v = Math.abs(Number(value) || 0);
+      return Number.isInteger(Number(value)) && v >= 2 ? 1 : (v <= 1 ? 0.01 : 0.1);
+    }
+
+    // A key code shown the way it is printed on the keyboard.
+    static keyLabel(code) {
+      const c = String(code || '');
+      const named = { ArrowRight: '→', ArrowLeft: '←', ArrowUp: '↑', ArrowDown: '↓', Space: '스페이스', Enter: 'Enter',
+        Escape: 'Esc', ShiftLeft: '왼쪽 Shift', ShiftRight: '오른쪽 Shift', ControlLeft: '왼쪽 Ctrl', ControlRight: '오른쪽 Ctrl',
+        AltLeft: '왼쪽 Alt', AltRight: '오른쪽 Alt', Tab: 'Tab', Backspace: 'Backspace', ' ': '스페이스' };
+      if (named[c]) return named[c];
+      const m = c.match(/^(?:Key|Digit|Numpad)(.+)$/);
+      return m ? m[1] : (c || '(없음)');
     }
 
     // Compact badge text for the layers panel.
@@ -8695,8 +8816,9 @@ ${sprite.type === 'text' ? `
             if (Math.abs(dx) > 3) {
               isDragging = true;
               inp.blur();
-              const step = inp.step ? parseFloat(inp.step) : 1;
-              let nVal = Math.round((startVal + dx * step) * 10) / 10;
+              const step = (parseFloat(inp.step) || 1) * (ev.shiftKey ? 0.1 : 1);
+              const digits = Math.min(6, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)));
+              let nVal = Number((startVal + dx * step).toFixed(digits));
               if (inp.min !== '' && !isNaN(inp.min)) {
                 nVal = Math.max(parseFloat(inp.min), nVal);
               }
@@ -8809,6 +8931,15 @@ ${sprite.type === 'text' ? `
           }
         });
 
+        // Colours that may also be left unset
+        this.el.querySelectorAll('[data-param-clear]').forEach(btn => btn.addEventListener('click', () => {
+          if (!mod.params) mod.params = {};
+          mod.params[btn.dataset.paramClear] = '';
+          this.doc.saveState();
+          this.render();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        }));
+
         // Parameters with data-param-key
         this.el.querySelector('select[data-param-key="fontFamily"]')?.parentElement?.querySelector('[data-act-font-upload]')?.addEventListener('click', async () => {
           const family = window.jspenApp ? await window.jspenApp.addFontFile() : null;
@@ -8822,10 +8953,30 @@ ${sprite.type === 'text' ? `
 
         this.el.querySelectorAll('[data-param-key]').forEach(input => {
           const key = input.dataset.paramKey;
-          const onValChange = () => {
+          if (input.dataset.paramType === 'key') {
+            input.addEventListener('focus', () => { input.value = '키를 누르세요…'; });
+            input.addEventListener('blur', () => { input.value = InspectorPanelUI.keyLabel(mod.params?.[key]); });
+            input.addEventListener('keydown', e => {
+              if (e.key === 'Tab') return;
+              e.preventDefault(); e.stopPropagation();
+              if (!mod.params) mod.params = {};
+              mod.params[key] = e.code || e.key;
+              input.value = InspectorPanelUI.keyLabel(mod.params[key]);
+              this.doc.saveState();
+              input.blur();
+            });
+            return;
+          }
+          // Values change live while typing or dragging; the change is one undo step.
+          const onValChange = (commit = true) => {
             if (!mod.params) mod.params = {};
             let val = input.value;
-            if (input.type === 'number') {
+            if (input.type === 'checkbox') {
+              val = input.checked;
+            } else if (input.type === 'color') {
+              const field = input.closest('.jspen-color-field');
+              if (field) field.classList.remove('is-empty');
+            } else if (input.type === 'number') {
               val = parseFloat(val) || 0;
               if (input.min !== '' && !isNaN(input.min)) val = Math.max(parseFloat(input.min), val);
               if (input.max !== '' && !isNaN(input.max)) val = Math.min(parseFloat(input.max), val);
@@ -8843,7 +8994,9 @@ ${sprite.type === 'text' ? `
               }
             }
 
-            this.doc.saveState();
+            const scrub = input.closest('.jspen-param-scrub.is-factor');
+            if (scrub && typeof val === 'number') scrub.style.setProperty('--fill', Math.max(0, Math.min(1, val)) * 100 + '%');
+            if (commit) this.doc.saveState();
             if (this.cb.onCanvasRender) this.cb.onCanvasRender();
           };
 
@@ -8865,9 +9018,9 @@ ${sprite.type === 'text' ? `
             input.addEventListener('change', () => { mod.params[key] = input.value; window.jspenApp?.trustScript(input.value); this.doc.saveState(); });
             return;
           }
-          input.addEventListener('input', onValChange);
+          input.addEventListener('input', () => onValChange(input.type === 'checkbox'));
           input.addEventListener('change', () => {
-            onValChange();
+            onValChange(true);
             if (this.cb.onUpdate) this.cb.onUpdate();
           });
         });
