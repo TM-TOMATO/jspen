@@ -148,3 +148,68 @@ test('tutorial: the trigger step shows the module\'s trigger box, and the last s
   await page.evaluate(() => jspenApp.tutorial.stop());
   assert.deepEqual(s.errors, []);
 });
+
+test('text colour: a label\'s colour reaches the exported website; a text sprite calls its colour "글자 색상"', async () => {
+  const { page } = s;
+  await page.evaluate(() => {
+    jspenApp.loadProjectFromJSON({ name: 't', width: 800, height: 600, layers: [{ id: 'L', name: 'L', sprites: [
+      { id: 'lab', name: 'lab', type: 'rect', x: 200, y: 200, width: 300, height: 120, fill: '#000000',
+        modules: [{ id: 'tl', type: 'text_label', name: '텍스트', enabled: true, params: { text: '안녕', fontSize: 40, color: '#ffffff' } }] },
+      { id: 'txt', name: 'txt', type: 'text', x: 600, y: 400, width: 300, height: 120, text: '글자', fontSize: 40, fill: '#ffffff' }] }] });
+    jspenApp.doc.selectedSpriteId = 'lab'; jspenApp.doc.selectedModuleId = 'tl'; jspenApp.refreshUI();
+  });
+  await page.$eval('[data-param-key="color"]', el => { el.value = '#ff0000'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  const html = await page.evaluate(() => jspenApp.generateWebsiteHTML(true));
+  const q = await s.browser.newPage({ viewport: { width: 800, height: 600 } });
+  await q.setContent(html);
+  assert.equal(await q.$eval('[data-sid="lab"]', e => getComputedStyle(e).color), 'rgb(255, 0, 0)');
+  await q.close();
+  await page.evaluate(() => { jspenApp.doc.selectedSpriteId = 'txt'; jspenApp.doc.selectedModuleId = null; jspenApp.refreshUI(); });
+  assert.match(await page.textContent('.ps-prop-row:has(#inpFill) .ps-prop-label'), /글자 색상/);
+});
+
+test('nodes: inputs on the left edge, outputs on the right, named for what they do; values flow along wires', async () => {
+  const { page } = s;
+  await page.evaluate(() => {
+    const mod = (id, type, p) => ({ id, type, name: MODULE_REGISTRY[type].name, enabled: true, params: Object.assign(JSON.parse(JSON.stringify(MODULE_REGISTRY[type].defaultParams)), p || {}) });
+    jspenApp.loadProjectFromJSON({ name: 'n', width: 800, height: 600, layers: [{ id: 'L', name: 'L', sprites: [{ id: 's', name: '버튼', type: 'rect', x: 400, y: 300, width: 120, height: 60,
+      modules: [mod('m0', 'math_calculate', { inputA: 5, inputB: 7 }), mod('m1', 'value_remapper'), mod('m2', 'pulse_scale')] }] }] });
+    jspenApp.doc.selectedSpriteId = 's'; jspenApp.refreshUI();
+    if (!jspenApp.isNodeMode) jspenApp.toggleNodeMode();
+  });
+  await page.waitForSelector('#node_m0');
+  const r = await page.evaluate(() => [...document.querySelectorAll('.graph-node')].map(n => {
+    const nr = n.getBoundingClientRect(), mid = e => { const b = e.getBoundingClientRect(); return b.left + b.width / 2; };
+    return { id: n.id, ins: [...n.querySelectorAll('.graph-port-input')].map(e => Math.round(mid(e) - nr.left)),
+      outs: [...n.querySelectorAll('.graph-port-output')].map(e => Math.round(mid(e) - nr.right)),
+      outLabels: [...n.querySelectorAll('.graph-outputs .graph-port-label')].map(e => e.textContent.trim()),
+      settings: [...n.querySelectorAll('.node-inline-label')].map(e => e.textContent.trim()) };
+  }));
+  for (const n of r) {
+    assert.ok(new Set(n.ins).size <= 1, `${n.id}: every input on one edge ${n.ins}`);
+    assert.ok(new Set(n.outs).size <= 1, `${n.id}: every output on one edge ${n.outs}`);
+    for (const l of n.outLabels) assert.ok(!/^(Out|Result|Transform|Visual|Flow)$/.test(l), `${n.id}: "${l}"`);
+  }
+  const math = r.find(n => n.id === 'node_m0'), remap = r.find(n => n.id === 'node_m1');
+  assert.ok(math.outLabels.includes('값 = 12'), math.outLabels.join());
+  assert.deepEqual(math.settings.slice(0, 3), ['연산:', '값 A', '값 B']);
+  assert.ok(!remap.settings.includes('연산:'), 'not a math node: ' + remap.settings.join());
+  assert.ok(remap.settings.includes('입력 최소'), remap.settings.join());
+  // a wire from the math value into a setting sets that setting
+  const speed = await page.evaluate(() => {
+    const ne = jspenApp.nodeEditor;
+    ne.wires.push({ id: 'wv', fromNode: 'node_m0', fromPort: 'Result', toNode: 'node_m2', toPort: 'param_speed' });
+    ne.render();
+    return jspenApp.doc.findSpriteById('s').modules[2].params.speed;
+  });
+  assert.equal(speed, 12);
+  // changing a value on the node is one undo step
+  await page.fill('#node_m0 [data-node-ctrl="inputA"]', '10');
+  await page.press('#node_m0 [data-node-ctrl="inputA"]', 'Tab');
+  assert.equal(await page.evaluate(() => jspenApp.doc.findSpriteById('s').modules[0].params.inputA), 10);
+  const outs = await page.textContent('#node_m0 .graph-outputs');
+  assert.ok(outs.includes('값 = 17'), outs);
+  await page.evaluate(() => { jspenApp.doc.undo(); jspenApp.refreshUI(); });
+  assert.equal(await page.evaluate(() => jspenApp.doc.findSpriteById('s').modules[0].params.inputA), 5);
+  await page.evaluate(() => jspenApp.toggleNodeMode());
+});

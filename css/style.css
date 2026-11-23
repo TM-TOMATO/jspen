@@ -3154,16 +3154,18 @@ input:focus, select:focus, textarea:focus {
 }
 
 /* Connectable Inline Parameter Socket Styling */
+/* Setting sockets sit on the node's left edge, in line with the main input. */
+.graph-node-controls .node-inline-control { position: relative; }
 .node-inline-control .graph-port-input {
-  position: static !important;
-  display: inline-block;
-  margin-right: 6px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 2px solid #181920;
-  vertical-align: middle;
+  position: absolute !important;
+  left: -17px;
+  top: 50%;
+  margin-top: -6px;
 }
+.node-inline-control .node-inline-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-inline-control .node-inline-input { width: 64px; flex: 0 0 auto; }
+.node-inline-control .node-inline-select { flex: 1 1 auto; min-width: 0; background: #27272a; border: 1px solid #3f3f46; color: #f4f4f5; font-size: 10px; padding: 2px; border-radius: 2px; }
+.graph-port-value { color: #e4e4e7; font-weight: 700; }
 .graph-port.port-connected {
   background-color: #e4e4e7 !important;
   border-color: #71717a !important;

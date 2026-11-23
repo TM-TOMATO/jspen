@@ -5285,6 +5285,32 @@
         'count_up', 'magnetic', 'cursor_fx', 'physics_body', 'audio_reactive', 'follow_target', 'look_at'].includes(type);
     }
 
+    // math_calculate's result (also shown on its node in the node editor).
+    static mathResult(p) {
+      const valA = parseFloat(p.inputA !== undefined ? p.inputA : (p.valA || 0)) || 0;
+      const valB = parseFloat(p.inputB !== undefined ? p.inputB : (p.valB || 0)) || 0;
+      switch (p.operation || 'add') {
+        case 'add': return valA + valB;
+        case 'subtract': return valA - valB;
+        case 'multiply': return valA * valB;
+        case 'divide': return valB !== 0 ? valA / valB : 0;
+        case 'sin': return Math.sin(valA);
+        case 'cos': return Math.cos(valA);
+        case 'min': return Math.min(valA, valB);
+        case 'max': return Math.max(valA, valB);
+        case 'clamp': {
+          const cMin = parseFloat(p.clampMin || 0);
+          const cMax = parseFloat(p.clampMax !== undefined ? p.clampMax : 1);
+          return Math.max(cMin, Math.min(cMax, valA));
+        }
+        case 'lerp': return valA + (parseFloat(p.targetVal || 0) - valA) * Math.max(0, Math.min(1, valB));
+        case 'modulo': return valB !== 0 ? valA % valB : 0;
+        case 'abs': return Math.abs(valA);
+        case 'round': return Math.round(valA);
+        default: return valA + valB;
+      }
+    }
+
     static conditionSignal(mod) {
       const p = mod.params || {};
       return p.condSignal || p.listenSignal || p.inputSignal || '*';
@@ -5851,35 +5877,7 @@
               }
 
               case 'math_calculate': {
-                const valA = parseFloat(p.inputA !== undefined ? p.inputA : (p.valA || 0));
-                const valB = parseFloat(p.inputB !== undefined ? p.inputB : (p.valB || 0));
-                let res = 0;
-                const op = p.operation || 'add';
-                switch (op) {
-                  case 'add': res = valA + valB; break;
-                  case 'subtract': res = valA - valB; break;
-                  case 'multiply': res = valA * valB; break;
-                  case 'divide': res = valB !== 0 ? valA / valB : 0; break;
-                  case 'sin': res = Math.sin(valA); break;
-                  case 'cos': res = Math.cos(valA); break;
-                  case 'min': res = Math.min(valA, valB); break;
-                  case 'max': res = Math.max(valA, valB); break;
-                  case 'clamp': {
-                    const cMin = parseFloat(p.clampMin || 0);
-                    const cMax = parseFloat(p.clampMax !== undefined ? p.clampMax : 1);
-                    res = Math.max(cMin, Math.min(cMax, valA));
-                    break;
-                  }
-                  case 'lerp': {
-                    const f = Math.max(0, Math.min(1, valB));
-                    res = valA + (parseFloat(p.targetVal || 0) - valA) * f;
-                    break;
-                  }
-                  case 'modulo': res = valB !== 0 ? valA % valB : 0; break;
-                  case 'abs': res = Math.abs(valA); break;
-                  case 'round': res = Math.round(valA); break;
-                  default: res = valA + valB; break;
-                }
+                const res = ModuleEngine.mathResult(p);
                 p.outputResult = res;
                 ctx.value = res;
 
@@ -8318,7 +8316,7 @@ ${this.getRuntimeSource(withEngine)}
           </div>
           ` : `
           <div class="ps-prop-row">
-            <label class="ps-prop-label">채우기 색상:</label>
+            <label class="ps-prop-label">${sprite.type === 'text' ? '글자 색상' : '채우기 색상'}:</label>
             <div class="ps-color-picker-wrap">
               <input type="color" class="ps-color-picker" id="inpFill" value="${escapeHtml(sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#71717a')}">
               <span class="ps-val-tag">${escapeHtml(sprite.fill || '#71717a')}</span>
@@ -10873,7 +10871,8 @@ ${sprite.type === 'text' ? `
         title: '최종 웹사이트 출력 (OUTPUT)',
         badge: 'MASTER',
         x: masterPos.x, y: masterPos.y,
-        inputs: [{ name: 'In', type: 'flow' }],
+        inputs: [{ name: 'In', type: 'flow', label: '← 연결된 모듈 작동',
+          hint: '여기까지 선으로 이어진 모듈만 미리보기와 내보낸 결과에서 작동합니다.' }],
         outputs: [],
         params: {}
       });
@@ -10917,11 +10916,7 @@ ${sprite.type === 'text' ? `
           badge: sprite.type === 'screen_trigger' ? 'TRIG' : 'SPRITE',
           x: spPos.x, y: spPos.y,
           inputs: [],
-          outputs: [
-            { name: 'Transform', type: 'vector' },
-            { name: 'Visual', type: 'color' },
-            { name: 'Flow', type: 'flow' }
-          ],
+          outputs: [{ name: 'Flow', type: 'flow', label: '모듈 시작 →', hint: '이 스프라이트의 첫 모듈로 이어집니다.' }],
           params: {}
         });
 
@@ -10933,20 +10928,15 @@ ${sprite.type === 'text' ? `
           const def = MODULE_REGISTRY[mod.type] || {};
           const cat = def.category || 'motion';
 
-          // Build dynamic input ports corresponding to parameters
-          const modInputs = [{ name: 'In', type: 'flow' }];
-          const pKeys = Object.keys(mod.params || {});
-          for (const k of pKeys) {
-            modInputs.push({ name: 'param_' + k, type: 'float', paramKey: k });
-          }
+          // Inputs: the chain from the previous module, then one socket per
+          // number setting shown on the node (a wire there sets that value).
+          const modInputs = [{ name: 'In', type: 'flow', label: '← 이전', hint: '앞 모듈에서 이어집니다. 최종 출력(OUTPUT)까지 이어져야 작동합니다.' }];
+          for (const k of NodeEditorUI.nodeNumberKeys(mod)) modInputs.push({ name: 'param_' + k, type: 'float', paramKey: k });
 
-          const modOutputs = [
-            { name: 'Out', type: 'flow' }
-          ];
-          if (mod.type === 'math_calculate' || cat === 'logic') {
-            modOutputs.push({ name: 'Result', type: 'float' });
-          } else {
-            modOutputs.push({ name: 'Transform', type: 'vector' });
+          const modOutputs = [{ name: 'Out', type: 'flow', label: '다음 →', hint: '다음에 작동할 모듈이나 최종 출력(OUTPUT)으로 이어집니다.' }];
+          // A number other nodes can use: the result of a calculation, or a module's value.
+          if (NodeEditorUI.nodeValue({ type: mod.type, params: mod.params || {} }) !== null) {
+            modOutputs.push({ name: 'Result', type: 'float', label: '값', hint: '이 노드의 숫자입니다. 다른 노드의 설정 소켓(왼쪽 회색 점)에 이으면 그 설정이 이 값으로 바뀝니다.' });
           }
 
           this.nodes.push({
@@ -10987,8 +10977,10 @@ ${sprite.type === 'text' ? `
       if (this.wires.length === 0) {
         this.wires = newWires;
       } else {
-        const validNodeIds = new Set(this.nodes.map(n => n.id));
-        this.wires = this.wires.filter(w => validNodeIds.has(w.fromNode) && validNodeIds.has(w.toNode));
+        // Wires to nodes or sockets that no longer exist are dropped.
+        const byId = new Map(this.nodes.map(n => [n.id, n]));
+        const hasPort = (id, port, out) => { const n = byId.get(id); return !!n && (out ? n.outputs : n.inputs).some(p => p.name === port); };
+        this.wires = this.wires.filter(w => hasPort(w.fromNode, w.fromPort, true) && hasPort(w.toNode, w.toPort, false));
         for (const nw of newWires) {
           if (!this.wires.some(w => w.toNode === nw.toNode && w.toPort === nw.toPort)) {
             this.wires.push(nw);
@@ -11071,22 +11063,8 @@ ${sprite.type === 'text' ? `
           const fromN = this.nodes.find(n => n.id === w.fromNode);
           const toN = this.nodes.find(n => n.id === w.toNode);
           if (fromN && toN) {
-            let val = 0;
-            if (fromN.type === 'math_calculate') {
-              const a = parseFloat(fromN.params?.inputA || fromN.params?.valA || 0);
-              const b = parseFloat(fromN.params?.inputB || fromN.params?.valB || 0);
-              const op = fromN.params?.operation || 'add';
-              if (op === 'add') val = a + b;
-              else if (op === 'subtract') val = a - b;
-              else if (op === 'multiply') val = a * b;
-              else if (op === 'divide') val = b !== 0 ? a / b : 0;
-              else if (op === 'sin') val = Math.sin(a);
-              else if (op === 'cos') val = Math.cos(a);
-              else if (op === 'clamp') val = Math.max(0, Math.min(1, a));
-              else val = a + b;
-            } else if (fromN.params && fromN.params.value !== undefined) {
-              val = parseFloat(fromN.params.value || 0);
-            }
+            const val = NodeEditorUI.nodeValue(fromN);
+            if (val === null) continue;
             if (!toN.params) toN.params = {};
             toN.params[paramKey] = val;
             if (toN.modId) {
@@ -11133,20 +11111,22 @@ ${sprite.type === 'text' ? `
             <div class="graph-node-body">
               <div class="graph-ports-col graph-inputs">
                 ${mainInputs.map(p => `
-                  <div class="graph-port-row">
-                    <div class="graph-port graph-port-input port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}" title="${escapeHtml(p.name)} (${escapeHtml(p.type || 'flow')})"></div>
-                    <span class="graph-port-label">${escapeHtml(p.name)}</span>
+                  <div class="graph-port-row" title="${escapeHtml(p.hint || p.name)}">
+                    <div class="graph-port graph-port-input port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}"></div>
+                    <span class="graph-port-label">${escapeHtml(p.label || p.name)}</span>
                   </div>
                 `).join('')}
               </div>
 
               <div class="graph-ports-col graph-outputs">
-                ${mainOutputs.map(p => `
-                  <div class="graph-port-row" style="justify-content:flex-end;">
-                    <span class="graph-port-label">${escapeHtml(p.name)}</span>
-                    <div class="graph-port graph-port-output port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}" title="${escapeHtml(p.name)} (${escapeHtml(p.type || 'flow')})"></div>
-                  </div>
-                `).join('')}
+                ${mainOutputs.map(p => {
+                  const v = p.name === 'Result' ? NodeEditorUI.nodeValue(n) : null;
+                  return `
+                  <div class="graph-port-row" style="justify-content:flex-end;" title="${escapeHtml(p.hint || p.name)}">
+                    <span class="graph-port-label">${escapeHtml(p.label || p.name)}${v !== null ? ` = <b class="graph-port-value">${escapeHtml(NodeEditorUI.formatValue(v))}</b>` : ''}</span>
+                    <div class="graph-port graph-port-output port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}"></div>
+                  </div>`;
+                }).join('')}
               </div>
             </div>
 
@@ -11161,119 +11141,77 @@ ${sprite.type === 'text' ? `
       this.renderWires();
     }
 
+    // Number settings shown on a module's node (each with a socket), in the
+    // inspector's order; settings hidden there are hidden here too.
+    static nodeNumberKeys(mod) {
+      const def = MODULE_REGISTRY[mod.type] || {}, p = mod.params || {};
+      const d = def.defaultParams || {};
+      const hidden = new Set(['condition', 'conditionMode', 'conditionDuration', 'condStartFrame', 'condEndFrame', 'outputResult', 'outputValue'].concat(def.paramHidden || []));
+      const keys = [...new Set([...Object.keys(d), ...Object.keys(p)])].filter(k => !hidden.has(k) &&
+        typeof (p[k] !== undefined ? p[k] : d[k]) === 'number' && InspectorPanelUI.fieldShown(def, p, k));
+      if (mod.type === 'math_calculate') {
+        const op = p.operation || 'add';
+        return ['inputA', 'inputB', ...(op === 'clamp' ? ['clampMin', 'clampMax'] : []), ...(op === 'lerp' ? ['targetVal'] : [])];
+      }
+      return keys.slice(0, 4);
+    }
+
+    // The number a node gives to others (null: it gives none).
+    static nodeValue(n) {
+      const p = n.params || {};
+      if (n.type === 'math_calculate') return ModuleEngine.mathResult(p);
+      const v = parseFloat(p.value);
+      return p.value !== undefined && p.value !== '' && isFinite(v) ? v : null;
+    }
+
+    // Values passed along wires, and the "값 = …" labels, after an edit.
+    updateValues() {
+      this.evaluateParamWires();
+      for (const n of this.nodes) {
+        const el = document.getElementById(n.id);
+        const label = el && el.querySelector('.graph-port-value');
+        const v = NodeEditorUI.nodeValue(n);
+        if (label && v !== null) label.textContent = NodeEditorUI.formatValue(v);
+        if (!el) continue;
+        for (const input of el.querySelectorAll('[data-node-ctrl]')) {
+          const k = input.dataset.nodeCtrl;
+          if (input.disabled && n.params && n.params[k] !== undefined) input.value = n.params[k];
+        }
+      }
+    }
+
+    static formatValue(v) {
+      return Number.isInteger(v) ? String(v) : String(+v.toFixed(3));
+    }
+
     renderNodeInlineControls(n) {
-      const isConnected = (pName) => this.wires.some(w => w.toNode === n.id && w.toPort === pName);
-
-      if (n.type === 'math_calculate' || n.category === 'logic') {
-        const op = n.params.operation || 'add';
-        const aConnected = isConnected('param_valA') || isConnected('param_inputA');
-        const bConnected = isConnected('param_valB') || isConnected('param_inputB');
-        return `
-          <div class="node-inline-control" style="margin-bottom:6px;">
+      const isConnected = pName => this.wires.some(w => w.toNode === n.id && w.toPort === pName);
+      if (!n.modId) return '';
+      const def = MODULE_REGISTRY[n.type] || {};
+      const p = n.params || {}, d = def.defaultParams || {};
+      const rows = [];
+      if (n.type === 'math_calculate') {
+        const op = p.operation || 'add';
+        rows.push(`
+          <div class="node-inline-control">
             <span class="node-inline-label">연산:</span>
-            <select class="node-inline-select" data-node-ctrl="operation" style="width:100px;background:#27272a;border:1px solid #3f3f46;color:#f4f4f5;font-size:10px;padding:2px;border-radius:2px;">
-              <option value="add" ${op==='add'?'selected':''}>+ 더하기 (Add)</option>
-              <option value="subtract" ${op==='subtract'?'selected':''}>- 빼기 (Subtract)</option>
-              <option value="multiply" ${op==='multiply'?'selected':''}>× 곱하기 (Multiply)</option>
-              <option value="divide" ${op==='divide'?'selected':''}>÷ 나누기 (Divide)</option>
-              <option value="sin" ${op==='sin'?'selected':''}>sin 사인</option>
-              <option value="cos" ${op==='cos'?'selected':''}>cos 코사인</option>
-              <option value="clamp" ${op==='clamp'?'selected':''}>clamp (0~1)</option>
-              <option value="min" ${op==='min'?'selected':''}>min 최솟값</option>
-              <option value="max" ${op==='max'?'selected':''}>max 최댓값</option>
+            <select class="node-inline-select" data-node-ctrl="operation">
+              ${(def.paramOptions.operation || []).map(([v, l]) => `<option value="${escapeHtml(v)}" ${op === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
             </select>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${aConnected?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_inputA" data-type="float" title="값 A 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">값 A:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="inputA" value="${escapeHtml(n.params.inputA !== undefined ? n.params.inputA : (n.params.valA || 0))}" ${aConnected?'disabled style="opacity:0.6;"':''}>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${bConnected?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_inputB" data-type="float" title="값 B 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">값 B:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="inputB" value="${escapeHtml(n.params.inputB !== undefined ? n.params.inputB : (n.params.valB !== undefined ? n.params.valB : 1))}" ${bConnected?'disabled style="opacity:0.6;"':''}>
-          </div>
-        `;
+          </div>`);
       }
-
-      if (n.type === 'photoshop_filter') {
-        const blurConn = isConnected('param_blur');
-        const brightConn = isConnected('param_brightness');
-        return `
-          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${blurConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_blur" data-type="float" title="블러 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">블러(px):</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="blur" step="1" min="0" value="${escapeHtml(n.params.blur || 0)}" ${blurConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${brightConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_brightness" data-type="float" title="밝기 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">밝기(%):</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="brightness" step="5" min="0" value="${escapeHtml(n.params.brightness !== undefined ? n.params.brightness : 100)}" ${brightConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-        `;
+      for (const k of NodeEditorUI.nodeNumberKeys({ type: n.type, params: p })) {
+        const port = 'param_' + k, on = isConnected(port);
+        const label = String((def.paramLabels && def.paramLabels[k]) || k);
+        const value = p[k] !== undefined ? p[k] : d[k];
+        rows.push(`
+          <div class="node-inline-control" title="${escapeHtml(on ? `${label}: 연결된 노드의 값을 씁니다` : `${label}: 왼쪽 점에 다른 노드의 '값'을 이으면 그 값을 씁니다`)}">
+            <div class="graph-port graph-port-input port-float ${on ? 'port-connected' : ''}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(port)}" data-type="float"></div>
+            <span class="node-inline-label">${escapeHtml(label)}</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="${escapeHtml(k)}" step="${escapeHtml(InspectorPanelUI.stepFor(value))}" value="${escapeHtml(value)}" ${on ? 'disabled' : ''}>
+          </div>`);
       }
-
-      if (n.type === 'follow_target') {
-        const stConn = isConnected('param_stiffness');
-        const dpConn = isConnected('param_damping');
-        return `
-          <div class="node-inline-control" style="margin-bottom:6px;">
-            <span class="node-inline-label">모드:</span>
-            <select class="node-inline-select" data-node-ctrl="trackMode" style="width:100px;background:#27272a;border:1px solid #3f3f46;color:#f4f4f5;font-size:10px;padding:2px;border-radius:2px;">
-              <option value="spring" ${n.params.trackMode==='spring'?'selected':''}>스프링 (Spring)</option>
-              <option value="lerp" ${n.params.trackMode==='lerp'?'selected':''}>부드러운 추적 (Lerp)</option>
-              <option value="constant" ${n.params.trackMode==='constant'?'selected':''}>일정 속도 (Constant)</option>
-              <option value="orbit" ${n.params.trackMode==='orbit'?'selected':''}>주변 공전 (Orbit)</option>
-              <option value="elastic" ${n.params.trackMode==='elastic'?'selected':''}>탄성 (Elastic)</option>
-              <option value="direct" ${n.params.trackMode==='direct'?'selected':''}>즉시 고정 (Direct)</option>
-            </select>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${stConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_stiffness" data-type="float" title="강도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">강도 (Stiffness):</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="stiffness" step="0.05" value="${escapeHtml(n.params.stiffness !== undefined ? n.params.stiffness : 0.1)}" ${stConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${dpConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_damping" data-type="float" title="감쇠 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">감쇠 (Damping):</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="damping" step="0.05" value="${escapeHtml(n.params.damping !== undefined ? n.params.damping : 0.8)}" ${dpConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-        `;
-      }
-
-      if (n.category === 'motion' || n.type === 'motion_pos') {
-        const spdConn = isConnected('param_speed');
-        const smConn = isConnected('param_smooth');
-        return `
-          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${spdConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_speed" data-type="float" title="속도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">속도:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="speed" step="0.1" value="${escapeHtml(n.params.speed || 1)}" ${spdConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${smConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_smooth" data-type="float" title="스무딩 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">스무딩:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="smooth" step="0.05" min="0" max="1" value="${escapeHtml(n.params.smooth || 0.15)}" ${smConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-        `;
-      }
-
-      if (n.category === 'color' || n.type === 'color_val') {
-        const alpConn = isConnected('param_alpha');
-        return `
-          <div class="node-inline-control" style="margin-bottom:4px;">
-            <span class="node-inline-label">색상:</span>
-            <input type="color" class="node-inline-color" data-node-ctrl="color" value="${escapeHtml(n.params.color || '#d4d4d8')}">
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${alpConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_alpha" data-type="float" title="투명도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">투명도:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="alpha" step="0.1" min="0" max="1" value="${escapeHtml(n.params.alpha !== undefined ? n.params.alpha : 1)}" ${alpConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-        `;
-      }
-
-      return '';
+      return rows.join('');
     }
 
     calculateWirePath(x1, y1, x2, y2) {
@@ -11449,12 +11387,17 @@ ${sprite.type === 'text' ? `
 
         const ctrlKey = input.dataset.nodeCtrl;
         if (!node.params) node.params = {};
-        node.params[ctrlKey] = input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+        node.params[ctrlKey] = input.type === 'number' ? (parseFloat(e.target.value) || 0) : e.target.value;
         if (node.modId) {
-          const sp = this.doc.getSelectedSprite();
+          const sp = this.doc.findSpriteById(node.spriteId) || this.doc.getSelectedSprite();
           const mod = sp?.modules?.find(m => m.id === node.modId);
           if (mod) mod.params[ctrlKey] = node.params[ctrlKey];
         }
+        this.doc.saveState();
+        // The operation changes which settings the node shows; otherwise only
+        // the values move along (the next field keeps its focus).
+        if (ctrlKey === 'operation') { this.syncFromDoc(); this.render(); }
+        else this.updateValues();
         this.cb.onUpdate();
       });
 
@@ -14576,7 +14519,8 @@ ${sprite.type === 'text' ? `
           if (sprite.text) {
             innerContent = escapeHtml(sprite.text);
           }
-          textColor = sprite.textColor || (isLightColor(sprite.fill) ? '#09090b' : '#ffffff');
+          // Same order as the canvas: the label's own colour, then the sprite's, then black or white by the fill.
+          textColor = (textMod && textMod.params && textMod.params.color) || sprite.textColor || (isLightColor(sprite.fill) ? '#09090b' : '#ffffff');
         }
 
         const borderRadius = sprite.type === 'circle' ? '50%' : `${sprite.cornerRadius || 0}px`;

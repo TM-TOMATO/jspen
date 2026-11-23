@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "jspen": {
+      "command": "node",
+      "args": ["mcp/jspen-mcp.js"]
+    }
+  }
+}
