@@ -1378,6 +1378,25 @@ input, select, textarea, button {
   box-shadow: 0 0 0 1px #3f3f46, inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
+/* Names in narrow rows: fill the row, end in "…" */
+.ps-val-tag { overflow: hidden; text-overflow: ellipsis; }
+.ps-val-tag.ps-val-name { flex: 1 1 0; width: auto; min-width: 0; max-width: 100%; text-align: right; white-space: nowrap; }
+
+/* Tutorial: highlights a part of the studio without blocking it */
+.jspen-tutorial { position: fixed; inset: 0; pointer-events: none; z-index: 900; }
+.jspen-tutorial.is-covered { display: none; }
+.jspen-tutorial-spot { position: fixed; border: 2px solid #38bdf8; border-radius: 6px; box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.45); transition: all 0.2s ease; }
+.jspen-tutorial-card, .jspen-tutorial-offer { position: fixed; width: 320px; background: #1f1f24; border: 1px solid #3f3f46; border-radius: 8px;
+  padding: 12px 14px; color: #f4f4f5; pointer-events: auto; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+.jspen-tutorial-offer { right: 20px; bottom: 20px; z-index: 900; }
+.jspen-tutorial-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.jspen-tutorial-progress { font-size: 10.5px; color: #71717a; }
+.jspen-tutorial-close { background: transparent; border: none; color: #a1a1aa; cursor: pointer; font-size: 12px; }
+.jspen-tutorial-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.jspen-tutorial-text { font-size: 12px; line-height: 1.6; color: #d4d4d8; user-select: text; }
+.jspen-tutorial-status { font-size: 11px; color: #38bdf8; margin-top: 6px; min-height: 14px; }
+.jspen-tutorial-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
+
 /* Module settings drawn like Blender properties */
 .jspen-param-scrub { flex: 1; min-width: 0; }
 .jspen-param-scrub.is-factor {

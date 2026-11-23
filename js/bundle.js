@@ -7959,9 +7959,9 @@ ${this.getRuntimeSource(withEngine)}
       return `
         <!-- Sprite Header -->
         <div class="ps-prop-section">
-          <div class="ps-prop-header" style="justify-content:space-between;">
-            <span style="font-weight:700;color:#e4e4e7;">스프라이트: ${escapeHtml(sprite.name)}</span>
-            <span class="ps-val-tag">${escapeHtml(layerName ? layerName : sprite.type)}</span>
+          <div class="ps-prop-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span style="font-weight:700;color:#e4e4e7;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(sprite.name)}">스프라이트: ${escapeHtml(sprite.name)}</span>
+            <span class="ps-val-tag ps-val-name" title="${escapeHtml(layerName ? layerName : sprite.type)}">${escapeHtml(layerName ? layerName : sprite.type)}</span>
           </div>
           <div class="ps-prop-row" style="margin-top:6px;">
             <label class="ps-prop-label">이름:</label>
@@ -8444,6 +8444,20 @@ ${sprite.type === 'text' ? `
           </div>
           
           <div class="ps-prop-row">
+            <label class="ps-prop-label">이동 시점:</label>
+            <select class="ps-select" data-param-key="trigger">
+              ${['click', 'hover', 'signal'].includes(params.trigger || 'click') ? '' : `<option value="${escapeHtml(params.trigger)}" selected>(이전 값: ${escapeHtml(params.trigger)})</option>`}
+              <option value="click" ${(params.trigger || 'click') === 'click' ? 'selected' : ''}>클릭할 때</option>
+              <option value="hover" ${params.trigger === 'hover' ? 'selected' : ''}>마우스를 올릴 때</option>
+              <option value="signal" ${params.trigger === 'signal' ? 'selected' : ''}>신호를 받을 때</option>
+            </select>
+          </div>
+          ${params.trigger === 'signal' ? `
+          <div class="ps-prop-row">
+            <label class="ps-prop-label">받을 신호:</label>
+            <input type="text" class="ps-input" data-param-key="signalName" value="${escapeHtml(params.signalName || '')}">
+          </div>` : ''}
+          <div class="ps-prop-row">
             <label class="ps-prop-label">인페이지 앵커 ID:</label>
             <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${escapeHtml(params.anchorId || '')}">
           </div>
@@ -8587,7 +8601,7 @@ ${sprite.type === 'text' ? `
 
           <div class="ps-prop-row" style="margin-top:8px;">
             <label class="ps-prop-label">소속 스프라이트:</label>
-            <span class="ps-val-tag">${escapeHtml(sprite ? sprite.name : '없음')}</span>
+            <span class="ps-val-tag ps-val-name" title="${escapeHtml(sprite ? sprite.name : '없음')}">${escapeHtml(sprite ? sprite.name : '없음')}</span>
           </div>
 
           <div class="ps-prop-row">
@@ -8636,6 +8650,12 @@ ${sprite.type === 'text' ? `
       };
     }
 
+    // A link is always ready; it opens at its own moment.
+    static linkSummary(p) {
+      const when = { hover: '마우스를 올리면', signal: `'${p.signalName || '(신호 이름 없음)'}' 신호를 받으면` }[p.trigger] || '클릭하면';
+      return `링크가 켜져 있고, ${when} 이동합니다. 켜자마자 이동하지는 않습니다.`;
+    }
+
     // Drag step for a number without a known range.
     static stepFor(value) {
       const v = Math.abs(Number(value) || 0);
@@ -8678,6 +8698,7 @@ ${sprite.type === 'text' ? `
     static conditionSummary(mod) {
       const p = mod.params || {};
       const cond = p.condition || 'always';
+      if (cond === 'always' && mod.type === 'hyperlink') return InspectorPanelUI.linkSummary(p);
       if (cond === 'always') return '미리보기를 시작하면 바로, 계속 작동합니다.';
       const mode = ModuleEngine.resolveConditionMode(mod);
       const instant = ModuleEngine.instantCondition(cond);
@@ -8764,7 +8785,7 @@ ${sprite.type === 'text' ? `
               ${Object.entries(info).map(([k, [label]]) => `<option value="${k}" ${cond === k ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
             </select>
           </div>
-          <div class="ps-help-text" style="font-size:10.5px;color:#a1a1aa;margin:-2px 0 6px;line-height:1.5;">${escapeHtml((info[cond] || info.always)[1])}</div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#a1a1aa;margin:-2px 0 6px;line-height:1.5;">${escapeHtml(cond === 'always' && mod.type === 'hyperlink' ? '이 링크 기능이 언제 켜져 있을지 고릅니다. 이동하는 때는 아래 \'이동 시점\'에서 정합니다.' : (info[cond] || info.always)[1])}</div>
           ${extra}
           ${modeRow}
           <div class="jspen-cond-summary" id="modCondSummary" style="margin-top:6px;padding:7px 9px;border-radius:6px;background:#1e1b4b;color:#e0e7ff;font-size:11px;line-height:1.5;">
@@ -9802,6 +9823,12 @@ ${sprite.type === 'text' ? `
                 <button class="ps-dropdown-item" data-preset-w="1440" data-preset-h="3600">세로 롱페이지 웹 (1440 × 3600)</button>
               </div>
             </div>
+            <div class="ps-menu-item"><span>도움말(H)</span>
+              <div class="ps-dropdown-menu">
+                <button class="ps-dropdown-item" id="mTutorial">튜토리얼 시작하기</button>
+                <button class="ps-dropdown-item" id="mShortcutsHelp">단축키 보기 <span class="shortcut">Ctrl+,</span></button>
+              </div>
+            </div>
             <div class="ps-menu-item"><span>창(V)</span>
               <div class="ps-dropdown-menu">
                 <button class="ps-dropdown-item" id="wToolbox">${isToolbox ? '✓ ' : '&nbsp;&nbsp;&nbsp;'}도구 상자 (Toolbox)</button>
@@ -10039,6 +10066,8 @@ ${sprite.type === 'text' ? `
       // File actions
       this.el.querySelector('#mExp')?.addEventListener('click', () => this.cb.onExport());
       this.el.querySelector('#mSettings')?.addEventListener('click', () => this.cb.onOpenSettings());
+      this.el.querySelector('#mShortcutsHelp')?.addEventListener('click', () => this.cb.onOpenSettings());
+      this.el.querySelector('#mTutorial')?.addEventListener('click', () => window.jspenApp?.tutorial.start());
       this.el.querySelector('#mNew')?.addEventListener('click', async () => {
         const ok = window.jspenApp && !window.jspenApp.isDirty()
           ? true : await StudioModal.confirm('새 도큐먼트를 생성하시겠습니까? 저장되지 않은 작업은 유실됩니다.', '새 도큐먼트');
@@ -12494,6 +12523,169 @@ ${sprite.type === 'text' ? `
   }
 
   // ==========================================================================
+  // Tutorial: a guided first project. Each step points at a part of the
+  // studio; steps with a task move on when the task is done. The studio
+  // stays fully usable while it runs (nothing is blocked).
+  // ==========================================================================
+  class Tutorial {
+    constructor(app) {
+      this.app = app;
+      this.index = -1;
+      this.el = null;
+      this.timer = null;
+    }
+
+    static storageKey() { return 'jspen.tutorial'; }
+
+    counts() {
+      const sprites = this.app.doc.layers.flatMap(l => l.sprites);
+      return { sprites: sprites.length, modules: sprites.reduce((n, sp) => n + (sp.modules || []).length, 0) };
+    }
+
+    steps() {
+      const q = sel => document.querySelector(sel);
+      return [
+        { title: 'JSPen에 오신 것을 환영합니다',
+          text: '코드 없이 버튼과 다이얼만으로 움직이는 웹 화면을 만드는 도구입니다. 사각형 하나에 움직임을 붙여 보면서 기본을 익혀요. 직접 따라 하면 다음 단계로 넘어갑니다.' },
+        { title: '가운데: 캔버스', target: () => q('#viewportContainer'),
+          text: '만든 결과가 그대로 보이는 미리보기 화면입니다. 휠로 확대·축소하고, 스페이스를 누른 채 끌면 화면을 옮깁니다.' },
+        { title: '사각형 그리기', target: () => q('#leftToolbox [data-t="shape"]'),
+          text: '도형 도구(U)를 누른 다음, 캔버스에서 끌어서 사각형을 하나 그려 보세요.',
+          task: true, begin: () => { this.base = this.counts(); }, done: () => this.counts().sprites > this.base.sprites },
+        { title: '오른쪽: 속성', target: () => q('#inspectorContainer'),
+          text: '선택한 것의 위치·크기·색을 바꿉니다. 숫자 칸은 좌우로 끌면 바뀌고(블렌더처럼), Shift를 누른 채 끌면 정밀하게 바뀝니다. 클릭하면 직접 입력할 수 있어요.' },
+        { title: '움직임 붙이기: 모듈', target: () => q('.ps-sprite-sub-item.selected .ps-btn-add-module') || q('#layersContainer .ps-btn-add-module'),
+          text: '레이어 목록에서 사각형 옆의 +fx를 눌러 모듈을 붙여 보세요. 모듈은 블렌더의 모디파이어처럼 차례로 쌓여 움직임을 만듭니다. "펄스 박동 효과"가 보기 쉬워요.',
+          task: true, begin: () => { this.base = this.counts(); }, done: () => this.counts().modules > this.base.modules },
+        { title: '모듈 설정', target: () => q('#inspectorContainer'),
+          text: '방금 붙인 모듈의 설정입니다. 숫자 칸을 끌어서 속도와 크기를 바꿔 보세요. 선택지는 목록에서 고르고, 색은 색 견본을 누릅니다.' },
+        { title: '언제 움직일까: 발동 조건', target: () => q('#modCondSection'),
+          text: '"항상"이면 바로 움직이고, "클릭했을 때"로 바꾸면 클릭해야 움직입니다. 키보드, 마우스 올리기, 신호도 고를 수 있어요.' },
+        { title: '움직여 보기: 실시간 미리보기', target: () => q('#btnTlPreview'),
+          text: 'Ctrl+Space를 누르거나 이 버튼을 눌러 실제로 움직이는 모습을 보세요. 다시 누르거나 Esc를 누르면 편집으로 돌아옵니다.',
+          task: true, done: () => !!this.app.moduleEngine.active },
+        { title: '연결해서 보기: 노드', target: () => q('#btnOptNodeMode'),
+          text: 'Shift+Tab을 누르면 모듈들이 블렌더의 셰이딩 노드처럼 선으로 이어진 모습으로 보입니다. 값을 다른 모듈로 넘기는 연결을 여기서 만듭니다.' },
+        { title: '저장하고 내보내기', target: () => q('#topMenuBar .ps-menu-items'),
+          text: 'Ctrl+S로 저장합니다. 웹(W) 메뉴에서 웹 미리보기를 보고 HTML로 내보내면 그대로 웹사이트가 됩니다. 튜토리얼은 도움말(H) 메뉴에서 언제든 다시 볼 수 있어요.' }
+      ];
+    }
+
+    start() {
+      this.stop();
+      this.list = this.steps();
+      this.el = document.createElement('div');
+      this.el.className = 'jspen-tutorial';
+      this.el.innerHTML = '<div class="jspen-tutorial-spot"></div>' +
+        '<div class="jspen-tutorial-card" role="dialog" aria-live="polite">' +
+        '<div class="jspen-tutorial-top"><span class="jspen-tutorial-progress"></span>' +
+        '<button type="button" class="jspen-tutorial-close" aria-label="튜토리얼 닫기" title="튜토리얼 닫기">✕</button></div>' +
+        '<div class="jspen-tutorial-title"></div><div class="jspen-tutorial-text"></div>' +
+        '<div class="jspen-tutorial-status"></div>' +
+        '<div class="jspen-tutorial-actions"><button type="button" class="btn btn-secondary btn-sm" data-tut="prev">이전</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" data-tut="next">다음</button></div></div>';
+      document.body.appendChild(this.el);
+      this.el.querySelector('.jspen-tutorial-close').addEventListener('click', () => this.stop(true));
+      this.el.querySelector('[data-tut="prev"]').addEventListener('click', () => this.go(this.index - 1));
+      this.el.querySelector('[data-tut="next"]').addEventListener('click', () => this.go(this.index + 1));
+      this.markSeen();
+      this.go(0);
+      this.timer = setInterval(() => this.tick(), 200);
+      // Dialogs opening or closing: react at once, not on the next tick.
+      this.observer = new MutationObserver(() => this.tick());
+      this.observer.observe(document.body, { childList: true });
+    }
+
+    stop(byUser = false) {
+      clearInterval(this.timer);
+      this.timer = null;
+      if (this.observer) this.observer.disconnect();
+      this.observer = null;
+      if (this.el) this.el.remove();
+      this.el = null;
+      this.index = -1;
+      if (byUser) StudioToast.show('튜토리얼은 도움말(H) 메뉴에서 다시 볼 수 있습니다.');
+    }
+
+    get running() { return !!this.el; }
+
+    go(i) {
+      if (!this.el) return;
+      if (i >= this.list.length) { this.stop(); StudioToast.show('튜토리얼을 마쳤습니다. 이제 자유롭게 만들어 보세요!', 3500); return; }
+      this.index = Math.max(0, i);
+      const step = this.list[this.index];
+      this.finished = false;
+      if (step.begin) step.begin();
+      this.el.querySelector('.jspen-tutorial-progress').textContent = `${this.index + 1} / ${this.list.length}`;
+      this.el.querySelector('.jspen-tutorial-title').textContent = step.title;
+      this.el.querySelector('.jspen-tutorial-text').textContent = step.text;
+      this.el.querySelector('.jspen-tutorial-status').textContent = step.task ? '직접 해 보면 다음으로 넘어갑니다.' : '';
+      this.el.querySelector('[data-tut="prev"]').style.visibility = this.index ? '' : 'hidden';
+      const next = this.el.querySelector('[data-tut="next"]');
+      next.textContent = this.index === this.list.length - 1 ? '마치기' : (this.index === 0 ? '시작하기' : (step.task ? '건너뛰기' : '다음'));
+      next.classList.toggle('btn-primary', !step.task);
+      next.classList.toggle('btn-secondary', !!step.task);
+      this.tick();
+    }
+
+    tick() {
+      if (!this.el) return;
+      const step = this.list[this.index];
+      if (step.task && !this.finished && step.done && step.done()) {
+        this.finished = true;
+        this.el.querySelector('.jspen-tutorial-status').textContent = '잘했어요!';
+        const at = this.index;
+        setTimeout(() => { if (this.index === at) this.go(at + 1); }, 700);
+      }
+      // A dialog (module library, confirmations) is in front: stay out of its way.
+      const covered = !!document.querySelector('.modal-overlay:not(.hidden), .studio-modal-overlay');
+      this.el.classList.toggle('is-covered', covered);
+      this.place(step.target ? step.target() : null);
+    }
+
+    place(target) {
+      const spot = this.el.querySelector('.jspen-tutorial-spot'), card = this.el.querySelector('.jspen-tutorial-card');
+      const r = target && target.getClientRects().length ? target.getBoundingClientRect() : null;
+      spot.style.display = r ? '' : 'none';
+      const W = window.innerWidth, H = window.innerHeight, cw = card.offsetWidth || 320, ch = card.offsetHeight || 180, gap = 14;
+      let x = (W - cw) / 2, y = (H - ch) / 2;
+      if (r) {
+        const pad = 6;
+        Object.assign(spot.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' });
+        // Beside the target where there is room, otherwise below or above it.
+        if (r.right + gap + cw <= W) { x = r.right + gap; y = r.top; }
+        else if (r.left - gap - cw >= 0) { x = r.left - gap - cw; y = r.top; }
+        else if (r.bottom + gap + ch <= H) { x = r.left; y = r.bottom + gap; }
+        else { x = r.left; y = r.top - gap - ch; }
+        // A large target (the canvas): keep the card inside it, in a corner.
+        if (r.width > W * 0.4 && r.height > H * 0.4) { x = r.left + 16; y = r.bottom - ch - 16; }
+      }
+      card.style.left = Math.max(8, Math.min(x, W - cw - 8)) + 'px';
+      card.style.top = Math.max(8, Math.min(y, H - ch - 8)) + 'px';
+    }
+
+    markSeen() {
+      try { localStorage.setItem(Tutorial.storageKey(), 'seen'); } catch (e) { /* storage blocked */ }
+    }
+
+    // First visit: a small offer, never in the way.
+    offer() {
+      let seen = false;
+      try { seen = localStorage.getItem(Tutorial.storageKey()) === 'seen'; } catch (e) { /* storage blocked */ }
+      if (seen || this.running || document.querySelector('.jspen-tutorial-offer')) return;
+      const box = document.createElement('div');
+      box.className = 'jspen-tutorial-offer';
+      box.innerHTML = '<div class="jspen-tutorial-title">처음이신가요?</div>' +
+        '<div class="jspen-tutorial-text">3분짜리 튜토리얼로 사각형 하나에 움직임을 붙여 보세요.</div>' +
+        '<div class="jspen-tutorial-actions"><button type="button" class="btn btn-secondary btn-sm" data-offer="no">괜찮아요</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" data-offer="yes">튜토리얼 시작</button></div>';
+      document.body.appendChild(box);
+      box.querySelector('[data-offer="no"]').addEventListener('click', () => { this.markSeen(); box.remove(); });
+      box.querySelector('[data-offer="yes"]').addEventListener('click', () => { box.remove(); this.start(); });
+    }
+  }
+
+  // ==========================================================================
   // Live-preview status panel (studio only): which modules run right now,
   // recent signals, the hovered sprite and held keys - so trigger conditions
   // can be tested without guessing.
@@ -12641,6 +12833,8 @@ ${sprite.type === 'text' ? `
       this.exportModal = new ExportModalUI(this.doc);
       this.settingsModal = new SettingsModalUI(this.pluginManager);
       this.templateModal = new TemplateModalUI(this);
+      this.tutorial = new Tutorial(this);
+      setTimeout(() => this.tutorial.offer(), 1200);
       this.nodeEditor = new NodeEditorUI(document.getElementById('nodeEditorContainer'), this.doc, {
         onUpdate: () => {
           this.moduleEngine.disabledModuleIds = this.nodeEditor.getDisabledModuleIds();
