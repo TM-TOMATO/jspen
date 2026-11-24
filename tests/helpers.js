@@ -51,8 +51,18 @@ async function startServer() {
 }
 
 // Open the studio and collect page errors. Returns { browser, page, errors }.
+// Playwright's own Chromium if installed, otherwise the installed Chrome or Edge
+// (same order as mcp/jspen-mcp.js), so a missing browser download fails fast.
+async function launchChromium() {
+  let last;
+  for (const channel of [undefined, 'chrome', 'msedge']) {
+    try { return await chromium.launch(channel ? { channel } : {}); } catch (e) { last = e; }
+  }
+  throw last;
+}
+
 async function openStudio(url, viewport = { width: 1440, height: 900 }) {
-  const browser = await chromium.launch();
+  const browser = await launchChromium();
   const context = await browser.newContext({ viewport, acceptDownloads: true });
   const page = await context.newPage();
   const errors = [];

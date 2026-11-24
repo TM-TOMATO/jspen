@@ -7,7 +7,7 @@ const { startServer, openStudio } = require('./helpers');
 
 let server, s;
 before(async () => { server = await startServer(); s = await openStudio(server.url); });
-after(async () => { await s.browser.close(); await server.stop(); });
+after(async () => { if (s) await s.browser.close(); if (server) await server.stop(); });
 
 // Build an 800x600 document with interactive sprites at known positions.
 const SETUP = () => {

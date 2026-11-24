@@ -8,7 +8,7 @@ const { startServer, openStudio } = require('./helpers');
 
 let server, s;
 before(async () => { server = await startServer(); s = await openStudio(server.url); });
-after(async () => { await s.browser.close(); await server.stop(); });
+after(async () => { if (s) await s.browser.close(); if (server) await server.stop(); });
 
 const insertContactForm = async (submitParams) => {
   await s.page.evaluate(() => jspenApp.loadProjectFromJSON({ name: 'form', width: 800, height: 600, transparentBackground: false, backgroundColor: '#111111', layers: [{ name: 'L', sprites: [] }] }));

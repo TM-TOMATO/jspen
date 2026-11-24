@@ -10,7 +10,7 @@ const { startServer, openStudio, ROOT } = require('./helpers');
 
 let server, s;
 before(async () => { server = await startServer(); s = await openStudio(server.url); });
-after(async () => { await s.browser.close(); await server.stop(); });
+after(async () => { if (s) await s.browser.close(); if (server) await server.stop(); });
 
 test('user strings are escaped in the studio UI (no XSS)', async () => {
   const { page } = s;

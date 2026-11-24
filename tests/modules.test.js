@@ -8,7 +8,7 @@ const { startServer, openStudio } = require('./helpers');
 
 let server, s;
 before(async () => { server = await startServer(); s = await openStudio(server.url); });
-after(async () => { await s.browser.close(); await server.stop(); });
+after(async () => { if (s) await s.browser.close(); if (server) await server.stop(); });
 
 // Runs a scenario in the page. `spec.sprites` = [{name, ...sprite, mods: [[type, params]]}],
 // `spec.frames` = [{ n, mouse: [x,y], down, click, wheel }]; returns runtime/signal snapshots.

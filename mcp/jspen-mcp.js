@@ -145,10 +145,15 @@ const TOOLS = [
         // no longer changes how the code is read.
         const make = body => new Function('return (async () => {\n' + body + '\n})()'); // eslint-disable-line no-new-func
         const lines = code.replace(/\s+$/, '').split('\n');
-        const lastLine = lines[lines.length - 1];
-        const exprLike = !/^\s*(return\b|const\b|let\b|var\b|if\b|for\b|while\b|do\b|switch\b|try\b|function\b|class\b|throw\b|\}|\/\/)/.test(lastLine);
+        // The last statement is what follows the last `;` on the last line, so
+        // `a = 1; b = 2; a + b` returns 3 rather than stopping after `a = 1`.
+        const lastLine = lines[lines.length - 1].replace(/;\s*$/, '');
+        const cut = lastLine.lastIndexOf(';');
+        const head = lines.slice(0, -1).concat(cut >= 0 ? [lastLine.slice(0, cut + 1)] : []).join('\n');
+        const tail = lastLine.slice(cut + 1).trim();
+        const exprLike = tail && !/^(return\b|const\b|let\b|var\b|if\b|for\b|while\b|do\b|switch\b|try\b|function\b|class\b|throw\b|\}|\/\/)/.test(tail);
         const attempts = ['return (\n' + code + '\n);'];
-        if (exprLike) attempts.push(lines.slice(0, -1).concat('return ' + lastLine.replace(/;\s*$/, '') + ';').join('\n'));
+        if (exprLike) attempts.push(head + '\nreturn ' + tail + ';');
         attempts.push(code);
         let fn = null, err = null;
         for (const body of attempts) {

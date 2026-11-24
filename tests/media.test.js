@@ -13,7 +13,7 @@ before(async () => {
   server = await startServer(); s = await openStudio(server.url);
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jspen-media-'));
 });
-after(async () => { await s.browser.close(); await server.stop(); });
+after(async () => { if (s) await s.browser.close(); if (server) await server.stop(); });
 
 // A PNG made in the page: left half red, right half blue.
 const makePng = (w, h) => s.page.evaluate(([w, h]) => {
