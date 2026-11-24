@@ -77,6 +77,9 @@ body.ps-theme {
   font-size: 11px;
   line-height: 1.35;
   letter-spacing: -0.2px;
+  /* Break Korean lines between words, not inside them. */
+  word-break: keep-all;
+  overflow-wrap: break-word;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
@@ -194,6 +197,9 @@ input, select, textarea, button {
   color: #ffffff;
 }
 .ps-dropdown-item .shortcut {
+  margin-left: 24px;
+  flex-shrink: 0;
+  white-space: nowrap;
   color: var(--ps-text-dim);
   font-size: 10.5px;
   font-family: monospace;
@@ -3818,3 +3824,13 @@ body.jspen-live-preview #viewportContainer {
 .node-editor-toolbar .ne-title-group { flex: 1 1 auto; min-width: 0; overflow: hidden; }
 .node-editor-toolbar .ne-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-editor-toolbar .ne-actions { flex: 0 0 auto; }
+
+/* Layer rows: secondary buttons appear on hover so names fit. */
+.ps-layer-row:not(:hover) .ps-row-extra,
+.ps-sprite-sub-item:not(:hover) .ps-row-extra { display: none; }
+
+/* Narrow timeline: drop the badge and long labels so frame and fps stay visible. */
+.timeline-header { container-type: inline-size; }
+@container (max-width: 900px) {
+  .timeline-header .tl-wide { display: none; }
+}

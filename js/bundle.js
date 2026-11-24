@@ -7392,7 +7392,7 @@ ${this.getRuntimeSource(withEngine)}
           <button class="ps-tool-btn ${t==='text'?'active':''}" data-t="text" title="문자 도구 (T)"><span class="ps-tool-icon" style="font-weight:700;">T</span></button>
           <button class="ps-tool-btn ${t==='eyedropper'?'active':''}" data-t="eyedropper" title="스포이드 (I)"><span class="ps-tool-icon">⌖</span></button>
           <div class="ps-tool-sep"></div>
-          <button class="ps-tool-btn ${t==='hand'?'active':''}" data-t="hand" title="손 도구 (Space)"><span class="ps-tool-icon" style="font-size:10px;font-weight:700;">PAN</span></button>
+          <button class="ps-tool-btn ${t==='hand'?'active':''}" data-t="hand" title="손 도구 (H, 누르는 동안 Space)"><span class="ps-tool-icon">✋&#xFE0E;</span></button>
           <button class="ps-tool-btn ${t==='zoom'?'active':''}" data-t="zoom" title="돋보기 (Z - 좌클릭 확대 / 우클릭 축소 / Alt클릭 초기화)"><span class="ps-tool-icon">⌕</span></button>
         </div>
         <div class="ps-color-swatches">
@@ -7637,11 +7637,11 @@ ${this.getRuntimeSource(withEngine)}
                 `}
 
                 <span class="ps-layer-count-badge">${escapeHtml(l.sprites.length)}개</span>
-                <button class="ps-btn-layer-add-sp" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+</button>
-                <button class="ps-btn-layer-add-sp" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#e4e4e7;color:#e4e4e7;">⚡</button>
+                <button class="ps-btn-layer-add-sp ps-row-extra" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+</button>
+                <button class="ps-btn-layer-add-sp ps-row-extra" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#e4e4e7;color:#e4e4e7;">⚡</button>
                 <button class="ps-btn-add-module ${(l.modules && l.modules.length > 0) ? 'has-modules' : ''}" data-act="add-layer-mod" title="레이어 모듈 추가">+fx</button>
-                <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
-                <button class="ps-btn-del-item" data-act="delete-layer" title="레이어 삭제">✕</button>
+                <button class="ps-layer-fold-btn ps-row-extra" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
+                <button class="ps-btn-del-item ps-row-extra" data-act="delete-layer" title="레이어 삭제">✕</button>
               </div>
 
               <!-- Child Sprites (Clearly Nested in Fabric Tree Structure) -->
@@ -7666,15 +7666,15 @@ ${this.getRuntimeSource(withEngine)}
                           <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${escapeHtml(s.name)}</span>
                         `}
 
-                        <button class="ps-sp-link-btn ${s.linkGroup ? 'active' : ''}" data-act="toggle-link" title="${s.linkGroup ? '스프라이트 링크 해제 (현재 그룹: ' + escapeHtml(s.linkGroup) + ')' : '다른 스프라이트와 링크하기'}">
+                        <button class="ps-sp-link-btn ${s.linkGroup ? 'active' : 'ps-row-extra'}" data-act="toggle-link" title="${s.linkGroup ? '스프라이트 링크 해제 (현재 그룹: ' + escapeHtml(s.linkGroup) + ')' : '다른 스프라이트와 링크하기'}">
                           ${s.linkGroup ? `[LINK]${escapeHtml(s.linkGroup)}` : '[LINK]'}
                         </button>
 
                         <button class="ps-btn-add-module ${hasMods ? 'has-modules' : ''}" data-act="add-sprite-mod" title="모듈 추가">
                           +fx ${hasMods ? `<span class="mod-count">${escapeHtml(s.modules.length)}</span>` : ''}
                         </button>
-                        <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
-                        <button class="ps-btn-del-item" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
+                        <button class="ps-layer-fold-btn ps-row-extra" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
+                        <button class="ps-btn-del-item ps-row-extra" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
                       </div>
 
                       <!-- Sub-Modules nested under sprite like layers inside folder -->
@@ -10163,7 +10163,7 @@ ${sprite.type === 'text' ? `
         <div class="timeline-splitter" title="드래그하여 타임라인 높이 조절"></div>
         <div class="timeline-header">
           <div class="tl-controls-left">
-            <span class="tl-badge">TIMELINE</span>
+            <span class="tl-badge tl-wide">TIMELINE</span>
             <button class="tl-btn" id="tlJumpStart" title="첫 프레임으로 이동">|◀</button>
             <button class="tl-btn" id="tlStepPrev" title="이전 프레임 (◀)">◀</button>
             <button class="tl-btn tl-btn-play ${isPlay ? 'playing' : ''}" id="tlPlayPause" title="재생 / 일시정지 (Space)">
@@ -10176,8 +10176,8 @@ ${sprite.type === 'text' ? `
             </button>
             
             <!-- Live Preview Button Moved to Timeline! -->
-            <button class="btn btn-preview ${this.cb.isPreview ? 'active' : ''}" id="btnTlPreview">
-              ${this.cb.isPreview ? '⏹ 편집 모드로 복귀' : '▶ 실시간 모듈 미리보기'} <span class="shortcut">Ctrl+Space</span>
+            <button class="btn btn-preview ${this.cb.isPreview ? 'active' : ''}" id="btnTlPreview" title="실시간 모듈 미리보기 (Ctrl+Space)">
+              ${this.cb.isPreview ? '⏹ 편집<span class="tl-wide"> 모드로 복귀</span>' : '▶ <span class="tl-wide">실시간 모듈 </span>미리보기'} <span class="shortcut tl-wide">Ctrl+Space</span>
             </button>
           </div>
 
@@ -10594,24 +10594,19 @@ ${sprite.type === 'text' ? `
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mWebPreview">새 창에서 웹 미리보기 <span class="shortcut">Alt+W</span></button>
                 <button class="ps-dropdown-item" id="mWebExport">웹사이트 (HTML) 내보내기...</button>
-                <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 8px;font-size:10px;color:#a1a1aa;font-weight:600;">웹 템플릿 삽입</div>
-                <button class="ps-dropdown-item" id="btnOpenTemplateGallery" style="color:#f4f4f5;font-weight:600;">📂 템플릿 갤러리 열기...</button>
-                <div class="ps-dropdown-sep"></div>
-                <button class="ps-dropdown-item" data-web-tpl="full_landing">[풀 패키지] 전체 사이트</button>
-                <button class="ps-dropdown-item" data-web-tpl="navbar">상단 네비게이션 헤더 (Navbar)</button>
-                <button class="ps-dropdown-item" data-web-tpl="hero">메인 히어로 섹션 (Hero)</button>
-                <button class="ps-dropdown-item" data-web-tpl="feature_grid">3열 기능 카드 그리드 (Features)</button>
-                <button class="ps-dropdown-item" data-web-tpl="cta_banner">전환 유도 CTA 배너 (CTA)</button>
-                <button class="ps-dropdown-item" data-web-tpl="footer">하단 푸터 (Footer)</button>
-                <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mExp">자바스크립트 내보내기... <span class="shortcut">Ctrl+E</span></button>
+                <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" id="btnOpenTemplateGallery">템플릿 갤러리 열기...</button>
               </div>
             </div>
             <div class="ps-menu-item"><span>편집(E)</span>
               <div class="ps-dropdown-menu">
                 <button class="ps-dropdown-item" id="mUndo">실행 취소 <span class="shortcut">Ctrl+Z</span></button>
                 <button class="ps-dropdown-item" id="mRedo">다시 실행 <span class="shortcut">Ctrl+Y</span></button>
+                <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" id="mCopy">복사 <span class="shortcut">Ctrl+C</span></button>
+                <button class="ps-dropdown-item" id="mPaste">붙여넣기 <span class="shortcut">Ctrl+V</span></button>
+                <button class="ps-dropdown-item" id="mDelete">삭제 <span class="shortcut">Delete</span></button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mSelectAll">전체 선택 <span class="shortcut">Ctrl+A</span></button>
               </div>
@@ -10894,16 +10889,6 @@ ${sprite.type === 'text' ? `
         }
       });
 
-      // Web template items
-      this.el.querySelectorAll('[data-web-tpl]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const tpl = btn.getAttribute('data-web-tpl');
-          if (tpl && window.jspenApp?.insertWebsiteTemplate) {
-            window.jspenApp.insertWebsiteTemplate(tpl);
-          }
-        });
-      });
-
       // File actions
       this.el.querySelector('#mExp')?.addEventListener('click', () => this.cb.onExport());
       this.el.querySelector('#mSettings')?.addEventListener('click', () => this.cb.onOpenSettings());
@@ -10930,6 +10915,13 @@ ${sprite.type === 'text' ? `
       });
       this.el.querySelector('#mRedo')?.addEventListener('click', () => {
         if (this.doc.redo()) this.cb.onUpdate();
+      });
+      this.el.querySelector('#mCopy')?.addEventListener('click', () => {
+        if (!window.jspenApp?.copySelection()) StudioToast.show('복사할 스프라이트를 먼저 선택하세요.');
+      });
+      this.el.querySelector('#mPaste')?.addEventListener('click', () => window.jspenApp?.pasteClipboard());
+      this.el.querySelector('#mDelete')?.addEventListener('click', () => {
+        if (this.doc.deleteSelected()) this.cb.onUpdate();
       });
       this.el.querySelector('#mSelectAll')?.addEventListener('click', () => {
         this.doc.selectAll();
@@ -13178,21 +13170,29 @@ ${sprite.type === 'text' ? `
     }
 
     async fetchTemplateList() {
-      // 1. Try server API (only available when served by server.js)
+      // The manifest (or the built-in list) has titles, descriptions and the
+      // order; the server lists what is really in templates/, including files
+      // the user added. Known files keep their manifest entry, in its order.
+      let known = null;
+      try {
+        const manifest = await NativeBridge.loadJSON('templates/manifest.json');
+        if (Array.isArray(manifest) && manifest.length > 0) known = manifest;
+      } catch (_) {}
+      if (!known) known = this.builtInTemplates();
       if (/^https?:$/.test(location.protocol)) {
         try {
           const list = await NativeBridge.loadJSON('api/templates');
-          if (Array.isArray(list) && list.length > 0) return list;
+          if (Array.isArray(list) && list.length > 0) {
+            const files = new Set(list.map(t => t.file));
+            return known.filter(k => files.has(k.file))
+              .concat(list.filter(t => !known.some(k => k.file === t.file)));
+          }
         } catch (_) {}
       }
+      return known;
+    }
 
-      // 2. Try manifest.json (works for both http:// and the desktop file:// shell)
-      try {
-        const manifest = await NativeBridge.loadJSON('templates/manifest.json');
-        if (Array.isArray(manifest) && manifest.length > 0) return manifest;
-      } catch (_) {}
-
-      // 3. Fallback bundled template list
+    builtInTemplates() {
       return [
         { file: 'full_landing.jspen', title: '전체 웹사이트 풀 패키지 (Full Website)', description: '네비게이션, 히어로, 3단 기능 카드, CTA, 푸터까지 완성된 전체 웹사이트 템플릿입니다.', layersCount: 5 },
         { file: 'navbar.jspen', title: '상단 네비게이션 헤더 (Navbar)', description: '로고, 3개 메뉴 링크, CTA 버튼이 포함된 반응형 헤더 바입니다.', layersCount: 1 },
@@ -13245,7 +13245,7 @@ ${sprite.type === 'text' ? `
                 <div class="tpl-card" data-tpl-file="${escapeHtml(t.file)}">
                   <div>
                     <div class="tpl-card-title">${escapeHtml(t.title || t.file)}</div>
-                    <div class="tpl-card-desc">${escapeHtml(t.description || 'JSPen 모던 v11 프로젝트 템플릿입니다.')}</div>
+                    <div class="tpl-card-desc">${escapeHtml(t.description || '사용자가 추가한 템플릿입니다.')}</div>
                   </div>
                   <div class="tpl-card-footer">
                     <span class="tpl-card-meta">${t.layersCount ? `레이어 ${escapeHtml(t.layersCount)}개` : escapeHtml(t.file)}</span>
@@ -14147,6 +14147,36 @@ ${sprite.type === 'text' ? `
     // Tell the desktop shell which file Ctrl+S writes to ('' = none yet).
     setSaveTarget(token = '') {
       NativeBridge.call('projectOpened', String(token || ''));
+    }
+
+    // Copy the selected sprite to the studio clipboard. Returns true if copied.
+    copySelection() {
+      const sel = this.doc.selectedSpriteId && this.doc.getSelectedSprite();
+      if (!sel) return false;
+      this.clipboardSprite = JSON.parse(JSON.stringify(sel));
+      return true;
+    }
+
+    // Paste the studio clipboard into the current layer, offset by 24px.
+    pasteClipboard() {
+      if (!this.clipboardSprite) return false;
+      const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
+      if (!activeLayer) return false;
+      const clone = JSON.parse(JSON.stringify(this.clipboardSprite));
+      clone.id = 'sp_' + Math.random().toString(36).substring(2, 9);
+      clone.name = clone.name + ' 복사본';
+      clone.x = (clone.x || 0) + 24;
+      clone.y = (clone.y || 0) + 24;
+      (clone.modules || []).forEach(m => { m.id = 'mod_' + Math.random().toString(36).substring(2, 9); });
+      const added = activeLayer.addSprite(clone);
+      this.doc.selectedSpriteId = added.id;
+      this.doc.selectedSpriteIds = new Set([added.id]);
+      // The next paste lands 24px further on instead of on top of this one.
+      this.clipboardSprite.x = clone.x;
+      this.clipboardSprite.y = clone.y;
+      this.doc.saveState();
+      this.refreshUI();
+      return true;
     }
 
     async insertWebsiteTemplate(type) {
@@ -15645,6 +15675,17 @@ ${sprite.type === 'text' ? `
 
       // Global Keydown Shortcuts - Undo / Redo FIRST!
       window.addEventListener('keydown', e => {
+        // A dialog is open: Escape closes the top one, and studio shortcuts
+        // (Delete, Ctrl+A, tool keys…) must not act on the canvas behind it.
+        const dialogs = [...document.querySelectorAll('.modal-overlay:not(.ps-module-library-overlay), .studio-modal-overlay')]
+          .filter(o => getComputedStyle(o).display !== 'none');
+        if (dialogs.length) {
+          if (e.key === 'Escape' && !e.defaultPrevented) {
+            const close = dialogs[dialogs.length - 1].querySelector('.modal-close-btn, .studio-modal-close');
+            if (close) { e.preventDefault(); close.click(); }
+          }
+          return;
+        }
         const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
         if (isInput) return; // Requirement 18: Typing priority!
 
@@ -15731,11 +15772,7 @@ ${sprite.type === 'text' ? `
 
         // 6. Copy
         if (checkShortcutMatch(e, copyKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C') && !isInput)) {
-          const sel = this.doc.getSelectedSprite();
-          if (sel) {
-            e.preventDefault();
-            this.clipboardSprite = JSON.parse(JSON.stringify(sel));
-          }
+          if (this.copySelection()) e.preventDefault();
           return;
         }
 
@@ -15756,23 +15793,7 @@ ${sprite.type === 'text' ? `
           this._pasteDeferred = false;
           if (this.clipboardSprite) {
             e.preventDefault();
-            const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
-            if (activeLayer) {
-              const clone = JSON.parse(JSON.stringify(this.clipboardSprite));
-              clone.id = 'sp_' + Math.random().toString(36).substring(2, 9);
-              clone.name = clone.name + ' 복사본';
-              clone.x = (clone.x || 0) + 24;
-              clone.y = (clone.y || 0) + 24;
-              if (clone.modules) {
-                clone.modules.forEach(m => {
-                  m.id = 'mod_' + Math.random().toString(36).substring(2, 9);
-                });
-              }
-              const added = activeLayer.addSprite(clone);
-              this.doc.selectedSpriteId = added.id;
-              this.doc.saveState();
-              this.refreshUI();
-            }
+            this.pasteClipboard();
           }
           return;
         }
