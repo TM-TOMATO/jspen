@@ -25,7 +25,7 @@ import secrets
 import sys
 
 from PyQt6.QtCore import QBuffer, QByteArray, QFile, QIODevice, QObject, Qt, QTimer, QUrl, pyqtSlot
-from PyQt6.QtGui import QColor, QDesktopServices
+from PyQt6.QtGui import QColor, QDesktopServices, QPalette
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
 from PyQt6.QtWebEngineCore import (
@@ -672,6 +672,29 @@ class MainWindow(QMainWindow):
         return super().eventFilter(watched, event)
 
 
+def apply_dark_theme(app):
+    """One dark look for every native window (colour picker, file and message
+    dialogs, tooltips) with light text, whatever the Windows theme is. Without
+    it the colour picker and tooltips draw dark text on a dark background."""
+    app.setStyle("Fusion")
+    p = QPalette()
+    colors = {
+        QPalette.ColorRole.Window: "#1f1f24", QPalette.ColorRole.WindowText: "#f4f4f5",
+        QPalette.ColorRole.Base: "#141416", QPalette.ColorRole.AlternateBase: "#232329",
+        QPalette.ColorRole.Text: "#f4f4f5", QPalette.ColorRole.PlaceholderText: "#a1a1aa",
+        QPalette.ColorRole.Button: "#2c2c32", QPalette.ColorRole.ButtonText: "#f4f4f5",
+        QPalette.ColorRole.BrightText: "#ffffff", QPalette.ColorRole.Highlight: "#0369a1",
+        QPalette.ColorRole.HighlightedText: "#ffffff", QPalette.ColorRole.Link: "#38bdf8",
+        QPalette.ColorRole.ToolTipBase: "#f4f4f5", QPalette.ColorRole.ToolTipText: "#18181b",
+    }
+    for role, value in colors.items():
+        p.setColor(role, QColor(value))
+    for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+        p.setColor(QPalette.ColorGroup.Disabled, role, QColor("#71717a"))
+    app.setPalette(p)
+    app.setStyleSheet("QToolTip { color: #18181b; background-color: #f4f4f5; border: 1px solid #a1a1aa; padding: 3px; }")
+
+
 def register_windows_file_association():
     """Register the .jspen extension under HKCU (no admin rights needed).
     Only when running from source: the installer owns the association of an
@@ -771,6 +794,7 @@ def main():
     configure_chromium_flags()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
+    apply_dark_theme(app)
 
     selftest = "--selftest" in sys.argv[1:]
     if not selftest:

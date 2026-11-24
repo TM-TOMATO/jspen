@@ -444,7 +444,7 @@
     },
     viewport_visibility: {
       category: 'sensor', name: '화면 가시성 감지', icon: 'VIEW',
-      description: '스프라이트가 화면(스크롤 영역) 안에 보이면 트리거를 발동하고 신호를 보냅니다.',
+      description: '이 스프라이트 자신이 화면(스크롤 영역) 안에 보이면 발동하고 신호를 보냅니다. 화면의 정해진 위치를 기준으로 하려면 "화면 트리거"를 쓰세요.',
       defaultParams: { condition: 'always', triggerOnce: false, signalName: 'visible' },
       paramLabels: { triggerOnce: '한 번만 발동', signalName: '진입 신호 이름' }
     },
@@ -480,7 +480,7 @@
     },
     math_calculate: {
       category: 'logic', name: '수학 계산 (Math)', icon: 'CALC',
-      description: '사칙연산, 삼각함수, 비교, 클램프 연산을 수행하여 변형 속성 또는 포토샵 필터(블러, 밝기, 대비, 알파 등)를 실시간 조작합니다.',
+      description: '계산 결과를 이 스프라이트의 속성(위치·회전·크기·필터 등)에 바로 적용합니다. 값을 다음 모듈로 넘기기만 하려면 "계산 및 설정 노드"를 쓰세요.',
       defaultParams: {
         condition: 'always',
         operation: 'add', // add, subtract, multiply, divide, sin, cos, min, max, clamp, lerp
@@ -498,7 +498,7 @@
     },
     screen_trigger: {
       category: 'sensor', name: '화면 트리거 (뷰포트)', icon: 'TRIG',
-      description: '화면 스크롤이 이 위치에 도달하거나 마우스가 진입했을 때 지정된 신호를 방출하거나 모듈/필터 애니메이션을 발동합니다.',
+      description: '스크롤이 화면의 정해진 위치에 닿거나 마우스가 들어오면 신호를 보내거나 모듈을 발동합니다. 스프라이트가 보이는지를 기준으로 하려면 "화면 가시성 감지"를 쓰세요.',
       defaultParams: {
         condition: 'always',
         triggerEvent: 'viewport_enter', // viewport_enter, viewport_exit, mouse_enter, mouse_move, scroll_reach, click
@@ -616,7 +616,7 @@
     },
     node_math: {
       category: 'logic', name: '계산 및 설정 노드', icon: 'CALC',
-      description: '이전 모듈이 전달한 수치에 연산(값 = 연산(입력, 계수) + 오프셋)을 적용해 다음 모듈로 넘깁니다.',
+      description: '이전 모듈이 넘긴 숫자를 계산(값 = 연산(입력, 계수) + 오프셋)해 다음 모듈로 넘깁니다. 속성에 바로 적용하려면 "수학 계산"을 쓰세요.',
       defaultParams: { condition: 'always', op: 'multiply', factor: 1.5, offset: 0 },
       paramOptions: { op: [['add', '더하기'], ['subtract', '빼기'], ['multiply', '곱하기'], ['divide', '나누기'], ['power', '거듭제곱'], ['min', '최솟값'], ['max', '최댓값'], ['clamp', '0~계수 범위 제한'], ['modulo', '나머지']] },
       paramLabels: { op: '연산', factor: '계수', offset: '오프셋' }
@@ -837,9 +837,17 @@
       paramOptions: { source: [['microphone', '마이크'], ['document', '문서 효과음·오디오']], property: [['x','X 위치'],['y','Y 위치'],['rotation','회전 (도)'],['scale','크기 (배율)'],['scaleX','가로 배율'],['scaleY','세로 배율'],['opacity','불투명도 (0~1)'],['filter_blur','필터: 흐림'],['filter_brightness','필터: 밝기'],['filter_hueRotate','필터: 색조 회전'],['filter_grayscale','필터: 흑백']] },
       paramLabels: { source: '소리 입력', sensitivity: '감도', smoothing: '부드러움 (0~1)', property: '속성', minValue: '조용할 때 값', maxValue: '최대 소리일 때 값' }
     },
+    action_rules: {
+      category: 'logic', name: '동작 블록 (언제 → 무엇을)', icon: 'DO',
+      description: '발동 조건(클릭, 신호, 키 등)이 되면 이동·색 바꾸기·신호 보내기 같은 동작을 위에서부터 차례로 실행합니다. 코드 없이 스크립트를 대신합니다.',
+      defaultParams: { condition: 'on_click', repeat: 'once', retrigger: 'restart',
+        steps: [{ type: 'move_by', spriteId: '', dx: 100, dy: 0, duration: 0.5, ease: 'easeOutCubic' }] },
+      paramOptions: { repeat: [['once', '한 번 실행'], ['loop', '계속 반복']], retrigger: [['restart', '처음부터 다시'], ['ignore', '끝날 때까지 무시']] },
+      paramLabels: { repeat: '반복', retrigger: '실행 중에 다시 발동하면' }
+    },
     custom_script: {
-      category: 'logic', name: '사용자 스크립트 (JS)', icon: 'JS',
-      description: '직접 작성한 자바스크립트를 매 프레임(또는 시작할 때 한 번) 실행합니다. api 객체로 스프라이트·입력·변수·신호를 다룹니다.',
+      category: 'logic', advanced: true, name: '사용자 스크립트 (JS)', icon: 'JS',
+      description: '(고급) 직접 작성한 자바스크립트를 매 프레임(또는 시작할 때 한 번) 실행합니다. api 객체로 스프라이트·입력·변수·신호를 다룹니다.',
       defaultParams: { condition: 'always', runOn: 'frame', code: "// api.self 로 이 스프라이트를, api.mouse / api.time 등으로 입력을 다룹니다.\n// 예: 마우스 쪽을 바라보며 천천히 커졌다 작아지기\nconst dx = api.mouse.x - api.self.x;\nconst dy = api.mouse.y - api.self.y;\napi.self.rotation = Math.atan2(dy, dx) * 180 / Math.PI;\napi.self.scale = 1 + Math.sin(api.time * 2) * 0.1;" },
       paramOptions: { runOn: [['frame', '매 프레임'], ['start', '시작할 때 한 번']] },
       paramLabels: { runOn: '실행 시점', code: '코드' },
@@ -869,6 +877,46 @@
     }
   };
 
+  // Fields that connect modules by name. The inspector shows them as lists of
+  // the names the document already uses, with how many places send / receive
+  // each one, so a connection cannot silently break by a typo.
+  //   signal-out: the module sends it   signal-in: it waits for it   var: a variable
+  // paramShowIf: { field: [otherField, ...values] } - shown only for those values.
+  (() => {
+    const meta = (type, types, showIf, labels, empty) => {
+      const def = MODULE_REGISTRY[type];
+      def.paramTypes = Object.assign({}, def.paramTypes, types);
+      if (showIf) def.paramShowIf = Object.assign({}, def.paramShowIf, showIf);
+      if (labels) def.paramLabels = Object.assign({}, def.paramLabels, labels);
+      if (empty) def.paramEmpty = Object.assign({}, def.paramEmpty, empty);
+    };
+    const filterActions = ['action', 'animate_filter', 'set_filter'];
+    meta('hyperlink', { signalName: 'signal-in' }, { signalName: ['trigger', 'signal'] }, { signalName: '받을 신호' }, { signalName: '고르세요' });
+    meta('mouse_position', { signalName: 'signal-out' }, null, { signalName: '움직이면 보낼 신호' }, { signalName: '보내지 않음' });
+    meta('collision_detector', { signalName: 'signal-out' }, null, { signalName: '부딪히면 보낼 신호' }, { signalName: "기본: 'collision'" });
+    meta('viewport_visibility', { signalName: 'signal-out' }, null, { signalName: '화면에 들어오면 보낼 신호' }, { signalName: "기본: 'visible'" });
+    meta('timer_interval', { signalName: 'signal-out' }, null, { signalName: '주기마다 보낼 신호' }, { signalName: "기본: 'timer_tick'" });
+    meta('screen_trigger', { signalName: 'signal-out' }, { filterEffect: filterActions, filterValue: filterActions }, null, { signalName: '자동 이름' });
+    // The relay always sends its signal and triggers its target; the action adds to that.
+    meta('signal_relay', { inputSignal: 'signal-in', outputSignal: 'signal-out' }, { filterEffect: filterActions, filterValue: filterActions },
+      null, { inputSignal: '아무 신호나', outputSignal: "기본: 'signal_relayed'" });
+    meta('toggle_switch', { inputSignal: 'signal-in' }, null, { inputSignal: '받을 신호' }, { inputSignal: '없음: 클릭하면 전환' });
+    meta('counter_accumulator', { inputSignal: 'signal-in' }, null, { inputSignal: '받을 신호' }, { inputSignal: '없음: 클릭하면 증가' });
+    meta('synth_sfx', { listenSignal: 'signal-in' }, { listenSignal: ['trigger', 'signal'] }, { listenSignal: '받을 신호' }, { listenSignal: '고르세요' });
+    meta('audio_clip', { listenSignal: 'signal-in' }, { listenSignal: ['trigger', 'signal'] }, { listenSignal: '받을 신호' }, { listenSignal: '고르세요' });
+    meta('global_variable', { varName: 'var', listenSignal: 'signal-in', displayTemplate: 'template' },
+      { listenSignal: ['fireOn', 'signal'], value: ['action', 'set', 'add'], fireOn: ['action', 'set', 'add', 'toggle'] },
+      { varName: '변수', listenSignal: '받을 신호', displayTemplate: '값을 글자로 표시' }, { varName: '고르세요', listenSignal: '고르세요' });
+    meta('scene_transition', { listenSignal: 'signal-in' }, { listenSignal: ['fireOn', 'signal'], targetSpriteId: ['action', 'section'], url: ['action', 'url'] },
+      { listenSignal: '받을 신호' }, { listenSignal: '고르세요', targetSpriteId: '고르세요' });
+    meta('condition_branch', { varName: 'var', signalTrue: 'signal-out', signalFalse: 'signal-out' }, { varName: ['inputSource', 'variable'] },
+      { varName: '변수' }, { varName: '고르세요', signalTrue: '보내지 않음', signalFalse: '보내지 않음' });
+    meta('value_remapper', { varName: 'var' }, { varName: ['inputSource', 'variable'] }, { varName: '변수' }, { varName: '고르세요' });
+    meta('form_submit', { successSignal: 'signal-out', errorSignal: 'signal-out' }, { url: ['action', 'mailto', 'post'], subject: ['action', 'mailto'], encoding: ['action', 'post'] },
+      null, { successSignal: "기본: 'form_success'", errorSignal: "기본: 'form_error'" });
+    meta('step_sequencer', {}, null, { signalPrefix: '신호 이름 앞부분 (뒤에 단계 번호)' });
+  })();
+
   // ==========================================================================
   // 3. Sprite & Layer Models (Photoshop Layer Hierarchy)
   // ==========================================================================
@@ -877,7 +925,7 @@
     // responsive overrides, form fields, accessibility, ...).
     static extraFields() {
       return ['textColor', 'isBrushCanvas', 'letterSpacing', 'lineHeight', 'fontStyle', 'textDecoration',
-        'valign', 'responsive', 'form', 'alt', 'headingLevel', 'imageFit', 'naturalWidth', 'naturalHeight'];
+        'valign', 'responsive', 'form', 'alt', 'headingLevel', 'imageFit', 'naturalWidth', 'naturalHeight', 'pin'];
     }
 
     // Project files are untrusted: every field gets its expected type on load.
@@ -974,6 +1022,8 @@
       }
       if (this.textColor !== undefined) this.textColor = str(this.textColor);
       if (this.responsive !== undefined) this.responsive = Sprite.cleanResponsive(this.responsive);
+      // Where it sticks when the width changes (unset: decided from the layout).
+      if (this.pin !== undefined && !Reflow.pins().includes(this.pin)) delete this.pin;
       this.id = str(options.id) || 'sprite_' + Math.random().toString(36).substr(2, 9);
       this.name = str(options.name) || '스프라이트';
       this.type = str(options.type) || 'rect'; // 'rect' | 'circle' | 'path' | 'brush' | 'text' | 'image' | 'empty'
@@ -1344,6 +1394,7 @@
             rigid: !!angle || sx !== 1 || sy !== 1 || ['path', 'brush', 'circle'].includes(sp.type) ||
               !!sp.isBrushCanvas || !!(sp.strokes && sp.strokes.length)
           };
+          if (sp.pin) item.pin = sp.pin;
           const label = (sp.modules || []).find(m => m.type === 'text_label' && m.enabled !== false && m.params);
           if (sp.type === 'text') {
             if (sp.text) {
@@ -1363,6 +1414,10 @@
       }
       return { width: doc.width, height: doc.height, items };
     }
+
+    // Chosen "붙는 위치": keep the left / right margin, stay centred, or keep
+    // both margins and change the width.
+    static pins() { return ['left', 'center', 'right', 'stretch']; }
 
     // An animated sprite is laid out where its animation ends. Animations hold
     // desktop values, so in a responsive view the view's own position counts.
@@ -1534,7 +1589,11 @@
         const dy = above && this.out.has(above) ? this.out.get(above).y - above.y : 0;
         const right = W - it.x - it.w;
         let x, w = it.w, h = it.h;
-        if (spans) {
+        if (it.pin === 'stretch' && !it.rigid) { x = it.x; w = Math.max(1, T - it.x - right); }
+        else if (it.pin === 'left') x = it.x;
+        else if (it.pin === 'right') x = T - right - w;
+        else if (it.pin === 'center') x = T / 2 + (it.x + w / 2 - W / 2) * ratio - w / 2;
+        else if (spans) {
           x = it.x; w = Math.max(1, T - it.x - right);
           if (backdrop) h = Math.max(1, it.h + grown);
           if (it.rigid) { w = it.w; x = (T - w) / 2; h = it.h; }
@@ -1570,7 +1629,11 @@
       const ratio = Math.min(1, f.w / f.w0);
       const gl = Math.min(16, Math.max(0, left)), gr = Math.min(16, Math.max(0, right));
       let x;
-      if (node.w < f.w0 * 0.8 && left < f.w0 * 0.1 && left < right - 2) x = f.x + left * ratio;
+      const pin = node.item && node.item.pin;
+      if (pin === 'left') x = f.x + left * ratio;
+      else if (pin === 'right') x = f.x + f.w - right * ratio - width;
+      else if (pin === 'center') x = f.x + f.w / 2 + (node.x + node.w / 2 - f.x0 - f.w0 / 2) * ratio - width / 2;
+      else if (node.w < f.w0 * 0.8 && left < f.w0 * 0.1 && left < right - 2) x = f.x + left * ratio;
       else if (node.w < f.w0 * 0.8 && right < f.w0 * 0.1 && right < left - 2) x = f.x + f.w - right * ratio - width;
       else x = f.x + f.w / 2 + (node.x + node.w / 2 - f.x0 - f.w0 / 2) * ratio - width / 2;
       return Math.max(f.x + gl, Math.min(x, f.x + f.w - gr - width));
@@ -1621,9 +1684,13 @@
 
     placeBox(node, f, top) {
       const it = node.item;
-      const fills = Reflow.fills(node, f) && !it.rigid;
-      const w = fills ? Math.max(1, f.w - (node.x - f.x0) - (f.x0 + f.w0 - node.x - node.w)) : Math.min(node.w, this.available(node, f));
-      const x = fills ? f.x + node.x - f.x0 : this.align(node, f, w);
+      const pin = it.rigid ? '' : it.pin;
+      const fills = pin === 'stretch' || (!pin && Reflow.fills(node, f) && !it.rigid);
+      // "폭 채우기" keeps both margins (narrowed with the frame).
+      const k0 = pin === 'stretch' ? Math.min(1, f.w / f.w0) : 1;
+      const ml = (node.x - f.x0) * k0, mr = (f.x0 + f.w0 - node.x - node.w) * k0;
+      const w = fills ? Math.max(1, f.w - ml - mr) : Math.min(node.w, this.available(node, f));
+      const x = fills ? f.x + ml : this.align(node, f, w);
       let h = node.h, k = 1, size;
       if (it.rigid) {
         k = w / node.w;
@@ -1866,8 +1933,19 @@
       }
     }
 
+    // The multi-selection only counts while it still contains the primary
+    // selection: drawing or clicking a new sprite moves selectedSpriteId
+    // without clearing the set, and a stale set must never act on sprites
+    // the user can no longer see as selected.
+    getMultiSelection() {
+      const multi = this.selectedSpriteIds;
+      if (!multi || multi.size === 0) return new Set();
+      if (this.selectedSpriteId && !multi.has(this.selectedSpriteId)) return new Set();
+      return multi;
+    }
+
     deleteSelected() {
-      const idsToDelete = new Set(this.selectedSpriteIds);
+      const idsToDelete = new Set(this.getMultiSelection());
       if (this.selectedSpriteId) idsToDelete.add(this.selectedSpriteId);
       if (idsToDelete.size === 0) return false;
 
@@ -1886,7 +1964,6 @@
       const curLayer = this.getSelectedLayer();
       if (curLayer && curLayer.sprites.length > 0) {
         this.selectedSpriteId = curLayer.sprites[curLayer.sprites.length - 1].id;
-        this.selectedSpriteIds.add(this.selectedSpriteId);
       }
 
       if (deleted) {
@@ -1993,11 +2070,37 @@
           const hw = Math.max(8, (sprite.width || 20) / 2);
           const hh = Math.max(8, (sprite.height || 20) / 2);
           if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) {
+            // A brush canvas covers the whole artboard; only its painted
+            // strokes should catch clicks, or it hides everything below it.
+            if (sprite.type === 'brush' && Array.isArray(sprite.strokes)) {
+              if (DocumentModel.hitsBrushStroke(sprite, lx, ly)) return sprite;
+              continue;
+            }
             return sprite;
           }
         }
       }
       return null;
+    }
+
+    // True when (lx, ly), in the sprite's local space, lies within a painted
+    // stroke (half its width plus `slop`).
+    static hitsBrushStroke(sprite, lx, ly, slop = 6) {
+      for (const st of sprite.strokes) {
+        const pts = st && st.points;
+        if (!pts || !pts.length) continue;
+        const r = (st.size || 6) / 2 + slop;
+        const r2 = r * r;
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i], b = pts[i + 1] || a;
+          const vx = b.x - a.x, vy = b.y - a.y;
+          const len2 = vx * vx + vy * vy;
+          const t = len2 ? Math.max(0, Math.min(1, ((lx - a.x) * vx + (ly - a.y) * vy) / len2)) : 0;
+          const dx = lx - (a.x + t * vx), dy = ly - (a.y + t * vy);
+          if (dx * dx + dy * dy <= r2) return true;
+        }
+      }
+      return false;
     }
 
     sortLayers() {
@@ -2240,6 +2343,14 @@
       return source;
     }
 
+    setPin(sp, pin) {
+      if (Reflow.pins().includes(pin)) sp.pin = pin; else delete sp.pin;
+      for (const { source } of (this._reflowed || new Map()).values()) {
+        const it = source.flow.design.items.find(i => i.id === sp.id);
+        if (it) { if (sp.pin) it.pin = sp.pin; else delete it.pin; }
+      }
+    }
+
     rememberLayout(source, height = this.height) {
       this._reflowed = this._reflowed || new Map();
       this._reflowed.set(this.layoutKey(), { source, height });
@@ -2440,7 +2551,13 @@
       const hw = (target.width * target.scaleX) / 2;
       const hh = (target.height * target.scaleY) / 2;
 
-      if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) return 'body';
+      if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) {
+        // A selected brush canvas is dragged by its strokes only, so the
+        // sprites under the rest of the artboard stay clickable.
+        if (target.type === 'brush' && Array.isArray(target.strokes) &&
+            !DocumentModel.hitsBrushStroke(target, lx / (target.scaleX || 1), ly / (target.scaleY || 1))) return null;
+        return 'body';
+      }
       return null;
     }
 
@@ -2685,8 +2802,17 @@
       }
 
       if (this.doc.autoKey && this.doc.isPlaying === false) {
+        const frame = this.doc.currentFrame;
+        const tracks = target.keyframes || {};
         ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'width', 'height'].forEach(p => {
-          if (target[p] !== this.origLayer[p]) target.addKeyframe(p, this.doc.currentFrame, target[p]);
+          if (target[p] === this.origLayer[p]) return;
+          const animated = Array.isArray(tracks[p]) && tracks[p].length > 0;
+          // Arranging things at frame 0 is layout, not animation: no keys
+          // until a property is animated or the playhead is elsewhere.
+          if (!animated && frame === 0) return;
+          // First key away from frame 0: keep where it started as the start key.
+          if (!animated) target.addKeyframe(p, 0, this.origLayer[p]);
+          target.addKeyframe(p, frame, target[p]);
         });
       }
 
@@ -2885,8 +3011,9 @@
         }
 
         // Draw selection outlines for all other selected sprites (e.g. from Ctrl+A / multi-selection)
-        if (this.doc.selectedSpriteIds && this.doc.selectedSpriteIds.size > 1 && (activeTool === 'move' || activeTool === 'direct')) {
-          for (const spId of this.doc.selectedSpriteIds) {
+        const multiSel = this.doc.getMultiSelection ? this.doc.getMultiSelection() : (this.doc.selectedSpriteIds || new Set());
+        if (multiSel.size > 1 && (activeTool === 'move' || activeTool === 'direct')) {
+          for (const spId of multiSel) {
             if (selSprite && spId === selSprite.id) continue;
             let otherSp = null;
             for (const layer of this.doc.layers) {
@@ -2910,7 +3037,7 @@
           // Visual Feedback HUD Badge
           ctx.save();
           ctx.setTransform(1, 0, 0, 1, 0, 0);
-          const badgeText = `선택된 스프라이트: ${this.doc.selectedSpriteIds.size}개`;
+          const badgeText = `선택된 스프라이트: ${multiSel.size}개`;
           ctx.font = 'bold 11px sans-serif';
           const tw = ctx.measureText(badgeText).width;
           ctx.fillStyle = 'rgba(24, 24, 27, 0.9)';
@@ -3627,19 +3754,44 @@
           resultLines.push('');
           continue;
         }
+        // Break between words, like CSS `word-break: keep-all` (Korean words
+        // stay whole too); a single word wider than the box is split by
+        // character so it never overflows.
+        const fits = s => ctx.measureText(s).width <= maxWidth;
         let curLine = '';
-        for (let i = 0; i < para.length; i++) {
-          const char = para[i];
-          const testLine = curLine + char;
-          const testW = ctx.measureText(testLine).width;
-          if (testW <= maxWidth || curLine === '') {
-            curLine = testLine;
+        const tokens = para.split(/(\s+)/).filter(t => t !== '');
+        for (let ti = 0; ti < tokens.length; ti++) {
+          const tok = tokens[ti];
+          if (/^\s+$/.test(tok)) {
+            // Keep indentation at the start of a paragraph; drop the spaces
+            // a wrap lands on, as CSS does.
+            if (curLine !== '' || ti === 0) curLine += tok;
+            continue;
+          }
+          const testLine = curLine + tok;
+          if (curLine === '' || fits(testLine)) {
+            if (curLine === '' && !fits(tok)) {
+              // Overlong word: fill lines character by character.
+              for (const ch of tok) {
+                if (curLine === '' || fits(curLine + ch)) curLine += ch;
+                else { resultLines.push(curLine); curLine = ch; }
+              }
+            } else {
+              curLine = testLine;
+            }
           } else {
-            resultLines.push(curLine);
-            curLine = char;
+            resultLines.push(curLine.replace(/\s+$/, ''));
+            curLine = '';
+            if (fits(tok)) curLine = tok;
+            else {
+              for (const ch of tok) {
+                if (curLine === '' || fits(curLine + ch)) curLine += ch;
+                else { resultLines.push(curLine); curLine = ch; }
+              }
+            }
           }
         }
-        if (curLine) resultLines.push(curLine);
+        if (curLine) resultLines.push(curLine.replace(/\s+$/, ''));
       }
       if (sprite) {
         sprite._wrapCache = { text, maxWidth, font: fontKey, lines: resultLines };
@@ -3817,7 +3969,10 @@
 
       ctx.fillStyle = '#71717a';
       ctx.font = '9px monospace';
-      for (let wx = 0; wx <= this.doc.width; wx += 50) {
+      // Label spacing follows the zoom so the numbers never run together.
+      const steps = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
+      const step = steps.find(s => s * this.zoom >= 48) || steps[steps.length - 1];
+      for (let wx = 0; wx <= this.doc.width; wx += step) {
         const sx = this.worldToScreen(wx, 0).x;
         if (sx >= rSize && sx <= cw) {
           ctx.beginPath(); ctx.moveTo(sx, rSize - 5); ctx.lineTo(sx, rSize); ctx.stroke();
@@ -3965,10 +4120,12 @@
           this.renderer.zoom = 1;
           this.renderer.centerArtboard();
         } else {
-          const factor = e.shiftKey ? 0.8 : 1.25;
-          this.zoomAt(sx, sy, factor);
+          // Left click zooms in; right click (or Shift+click) zooms out.
+          const zoomOut = (e && e.button === 2) || (e && e.shiftKey);
+          this.zoomAt(sx, sy, zoomOut ? 0.8 : 1.25);
         }
         if (this.onCanvasRender) this.onCanvasRender();
+        if (this.onZoomChange) this.onZoomChange();
         return;
       }
 
@@ -3990,13 +4147,14 @@
       if (this.activeTool === 'text') {
         const text = '텍스트';
         const sp = activeLayer.addSprite({
-          name: '텍스트: ' + text,
+          name: text,
           type: 'text',
           text: text,
           x: wx, y: wy,
           fontSize: 24,
           fill: '#ffffff'
         });
+        DrawingTools.fitTextBox(sp);
         this.doc.selectedSpriteId = sp.id;
         this.doc.saveState();
         if (this.onCommit) this.onCommit();
@@ -4004,6 +4162,26 @@
         if (typeof this.onTextCreated === 'function') this.onTextCreated(sp, true);
         return;
       }
+    }
+
+    // Size a text sprite's box to its text (one line per paragraph), so the
+    // selection frame and W/H match what is drawn. Returns false (and leaves
+    // the box alone) once the user has resized it by hand.
+    static fitTextBox(sp, force = false) {
+      if (!sp || sp.type !== 'text') return false;
+      if (!DrawingTools._textFit) DrawingTools._textFit = new WeakMap(); // sizes we set (not saved)
+      const last = DrawingTools._textFit.get(sp);
+      if (!force && last && (last.w !== sp.width || last.h !== sp.height)) return false;
+      const c = DrawingTools._measureCtx || (DrawingTools._measureCtx = document.createElement('canvas').getContext('2d'));
+      const fs = sp.fontSize || 16;
+      c.font = `${sp.fontWeight || 'normal'} ${fs}px ${PhotoshopCanvas.fontStack(sp.fontFamily)}`;
+      const lines = String(sp.text || ' ').split('\n');
+      const w = Math.max(...lines.map(l => c.measureText(l || ' ').width));
+      sp.width = Math.max(24, Math.ceil(w + 12));
+      sp.height = Math.max(fs + 8, Math.ceil(lines.length * fs * 1.35 + 8));
+      sp._wrapCache = null;
+      DrawingTools._textFit.set(sp, { w: sp.width, h: sp.height });
+      return true;
     }
 
     handleMouseMove(wx, wy) {
@@ -4605,6 +4783,149 @@
       try { compiled.fn(api); } catch (e) { fail(e); }
     }
 
+    // ---------------- Action blocks (action_rules) ----------------
+    // "언제 → 무엇을": when the module's trigger condition fires, its steps run
+    // from the top. A step with a duration animates over that time and the next
+    // one starts after it; instant steps run in the same frame. Steps are plain
+    // data, so a file can never run code through them.
+    static actionTakesTime(step) {
+      if (!step) return false;
+      if (step.type === 'wait') return (Number(step.seconds) || 0) > 0;
+      return ['move_by', 'move_to', 'rotate_by', 'scale_to', 'fade_to', 'color_to', 'reset'].includes(step.type) && (Number(step.duration) || 0) > 0;
+    }
+
+    // Did the module's condition fire on this frame? "Always" fires once at the start.
+    actionFired(mod, sprite) {
+      const cond = (mod.params && mod.params.condition) || 'always';
+      const rt = sprite.runtime;
+      if (cond === 'always') {
+        rt._actStarted = rt._actStarted || {};
+        if (rt._actStarted[mod.id]) return false;
+        rt._actStarted[mod.id] = true;
+        return true;
+      }
+      this.evaluateCondition(mod, sprite, this.bus);
+      const st = rt._cond && rt._cond[mod.id];
+      return !!(st && st.lastFired === this.bus.time);
+    }
+
+    runActions(sprite, mod, p, fired, dt) {
+      const rt = sprite.runtime;
+      rt._acts = rt._acts || {};
+      let st = rt._acts[mod.id];
+      const steps = Array.isArray(p.steps) ? p.steps : [];
+      if (fired && steps.length && !(st && st.running && p.retrigger === 'ignore')) {
+        st = rt._acts[mod.id] = { running: true, i: 0, t: 0, from: null, holds: st ? st.holds : {} };
+      }
+      if (!st) return;
+      if (st.running) {
+        let left = dt;
+        for (let guard = 0; st.running && guard <= steps.length + 1; guard++) {
+          if (st.i >= steps.length) {
+            if (p.repeat === 'loop' && steps.some(s => ModuleEngine.actionTakesTime(s))) { st.i = 0; st.t = 0; st.from = null; continue; }
+            st.running = false;
+            break;
+          }
+          const done = this.runActionStep(sprite, steps[st.i] || {}, st, left);
+          if (!done) break;
+          if (ModuleEngine.actionTakesTime(steps[st.i])) left = 0; // the next timed step starts on the next frame
+          st.i++; st.t = 0; st.from = null;
+        }
+      }
+      this.applyActionHolds(st);
+    }
+
+    // Scale and "show a variable" have to be applied every frame (scale is reset
+    // each frame, a variable can change at any time).
+    applyActionHolds(st) {
+      for (const [id, h] of Object.entries(st.holds || {})) {
+        const sp = this.doc.findSpriteById(id);
+        if (!sp) continue;
+        if (h.scale !== undefined) { sp.runtime.scaleX *= h.scale; sp.runtime.scaleY *= h.scale; }
+        if (h.showVar) {
+          const v = Number(this.bus.vars.get(h.showVar.name)) || 0;
+          ModuleEngine.setText(sp, (h.showVar.prefix || '') + (Number.isInteger(v) ? String(v) : v.toFixed(2)) + (h.showVar.suffix || ''));
+        }
+      }
+    }
+
+    // Runs one step for this frame; true when it has finished.
+    runActionStep(sprite, step, st, dt) {
+      const tgt = step.spriteId ? this.doc.findSpriteById(step.spriteId) : sprite;
+      if (!tgt) return true;
+      const rt = tgt.runtime, num = (v, d = 0) => { const n = Number(v); return isFinite(n) ? n : d; };
+      const hold = () => (st.holds[tgt.id] = st.holds[tgt.id] || {});
+      // Timed steps: progress 0..1 with easing; the start values are read once.
+      const timed = (capture, apply) => {
+        if (st.from === null) st.from = capture();
+        const d = Math.max(0, num(step.duration));
+        st.t += dt;
+        const k = d > 0 ? Math.min(1, st.t / d) : 1;
+        apply(st.from, ModuleEngine.ease(step.ease || 'easeOutCubic', k));
+        return k >= 1;
+      };
+      switch (step.type) {
+        case 'move_by':
+          return timed(() => ({ x: rt.x, y: rt.y }), (f, e) => { rt.x = f.x + num(step.dx) * e; rt.y = f.y + num(step.dy) * e; });
+        case 'move_to':
+          return timed(() => ({ x: rt.x, y: rt.y }), (f, e) => { rt.x = f.x + (num(step.x, tgt.x) - f.x) * e; rt.y = f.y + (num(step.y, tgt.y) - f.y) * e; });
+        case 'rotate_by':
+          return timed(() => ({ r: rt.rotation || 0 }), (f, e) => { rt.rotation = f.r + num(step.deg) * e; });
+        case 'scale_to':
+          return timed(() => ({ s: hold().scale !== undefined ? hold().scale : 1 }), (f, e) => { hold().scale = f.s + (num(step.scale, 1) - f.s) * e; });
+        case 'fade_to':
+          return timed(() => ({ o: rt.opacity }), (f, e) => { rt.opacity = Math.max(0, Math.min(1, f.o + (num(step.opacity, 1) - f.o) * e)); });
+        case 'color_to':
+          return timed(() => {
+            if (rt._origFill === undefined) rt._origFill = tgt.fill;
+            return { c: tgt.fill };
+          }, (f, e) => { tgt.fill = e >= 1 ? String(step.color || f.c) : ModuleEngine.mixColor(f.c, String(step.color || f.c), e); });
+        case 'reset':
+          return timed(() => ({ x: rt.x, y: rt.y, r: rt.rotation || 0, o: rt.opacity, s: hold().scale !== undefined ? hold().scale : 1, c: tgt.fill }), (f, e) => {
+            rt.x = f.x + (tgt.x - f.x) * e; rt.y = f.y + (tgt.y - f.y) * e;
+            rt.rotation = f.r + ((tgt.rotation || 0) - f.r) * e;
+            rt.opacity = f.o + ((tgt.opacity ?? 1) - f.o) * e;
+            hold().scale = f.s + (1 - f.s) * e;
+            if (rt._origFill !== undefined) tgt.fill = e >= 1 ? rt._origFill : ModuleEngine.mixColor(f.c, rt._origFill, e);
+          });
+        case 'show': tgt.visible = true; rt.visible = true; return true;
+        case 'hide': rt.visible = false; return true;
+        case 'toggle_visible': {
+          const shown = tgt.visible !== false && rt.visible !== false;
+          if (shown) rt.visible = false; else { tgt.visible = true; rt.visible = true; }
+          return true;
+        }
+        case 'set_text': ModuleEngine.setText(tgt, String(step.text ?? '')); return true;
+        case 'show_var':
+          if (step.varName) hold().showVar = { name: String(step.varName), prefix: step.prefix, suffix: step.suffix };
+          return true;
+        case 'emit': if (step.signal) this.bus.emitSignal(String(step.signal), sprite.id); return true;
+        case 'set_var':
+        case 'add_var': {
+          if (!step.varName) return true;
+          const name = String(step.varName), vars = this.bus.vars;
+          vars.set(name, step.type === 'set_var' ? num(step.value) : (Number(vars.get(name)) || 0) + num(step.value, 1));
+          this.bus.emitSignal('var_' + name, sprite.id, vars.get(name));
+          return true;
+        }
+        case 'if_var': {
+          const v = Number(this.bus.vars.get(String(step.varName || ''))) || 0, k = num(step.value);
+          const ok = { '>': v > k, '>=': v >= k, '<': v < k, '<=': v <= k, '==': v === k, '!=': v !== k }[step.compare || '>='];
+          if (!ok) st.running = false; // the steps below do not run
+          return true;
+        }
+        case 'wait':
+          st.t += dt;
+          return st.t >= Math.max(0, num(step.seconds));
+        case 'sound': ModuleEngine.playSynth(step.sound || 'pop', Math.max(0, Math.min(1, num(step.volume, 0.6)))); return true;
+        case 'open_link': if (step.url) this.navigateHyperlink(String(step.url), step.newTab === false ? '_self' : '_blank'); return true;
+        case 'go_to':
+          if (step.spriteId && typeof this.onNavigateAnchor === 'function') this.onNavigateAnchor(tgt, { smooth: true, duration: 0.6 });
+          return true;
+        default: return true;
+      }
+    }
+
     // Host -> engine wheel input (consumed on the next update).
     addWheel(deltaY) {
       this._pendingWheel = (this._pendingWheel || 0) + deltaY;
@@ -5067,6 +5388,32 @@
         'count_up', 'magnetic', 'cursor_fx', 'physics_body', 'audio_reactive', 'follow_target', 'look_at'].includes(type);
     }
 
+    // math_calculate's result (also shown on its node in the node editor).
+    static mathResult(p) {
+      const valA = parseFloat(p.inputA !== undefined ? p.inputA : (p.valA || 0)) || 0;
+      const valB = parseFloat(p.inputB !== undefined ? p.inputB : (p.valB || 0)) || 0;
+      switch (p.operation || 'add') {
+        case 'add': return valA + valB;
+        case 'subtract': return valA - valB;
+        case 'multiply': return valA * valB;
+        case 'divide': return valB !== 0 ? valA / valB : 0;
+        case 'sin': return Math.sin(valA);
+        case 'cos': return Math.cos(valA);
+        case 'min': return Math.min(valA, valB);
+        case 'max': return Math.max(valA, valB);
+        case 'clamp': {
+          const cMin = parseFloat(p.clampMin || 0);
+          const cMax = parseFloat(p.clampMax !== undefined ? p.clampMax : 1);
+          return Math.max(cMin, Math.min(cMax, valA));
+        }
+        case 'lerp': return valA + (parseFloat(p.targetVal || 0) - valA) * Math.max(0, Math.min(1, valB));
+        case 'modulo': return valB !== 0 ? valA % valB : 0;
+        case 'abs': return Math.abs(valA);
+        case 'round': return Math.round(valA);
+        default: return valA + valB;
+      }
+    }
+
     static conditionSignal(mod) {
       const p = mod.params || {};
       return p.condSignal || p.listenSignal || p.inputSignal || '*';
@@ -5304,6 +5651,8 @@
           for (const mod of stack) {
             if (!mod.enabled) continue;
             if (this.disabledModuleIds && this.disabledModuleIds.has(mod.id)) continue;
+            // Action blocks keep running after their trigger (a move takes time).
+            if (mod.type === 'action_rules') { this.runActions(sprite, mod, mod.params || {}, ctx.gateOpen && this.actionFired(mod, sprite), dt); continue; }
             if (!ctx.gateOpen) continue;
             if (!this.evaluateCondition(mod, sprite, this.bus)) continue;
 
@@ -5631,35 +5980,7 @@
               }
 
               case 'math_calculate': {
-                const valA = parseFloat(p.inputA !== undefined ? p.inputA : (p.valA || 0));
-                const valB = parseFloat(p.inputB !== undefined ? p.inputB : (p.valB || 0));
-                let res = 0;
-                const op = p.operation || 'add';
-                switch (op) {
-                  case 'add': res = valA + valB; break;
-                  case 'subtract': res = valA - valB; break;
-                  case 'multiply': res = valA * valB; break;
-                  case 'divide': res = valB !== 0 ? valA / valB : 0; break;
-                  case 'sin': res = Math.sin(valA); break;
-                  case 'cos': res = Math.cos(valA); break;
-                  case 'min': res = Math.min(valA, valB); break;
-                  case 'max': res = Math.max(valA, valB); break;
-                  case 'clamp': {
-                    const cMin = parseFloat(p.clampMin || 0);
-                    const cMax = parseFloat(p.clampMax !== undefined ? p.clampMax : 1);
-                    res = Math.max(cMin, Math.min(cMax, valA));
-                    break;
-                  }
-                  case 'lerp': {
-                    const f = Math.max(0, Math.min(1, valB));
-                    res = valA + (parseFloat(p.targetVal || 0) - valA) * f;
-                    break;
-                  }
-                  case 'modulo': res = valB !== 0 ? valA % valB : 0; break;
-                  case 'abs': res = Math.abs(valA); break;
-                  case 'round': res = Math.round(valA); break;
-                  default: res = valA + valB; break;
-                }
+                const res = ModuleEngine.mathResult(p);
                 p.outputResult = res;
                 ctx.value = res;
 
@@ -6388,7 +6709,12 @@
       const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
       const hw = (sprite.width * sprite.runtime.scaleX) / 2;
       const hh = (sprite.height * sprite.runtime.scaleY) / 2;
-      return Math.abs(lx) <= hw && Math.abs(ly) <= hh;
+      if (!(Math.abs(lx) <= hw && Math.abs(ly) <= hh)) return false;
+      // A full-artboard brush canvas is only "under the pointer" on its strokes.
+      if (sprite.type === 'brush' && Array.isArray(sprite.strokes) && typeof DocumentModel !== 'undefined' && DocumentModel.hitsBrushStroke) {
+        return DocumentModel.hitsBrushStroke(sprite, lx / (sprite.runtime.scaleX || 1), ly / (sprite.runtime.scaleY || 1));
+      }
+      return true;
     }
   }
 
@@ -7066,7 +7392,7 @@ ${this.getRuntimeSource(withEngine)}
           <button class="ps-tool-btn ${t==='text'?'active':''}" data-t="text" title="문자 도구 (T)"><span class="ps-tool-icon" style="font-weight:700;">T</span></button>
           <button class="ps-tool-btn ${t==='eyedropper'?'active':''}" data-t="eyedropper" title="스포이드 (I)"><span class="ps-tool-icon">⌖</span></button>
           <div class="ps-tool-sep"></div>
-          <button class="ps-tool-btn ${t==='hand'?'active':''}" data-t="hand" title="손 도구 (Space)"><span class="ps-tool-icon" style="font-size:10px;font-weight:700;">PAN</span></button>
+          <button class="ps-tool-btn ${t==='hand'?'active':''}" data-t="hand" title="손 도구 (H, 누르는 동안 Space)"><span class="ps-tool-icon">✋&#xFE0E;</span></button>
           <button class="ps-tool-btn ${t==='zoom'?'active':''}" data-t="zoom" title="돋보기 (Z - 좌클릭 확대 / 우클릭 축소 / Alt클릭 초기화)"><span class="ps-tool-icon">⌕</span></button>
         </div>
         <div class="ps-color-swatches">
@@ -7127,7 +7453,7 @@ ${this.getRuntimeSource(withEngine)}
           <button class="btn btn-primary btn-sm" id="btnOptNodeMode" style="height:24px;font-size:11px;padding:2px 10px;display:flex;align-items:center;gap:5px;font-weight:600;" title="모듈 노드 모드 / 스튜디오 전환 (Shift+Tab)">
             ${window.jspenApp?.isNodeMode ? '스튜디오로 복귀 (Shift+Tab)' : '모듈 노드 모드 (Shift+Tab)'}
           </button>
-          <button class="btn btn-secondary btn-sm" id="btnOptWebPreview" style="height:24px;font-size:11px;padding:2px 8px;color:#e4e4e7;border-color:#e4e4e7;display:flex;align-items:center;gap:4px;" title="새 창에서 실시간 웹 미리보기 (Alt+W / Ctrl+Space)">
+          <button class="btn btn-secondary btn-sm" id="btnOptWebPreview" style="height:24px;font-size:11px;padding:2px 8px;color:#e4e4e7;border-color:#e4e4e7;display:flex;align-items:center;gap:4px;" title="새 창에서 웹 미리보기 (Alt+W) — 캔버스에서 바로 실행하려면 Ctrl+Space">
             웹 미리보기
           </button>
         </div>
@@ -7180,8 +7506,10 @@ ${this.getRuntimeSource(withEngine)}
       } else if (t === 'zoom') {
         html += `
           <div class="ps-option-group">
-            <span class="ps-option-label">배율: ${Math.round(this.tools.renderer.zoom * 100)}%</span>
-            <button class="btn btn-secondary btn-sm" id="btnZoomReset">100% 리셋 (Alt+클릭)</button>
+            <span class="ps-option-label" id="optZoomLabel">배율: ${Math.round(this.tools.renderer.zoom * 100)}%</span>
+            <button class="btn btn-secondary btn-sm" id="btnZoomFit" title="캔버스 전체가 보이게 (Ctrl+0)">화면에 맞추기</button>
+            <button class="btn btn-secondary btn-sm" id="btnZoomReset" title="Alt+클릭 / Ctrl+1">100% 리셋</button>
+            <span class="ps-option-label ps-option-hint">클릭: 확대 · 우클릭 또는 Shift+클릭: 축소</span>
           </div>
         `;
       }
@@ -7215,6 +7543,10 @@ ${this.getRuntimeSource(withEngine)}
         this.tools.renderer.zoom = 1.0;
         this.tools.renderer.centerArtboard();
         this.onUpdate();
+        this.render();
+      });
+      this.el.querySelector('#btnZoomFit')?.addEventListener('click', () => {
+        window.jspenApp?.fitToScreen();
         this.render();
       });
 
@@ -7269,6 +7601,15 @@ ${this.getRuntimeSource(withEngine)}
     }
 
     render() {
+      // Re-rendering replaces the list; keep the user's scroll position.
+      const prevList = this.el.querySelector('.ps-layer-list');
+      const prevScroll = prevList ? prevList.scrollTop : 0;
+      this._renderList();
+      const list = this.el.querySelector('.ps-layer-list');
+      if (list && prevScroll) list.scrollTop = prevScroll;
+    }
+
+    _renderList() {
       const reversedLayers = [...this.doc.layers].reverse();
       this.el.innerHTML = `
         <div class="ps-dock-header krita-docker-titlebar">
@@ -7296,11 +7637,11 @@ ${this.getRuntimeSource(withEngine)}
                 `}
 
                 <span class="ps-layer-count-badge">${escapeHtml(l.sprites.length)}개</span>
-                <button class="ps-btn-layer-add-sp" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+</button>
-                <button class="ps-btn-layer-add-sp" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#e4e4e7;color:#e4e4e7;">⚡</button>
+                <button class="ps-btn-layer-add-sp ps-row-extra" data-act="add-child-sprite" title="이 레이어 안에 새 스프라이트 생성">+</button>
+                <button class="ps-btn-layer-add-sp ps-row-extra" data-act="add-screen-trigger" title="화면 트리거 생성" style="background:#1e293b;border-color:#e4e4e7;color:#e4e4e7;">⚡</button>
                 <button class="ps-btn-add-module ${(l.modules && l.modules.length > 0) ? 'has-modules' : ''}" data-act="add-layer-mod" title="레이어 모듈 추가">+fx</button>
-                <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
-                <button class="ps-btn-del-item" data-act="delete-layer" title="레이어 삭제">✕</button>
+                <button class="ps-layer-fold-btn ps-row-extra" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
+                <button class="ps-btn-del-item ps-row-extra" data-act="delete-layer" title="레이어 삭제">✕</button>
               </div>
 
               <!-- Child Sprites (Clearly Nested in Fabric Tree Structure) -->
@@ -7311,13 +7652,13 @@ ${this.getRuntimeSource(withEngine)}
                     const isFolded = s.collapsed === true;
                     return `
                     <div class="ps-sprite-item-wrap">
-                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : (this.doc.selectedSpriteIds && this.doc.selectedSpriteIds.has(s.id) ? 'multi-selected' : '')}" data-act="select-sprite" data-sprite-id="${escapeHtml(s.id)}" data-layer-id="${escapeHtml(l.id)}" draggable="true">
+                      <div class="ps-sprite-sub-item ${s.id === this.doc.selectedSpriteId ? 'selected' : (this.doc.getMultiSelection().has(s.id) ? 'multi-selected' : '')}" data-act="select-sprite" data-sprite-id="${escapeHtml(s.id)}" data-layer-id="${escapeHtml(l.id)}" draggable="true">
                         <button class="ps-sp-fold-btn" data-act="toggle-sprite-fold" title="모듈 접기/펼치기" style="${hasMods ? '' : 'visibility:hidden;'}">
                           ${isFolded ? '▶' : '▼'}
                         </button>
                         <button class="ps-layer-vis-btn ${s.visible ? '' : 'muted'}" data-act="vis-sprite" title="스프라이트 가시성">${s.visible ? '●' : '○'}</button>
                         ${(s.isMask || (s.maskMode && s.maskMode !== 'none')) ? '<span title="클리핑 마스크 적용됨" style="color:#a855f7;font-weight:bold;margin-right:2px;font-size:12px;">↳</span>' : ''}
-                        <span class="ps-sp-icon">${s.type === 'rect' ? '▭' : (s.type === 'circle' ? '○' : (s.type === 'text' ? 'T' : (s.type === 'path' ? '⟿' : '✎')))}</span>
+                        <span class="ps-sp-icon" title="${escapeHtml(s.type)}">${({ rect: '▭', bevel_rect: '⬠', circle: '○', star: '☆', text: 'T', path: '⟿', brush: '✎', image: '▣', form_field: '▤', screen_trigger: '⌖' })[s.type] || '◇'}</span>
                         
                         ${this.renamingId === s.id ? `
                           <input type="text" class="ps-layer-title-input" value="${escapeHtml(s.name)}" autofocus>
@@ -7325,15 +7666,15 @@ ${this.getRuntimeSource(withEngine)}
                           <span class="ps-sprite-title" data-act="select-sprite" title="더블 클릭하여 이름 변경">${escapeHtml(s.name)}</span>
                         `}
 
-                        <button class="ps-sp-link-btn ${s.linkGroup ? 'active' : ''}" data-act="toggle-link" title="${s.linkGroup ? '스프라이트 링크 해제 (현재 그룹: ' + escapeHtml(s.linkGroup) + ')' : '다른 스프라이트와 링크하기'}">
+                        <button class="ps-sp-link-btn ${s.linkGroup ? 'active' : 'ps-row-extra'}" data-act="toggle-link" title="${s.linkGroup ? '스프라이트 링크 해제 (현재 그룹: ' + escapeHtml(s.linkGroup) + ')' : '다른 스프라이트와 링크하기'}">
                           ${s.linkGroup ? `[LINK]${escapeHtml(s.linkGroup)}` : '[LINK]'}
                         </button>
 
                         <button class="ps-btn-add-module ${hasMods ? 'has-modules' : ''}" data-act="add-sprite-mod" title="모듈 추가">
                           +fx ${hasMods ? `<span class="mod-count">${escapeHtml(s.modules.length)}</span>` : ''}
                         </button>
-                        <button class="ps-layer-fold-btn" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
-                        <button class="ps-btn-del-item" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
+                        <button class="ps-layer-fold-btn ps-row-extra" data-act="rename-item" title="이름 변경" style="font-size:10px;">✎</button>
+                        <button class="ps-btn-del-item ps-row-extra" data-act="delete-sprite" title="스프라이트 삭제">✕</button>
                       </div>
 
                       <!-- Sub-Modules nested under sprite like layers inside folder -->
@@ -7436,7 +7777,9 @@ ${this.getRuntimeSource(withEngine)}
         const modRow = e.target.closest('[data-mod-id]');
         const modId = modRow?.dataset.modId;
 
-        const act = btn ? btn.dataset.act : (spriteItem ? 'select-sprite' : (layerGroup ? 'select-layer' : null));
+        // Anywhere on a module row (badge, condition tag, gap) selects that module.
+        const act = btn ? btn.dataset.act
+          : (modRow ? 'select-mod' : (spriteItem ? 'select-sprite' : (layerGroup ? 'select-layer' : null)));
 
         if (act === 'fold-layer' && layer) {
           layer.expanded = !layer.expanded;
@@ -7725,16 +8068,20 @@ ${this.getRuntimeSource(withEngine)}
       if (!target) return;
       if (!target.modules) target.modules = [];
 
-      // Clean up any lingering modal first
-      document.querySelectorAll('.modal-overlay').forEach(m => m.remove());
+      // Clean up a lingering module picker only. The settings, export and other
+      // dialogs are long-lived .modal-overlay elements and must stay.
+      document.querySelectorAll('.ps-module-library-overlay').forEach(m => m.remove());
 
       const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
+      modal.className = 'modal-overlay ps-module-library-overlay';
       modal.innerHTML = `
         <div class="ps-module-modal">
           <div class="ps-modal-header">
             <div class="ps-modal-title">${isLayer ? '레이어 모듈 장착' : '스프라이트 모듈 장착'} (${escapeHtml(target.name)})</div>
             <button class="ps-modal-close" id="closeModal">✕</button>
+          </div>
+          <div class="ps-module-search">
+            <input type="search" id="modSearch" placeholder="모듈 검색 (이름이나 설명, 예: 클릭, 드래그, 신호)" autocomplete="off" spellcheck="false" />
           </div>
           <div class="mod-category-tabs">
             <button class="mod-category-tab ${this.activeCategory==='all'?'active':''}" data-cat="all">전체</button>
@@ -7746,25 +8093,36 @@ ${this.getRuntimeSource(withEngine)}
             <button class="mod-category-tab ${this.activeCategory==='logic'?'active':''}" data-cat="logic">연결 & 로직</button>
             <button class="mod-category-tab ${this.activeCategory==='timing'?'active':''}" data-cat="timing">타이밍</button>
             <button class="mod-category-tab ${this.activeCategory==='audio'?'active':''}" data-cat="audio">오디오</button>
+            <button class="mod-category-tab ${this.activeCategory==='advanced'?'active':''}" data-cat="advanced" title="코드를 직접 쓰는 모듈">고급 (코드)</button>
           </div>
           <div class="ps-module-grid" id="modalModGrid"></div>
         </div>
       `;
       document.body.appendChild(modal);
 
+      const searchInput = modal.querySelector('#modSearch');
       const renderGrid = () => {
         const grid = modal.querySelector('#modalModGrid');
+        const q = (searchInput.value || '').trim().toLowerCase();
         const keys = Object.keys(MODULE_REGISTRY).filter(k => {
+          // A search looks through every module, whatever tab is open.
+          if (q) {
+            const m = MODULE_REGISTRY[k];
+            return [k, m.name, m.description].some(s => String(s || '').toLowerCase().includes(q));
+          }
+          // Code-only modules are listed only under "고급".
+          if (MODULE_REGISTRY[k].advanced) return this.activeCategory === 'advanced';
+          if (this.activeCategory === 'advanced') return false;
           if (this.activeCategory === 'all') return true;
           if (this.activeCategory === 'mask') return k === 'substance_mask' || MODULE_REGISTRY[k].category === 'mask';
           if (this.activeCategory === 'filter') return k === 'photoshop_filter' || MODULE_REGISTRY[k].category === 'filter';
           return MODULE_REGISTRY[k].category === this.activeCategory;
         });
 
-        grid.innerHTML = keys.map(k => {
+        grid.innerHTML = keys.length ? keys.map(k => {
           const m = MODULE_REGISTRY[k];
           return `
-            <div class="ps-module-card" data-key="${escapeHtml(k)}">
+            <div class="ps-module-card" data-key="${escapeHtml(k)}" title="${escapeHtml(m.description)}">
               <div class="ps-mod-badge">${escapeHtml(m.icon)}</div>
               <div class="ps-mod-info">
                 <div class="ps-mod-name">${escapeHtml(m.name)}</div>
@@ -7772,7 +8130,7 @@ ${this.getRuntimeSource(withEngine)}
               </div>
             </div>
           `;
-        }).join('');
+        }).join('') : `<div class="ps-module-empty">"${escapeHtml(searchInput.value.trim())}"에 맞는 모듈이 없습니다.</div>`;
 
         grid.querySelectorAll('.ps-module-card').forEach(c => {
           c.addEventListener('click', () => {
@@ -7786,9 +8144,18 @@ ${this.getRuntimeSource(withEngine)}
               params: JSON.parse(JSON.stringify(def.defaultParams || {}))
             };
             target.modules.push(newMod);
+            // Select what the module was added to, so the inspector shows the
+            // new module's settings straight away.
+            const owner = isLayer ? target : this.doc.layers.find(l => l.sprites.includes(target));
+            if (owner) { this.doc.selectedLayerId = owner.id; owner.expanded = true; }
+            if (isLayer) this.doc.selectedSpriteId = null;
+            else { this.doc.selectedSpriteId = target.id; this.doc.selectedSpriteIds = new Set([target.id]); target.collapsed = false; }
             this.doc.selectedModuleId = newMod.id;
+            this.doc.saveState();
             modal.remove();
+            window.removeEventListener('keydown', onKeyDown);
             this.cb.onUpdate();
+            this.scrollToSelected?.();
           });
         });
       };
@@ -7802,14 +8169,20 @@ ${this.getRuntimeSource(withEngine)}
         });
       });
 
+      searchInput.addEventListener('input', renderGrid);
+      searchInput.addEventListener('keydown', ev => {
+        // Enter adds the first match.
+        if (ev.key === 'Enter') { ev.preventDefault(); modal.querySelector('.ps-module-card')?.click(); }
+      });
       renderGrid();
+      setTimeout(() => searchInput.focus(), 0);
 
-      const closeModal = () => modal.remove();
+      const closeModal = () => { modal.remove(); window.removeEventListener('keydown', onKeyDown); };
       modal.querySelector('#closeModal').addEventListener('click', closeModal);
       modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
-      const onKeyDown = ev => {
-        if (ev.key === 'Escape') { closeModal(); window.removeEventListener('keydown', onKeyDown); }
-      };
+      function onKeyDown(ev) {
+        if (ev.key === 'Escape') closeModal();
+      }
       window.addEventListener('keydown', onKeyDown);
     }
   }
@@ -7840,6 +8213,13 @@ ${this.getRuntimeSource(withEngine)}
         contentHtml = this.renderCanvasSection() + '<div class="ps-empty-layers">선택된 레이어나 스프라이트가 없습니다.</div>';
       }
 
+      // Editing a value re-renders the panel: keep its scroll position while
+      // the same sprite / module stays selected (long action lists).
+      const selKey = (selectedSprite ? selectedSprite.id : '') + '|' + (selectedMod ? selectedMod.id : '') + '|' + (selectedLayer ? selectedLayer.id : '');
+      const oldArea = this.el.querySelector('.ps-insp-scroll-area');
+      const keepScroll = oldArea && this._selKey === selKey ? oldArea.scrollTop : 0;
+      this._selKey = selKey;
+
       this.el.innerHTML = `
         <div class="ps-dock-header krita-docker-titlebar">
           <span class="ps-dock-title">속성 (Inspector)</span>
@@ -7854,6 +8234,7 @@ ${this.getRuntimeSource(withEngine)}
         </div>
       `;
 
+      if (keepScroll) { const area = this.el.querySelector('.ps-insp-scroll-area'); if (area) area.scrollTop = keepScroll; }
       this.bindScrubbing();
       this.bindCanvasSection();
       this.bindInputs(selectedSprite, selectedMod, selectedLayer);
@@ -7882,6 +8263,11 @@ ${this.getRuntimeSource(withEngine)}
             <input type="number" class="ps-input" id="inpCanvasH" min="50" max="20000" step="1" value="${escapeHtml(this.doc.height)}" style="width:100%;min-width:0;">
           </div>
           <div class="ps-prop-row">
+            <label class="ps-prop-label" for="inpScreenWidth">화면 폭:</label>
+            <input type="range" class="jspen-width-slider" id="inpScreenWidth" min="320" max="${escapeHtml(Math.max(1920, this.doc.width))}" step="10" value="${escapeHtml(this.doc.width)}" title="끌면서 웹사이트처럼 재배치되는 모습을 봅니다">
+            <span class="ps-val-tag" id="valScreenW">${escapeHtml(this.doc.width)}px</span>
+          </div>
+          <div class="ps-prop-row">
             <label class="ps-prop-label">작업물 처리:</label>
             <select class="ps-select" id="inpCanvasMode">
               <option value="reflow" ${mode === 'reflow' ? 'selected' : ''}>웹사이트처럼 재배치</option>
@@ -7905,6 +8291,29 @@ ${this.getRuntimeSource(withEngine)}
       };
       wEl.addEventListener('change', apply);
       hEl.addEventListener('change', apply);
+      // The width slider reflows live like resizing a browser window; letting
+      // go is one undo step, and sliding back restores the design exactly.
+      const slider = this.el.querySelector('#inpScreenWidth'), label = this.el.querySelector('#valScreenW');
+      if (!slider) return;
+      let source = null;
+      slider.addEventListener('input', () => {
+        const app = window.jspenApp;
+        if (!app) return;
+        if (!source) { app.endLivePreview(); source = this.doc.reflowSource(); }
+        this.doc.reflowTo(Math.round(parseFloat(slider.value)), source);
+        if (label) label.textContent = this.doc.width + 'px';
+        wEl.value = this.doc.width; hEl.value = this.doc.height;
+        app.handleResize();
+        app.requestRender();
+      });
+      slider.addEventListener('change', () => {
+        if (!source) return;
+        this.doc.rememberLayout(source, this.doc.height);
+        source = null;
+        this.doc.saveState();
+        window.jspenApp?.fitToScreen();
+        window.jspenApp?.refreshUI();
+      });
     }
 
     // 1. Layer Inspector (Pure layer properties only - No sprite or module properties)
@@ -8004,6 +8413,17 @@ ${this.getRuntimeSource(withEngine)}
           </div>
         </div>
 
+        <!-- When the width changes -->
+        <div class="ps-prop-section" id="pinSection">
+          <div class="ps-prop-header">화면 폭이 바뀌면</div>
+          <div class="jspen-pin-buttons" role="group" aria-label="화면 폭이 바뀌면 붙는 위치">
+            ${[['', '자동', '주변 배치를 보고 알아서 정합니다'], ['left', '왼쪽', '왼쪽 여백을 지킵니다'], ['center', '가운데', '가운데를 지킵니다'],
+              ['right', '오른쪽', '오른쪽 여백을 지킵니다'], ['stretch', '폭 채움', '양쪽 여백을 지키고 폭이 늘거나 줄어듭니다']].map(([v, l, t]) =>
+              `<button type="button" class="jspen-pin ${(sprite.pin || '') === v ? 'is-on' : ''}" data-pin="${v}" title="${t}" aria-pressed="${(sprite.pin || '') === v}">${l}</button>`).join('')}
+          </div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#71717a;line-height:1.5;margin-top:4px;">캔버스 폭을 바꾸거나 내보낸 페이지의 창 폭이 바뀔 때 붙을 곳입니다. 감싸는 상자가 있으면 그 상자 안에서 정합니다.</div>
+        </div>
+
         <!-- Appearance Section -->
         <div class="ps-prop-section">
           <div class="ps-prop-header">모양 및 스타일 (Appearance)</div>
@@ -8047,7 +8467,7 @@ ${this.getRuntimeSource(withEngine)}
           </div>
           ` : `
           <div class="ps-prop-row">
-            <label class="ps-prop-label">채우기 색상:</label>
+            <label class="ps-prop-label">${sprite.type === 'text' ? '글자 색상' : '채우기 색상'}:</label>
             <div class="ps-color-picker-wrap">
               <input type="color" class="ps-color-picker" id="inpFill" value="${escapeHtml(sprite.fill && sprite.fill.startsWith('#') ? sprite.fill : '#71717a')}">
               <span class="ps-val-tag">${escapeHtml(sprite.fill || '#71717a')}</span>
@@ -8068,15 +8488,15 @@ ${this.getRuntimeSource(withEngine)}
             </div>
           </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">코너 라운딩 (px):</label>
+            <label class="ps-prop-label" title="모서리를 둥글게 만듭니다">모서리 둥글게 (px):</label>
             <div class="blender-scrub-group">
               <input type="number" class="blender-scrub-input" id="inpCornerRadius" min="0" max="500" value="${escapeHtml(sprite.cornerRadius || 0)}">
             </div>
           </div>
           <div class="ps-prop-row">
-            <label class="ps-prop-label">베벨 수치:</label>
+            <label class="ps-prop-label" title="모서리를 비스듬히 잘라 냅니다 (둥글게와 함께 쓰면 잘린 모서리가 둥글어집니다)">모서리 깎기 (px):</label>
             <div class="blender-scrub-group">
-              <input type="number" class="blender-scrub-input" id="inpBevelChamfer" min="0" max="500" value="${escapeHtml(sprite.bevelChamfer || 0)}">
+              <input type="number" class="blender-scrub-input" id="inpBevel" min="0" max="500" value="${escapeHtml(sprite.bevel || 0)}">
             </div>
           </div>
         </div>
@@ -8218,6 +8638,7 @@ ${sprite.type === 'text' ? `
       }
 
       let typeSpecificHtml = '';
+      const linkCtx = { allSprites, catalog: InspectorPanelUI.linkCatalog(this.doc) };
 
       if (mod.type === 'text_label') {
         typeSpecificHtml = `
@@ -8452,11 +8873,7 @@ ${sprite.type === 'text' ? `
               <option value="signal" ${params.trigger === 'signal' ? 'selected' : ''}>신호를 받을 때</option>
             </select>
           </div>
-          ${params.trigger === 'signal' ? `
-          <div class="ps-prop-row">
-            <label class="ps-prop-label">받을 신호:</label>
-            <input type="text" class="ps-input" data-param-key="signalName" value="${escapeHtml(params.signalName || '')}">
-          </div>` : ''}
+          ${params.trigger === 'signal' ? this.renderParamField(InspectorPanelUI.fieldOf(def, 'signalName', mod), 'signalName', params.signalName || '', linkCtx) : ''}
           <div class="ps-prop-row">
             <label class="ps-prop-label">인페이지 앵커 ID:</label>
             <input type="text" class="ps-input" data-param-key="anchorId" placeholder="예: features, pricing" value="${escapeHtml(params.anchorId || '')}">
@@ -8495,97 +8912,14 @@ ${sprite.type === 'text' ? `
         // Settings in the registry's order, then any extra ones a file carries.
         const skip = ['condition', 'conditionMode', 'conditionDuration', 'condKey', 'condSignal', 'condStartFrame', 'condEndFrame', 'targetModuleId', 'outputResult']
           .concat(def.paramHidden || []);
-        const keys = [...new Set([...Object.keys(def.defaultParams || {}), ...Object.keys(params)])].filter(k => !skip.includes(k));
-        typeSpecificHtml = `
-          ${keys.map(key => {
-            const opts = def.paramOptions && def.paramOptions[key];
-            const label = (def.paramLabels && def.paramLabels[key]) || key;
-            const value = params[key] !== undefined ? params[key] : (def.defaultParams || {})[key];
-            const type = def.paramTypes && def.paramTypes[key];
-            if (key === 'targetSpriteId' || key === 'messageSpriteId') {
-              return `
-            <div class="ps-prop-row">
-              <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              <select class="ps-select" data-param-key="${escapeHtml(key)}">
-                <option value="">${key === 'messageSpriteId' ? '(표시 안 함)' : (mod.type === 'distance_rope' || mod.type === 'follow_target' ? '(마우스 커서)' : '(모든 스프라이트)')}</option>
-                ${allSprites.filter(sp => sp.id !== (sprite && sprite.id)).map(sp => `<option value="${escapeHtml(sp.id)}" ${params[key] === sp.id ? 'selected' : ''}>${escapeHtml(sp.name)}</option>`).join('')}
-              </select>
-            </div>`;
-            }
-            if (type === 'layer') {
-              return `
-            <div class="ps-prop-row">
-              <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              <select class="ps-select" data-param-key="${escapeHtml(key)}">
-                <option value="">(${escapeHtml((def.paramEmpty && def.paramEmpty[key]) || '없음')})</option>
-                ${this.doc.layers.map(l => `<option value="${escapeHtml(l.id)}" ${value === l.id ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
-              </select>
-            </div>`;
-            }
-            if (opts) {
-              // A value from an older file that is not in the list stays visible.
-              const known = opts.some(([v]) => String(v) === String(value));
-              return `
-            <div class="ps-prop-row">
-              <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              <select class="ps-select" data-param-key="${escapeHtml(key)}">
-                ${known || value === undefined || value === '' ? '' : `<option value="${escapeHtml(value)}" selected>(이전 값: ${escapeHtml(value)})</option>`}
-                ${opts.map(([v, l]) => `<option value="${escapeHtml(v)}" ${String(value) === String(v) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
-              </select>
-            </div>`;
-            }
-            if (type === 'color') {
-              const empty = def.paramEmpty && def.paramEmpty[key];
-              const hex = /^#[0-9a-f]{6}$/i.test(String(value)) ? value : (/^#[0-9a-f]{3}$/i.test(String(value)) ? '#' + String(value).slice(1).split('').map(c => c + c).join('') : '#000000');
-              return `
-            <div class="ps-prop-row">
-              <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              <span class="jspen-color-field ${value ? '' : 'is-empty'}">
-                <input type="color" data-param-key="${escapeHtml(key)}" data-param-type="color" value="${escapeHtml(hex)}" aria-label="${escapeHtml(label)}">
-                ${empty ? `<button type="button" class="jspen-color-clear" data-param-clear="${escapeHtml(key)}" title="${escapeHtml(empty)}">${value ? '×' : escapeHtml(empty)}</button>` : ''}
-              </span>
-            </div>`;
-            }
-            if (type === 'key') {
-              return `
-            <div class="ps-prop-row">
-              <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              <input type="text" readonly class="ps-input jspen-key-field" data-param-key="${escapeHtml(key)}" data-param-type="key" value="${escapeHtml(InspectorPanelUI.keyLabel(value))}" title="클릭한 뒤 원하는 키를 누르세요">
-            </div>`;
-            }
-            if (typeof value === 'boolean') {
-              return `
-            <div class="ps-prop-row">
-              <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              <input type="checkbox" class="jspen-checkbox" data-param-key="${escapeHtml(key)}" ${value ? 'checked' : ''} aria-label="${escapeHtml(label)}">
-            </div>`;
-            }
-            if (typeof value === 'number') {
-              const [min, max, step] = (def.paramRanges && def.paramRanges[key]) || [null, null, InspectorPanelUI.stepFor(value)];
-              const factor = min === 0 && max === 1;
-              return `
-            <div class="ps-prop-row">
-              <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              <div class="blender-scrub-group jspen-param-scrub ${factor ? 'is-factor' : ''}" ${factor ? `style="--fill:${escapeHtml(Math.max(0, Math.min(1, value)) * 100)}%"` : ''}>
-                <input type="number" class="blender-scrub-input" data-param-key="${escapeHtml(key)}" step="${escapeHtml(step)}" ${min !== null ? `min="${escapeHtml(min)}"` : ''} ${max !== null ? `max="${escapeHtml(max)}"` : ''} value="${escapeHtml(value)}">
-              </div>
-            </div>`;
-            }
-            if (type === 'code') {
-              return `
-            <div class="ps-prop-row" style="flex-direction:column;align-items:stretch;gap:4px;">
-              <label class="ps-prop-label">${escapeHtml(label)}: <span style="color:#71717a;font-weight:400;">(api.self, api.find(), api.mouse, api.time, api.vars, api.emit() …)</span></label>
-              <textarea class="ps-input jspen-code-input" data-param-key="${escapeHtml(key)}" data-param-type="code" rows="10" spellcheck="false"
-                style="font-family:Consolas,'Courier New',monospace;font-size:11px;line-height:1.45;white-space:pre;tab-size:2;resize:vertical;min-height:140px;">${escapeHtml(params[key] || '')}</textarea>
-            </div>`;
-            }
-            return `
-            <div class="ps-prop-row">
-              <label class="ps-prop-label">${escapeHtml(label)}:</label>
-              <input type="text" class="ps-input" data-param-key="${escapeHtml(key)}" value="${escapeHtml(value)}">
-            </div>`;
-          }).join('')}
-        `;
+        const keys = [...new Set([...Object.keys(def.defaultParams || {}), ...Object.keys(params)])]
+          .filter(k => !skip.includes(k) && InspectorPanelUI.fieldShown(def, params, k));
+        if (mod.type === 'action_rules') {
+          typeSpecificHtml = this.renderActionSteps(mod, sprite, linkCtx);
+        } else {
+          typeSpecificHtml = (def.advanced ? `<div class="jspen-advanced-note">코드를 직접 쓰는 고급 모듈입니다. 이동, 색 바꾸기, 신호·변수 같은 동작은 '동작 블록 (언제 → 무엇을)' 모듈로 코드 없이 만들 수 있습니다.</div>` : '') +
+            keys.map(key => this.renderParamField(InspectorPanelUI.fieldOf(def, key, mod), key, params[key] !== undefined ? params[key] : (def.defaultParams || {})[key], linkCtx)).join('');
+        }
       }
 
       return `
@@ -8656,6 +8990,491 @@ ${sprite.type === 'text' ? `
       return `링크가 켜져 있고, ${when} 이동합니다. 켜자마자 이동하지는 않습니다.`;
     }
 
+    // ---- Fields shared by module panels and action steps ----------------------
+    // f: { label, type, options, range: [min, max, step], empty, unit, dial }.
+    // ctx: { allSprites, catalog, step } (step: index of an action step).
+    static fieldOf(def, key, mod) {
+      const f = {
+        label: (def.paramLabels && def.paramLabels[key]) || key,
+        type: def.paramTypes && def.paramTypes[key],
+        options: def.paramOptions && def.paramOptions[key],
+        range: def.paramRanges && def.paramRanges[key],
+        empty: def.paramEmpty && def.paramEmpty[key]
+      };
+      if (key === 'targetSpriteId' || key === 'messageSpriteId') {
+        f.type = 'sprite';
+        f.empty = f.empty || (key === 'messageSpriteId' ? '표시 안 함' : (mod.type === 'distance_rope' || mod.type === 'follow_target' ? '마우스 커서' : '모든 스프라이트'));
+      }
+      return f;
+    }
+
+    // paramShowIf: { field: [otherField, ...values] } - shown only for those values.
+    static fieldShown(def, params, key) {
+      const rule = def.paramShowIf && def.paramShowIf[key];
+      if (!rule) return true;
+      const [ctl, ...vals] = rule;
+      const v = params && params[ctl] !== undefined ? params[ctl] : (def.defaultParams || {})[ctl];
+      return vals.map(String).includes(String(v));
+    }
+
+    static controlsShowIf(def, key) {
+      return Object.values(def.paramShowIf || {}).some(rule => rule[0] === key);
+    }
+
+    // Fill of a slider with a known range (Blender's bar inside the field).
+    static updateFill(input) {
+      const group = input.closest('.blender-scrub-group');
+      const min = parseFloat(input.min), max = parseFloat(input.max);
+      if (!group || !isFinite(min) || !isFinite(max) || !(max > min)) return;
+      const v = parseFloat(input.value);
+      group.classList.add('is-factor');
+      group.style.setProperty('--fill', Math.max(0, Math.min(1, ((isFinite(v) ? v : min) - min) / (max - min))) * 100 + '%');
+    }
+
+    renderParamField(f, key, value, ctx) {
+      const step = ctx.step !== undefined ? ` data-step="${escapeHtml(ctx.step)}"` : '';
+      const at = `data-param-key="${escapeHtml(key)}"${step}`;
+      let label = String(f.label || key), unit = f.unit || '';
+      const um = !unit && label.match(/\s*\((px|초|도|%|배|Hz|ms)\)\s*$/);
+      if (um) { unit = um[1]; label = label.slice(0, um.index); }
+      const row = (control, after = '') => `
+            <div class="ps-prop-row">
+              <label class="ps-prop-label">${escapeHtml(label)}:</label>
+              ${control}
+            </div>${after}`;
+      const type = f.type;
+      if (type === 'sprite') {
+        return row(`<select class="ps-select" ${at}>
+                <option value="">(${escapeHtml(f.empty || '없음')})</option>
+                ${ctx.allSprites.map(sp => `<option value="${escapeHtml(sp.id)}" ${value === sp.id ? 'selected' : ''}>${escapeHtml(sp.name)}</option>`).join('')}
+              </select>`);
+      }
+      if (type === 'layer') {
+        return row(`<select class="ps-select" ${at}>
+                <option value="">(${escapeHtml(f.empty || '없음')})</option>
+                ${this.doc.layers.map(l => `<option value="${escapeHtml(l.id)}" ${value === l.id ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
+              </select>`);
+      }
+      if (type === 'signal-in' || type === 'signal-out' || type === 'var') {
+        return row(this.renderLinkPicker(type, value, at, f.empty, ctx.catalog), InspectorPanelUI.linkNote(type, value, ctx.catalog));
+      }
+      if (type === 'template') {
+        const parts = String(value || '').split('{value}');
+        if (!value || parts.length === 2) {
+          const on = parts.length === 2;
+          return row(`<input type="checkbox" class="jspen-checkbox" data-template="${escapeHtml(key)}" data-template-part="on" ${on ? 'checked' : ''} aria-label="${escapeHtml(label)}">`) + `
+            <div class="ps-prop-row jspen-template-row" ${on ? '' : 'hidden'}>
+              <label class="ps-prop-label">표시 모양:</label>
+              <input type="text" class="ps-input" data-template="${escapeHtml(key)}" data-template-part="prefix" placeholder="앞 글자 (예: 점수: )" value="${escapeHtml(on ? parts[0] : '')}">
+              <span class="jspen-template-value">값</span>
+              <input type="text" class="ps-input" data-template="${escapeHtml(key)}" data-template-part="suffix" placeholder="뒤 글자 (예: 점)" value="${escapeHtml(on ? parts[1] : '')}">
+            </div>`;
+        }
+        return row(`<input type="text" class="ps-input" ${at} value="${escapeHtml(value)}">`);
+      }
+      if (f.options) {
+        // A value from an older file that is not in the list stays visible.
+        const known = f.options.some(([v]) => String(v) === String(value));
+        return row(`<select class="ps-select" ${at}>
+                ${known || value === undefined || value === '' ? '' : `<option value="${escapeHtml(value)}" selected>(이전 값: ${escapeHtml(value)})</option>`}
+                ${f.options.map(([v, l]) => `<option value="${escapeHtml(v)}" ${String(value) === String(v) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+              </select>`);
+      }
+      if (type === 'color') {
+        const hex = /^#[0-9a-f]{6}$/i.test(String(value)) ? value : (/^#[0-9a-f]{3}$/i.test(String(value)) ? '#' + String(value).slice(1).split('').map(c => c + c).join('') : '#000000');
+        return row(`<span class="jspen-color-field ${value ? '' : 'is-empty'}">
+                <input type="color" ${at} data-param-type="color" value="${escapeHtml(hex)}" aria-label="${escapeHtml(label)}">
+                ${f.empty ? `<button type="button" class="jspen-color-clear" data-param-clear="${escapeHtml(key)}"${ctx.step !== undefined ? ` data-clear-step="${escapeHtml(ctx.step)}"` : ''} title="${escapeHtml(f.empty)}">${value ? '×' : escapeHtml(f.empty)}</button>` : ''}
+              </span>`);
+      }
+      if (type === 'key') {
+        return row(`<input type="text" readonly class="ps-input jspen-key-field" ${at} data-param-type="key" value="${escapeHtml(InspectorPanelUI.keyLabel(value))}" title="클릭한 뒤 원하는 키를 누르세요">`);
+      }
+      if (typeof value === 'boolean') {
+        return row(`<input type="checkbox" class="jspen-checkbox" ${at} ${value ? 'checked' : ''} aria-label="${escapeHtml(label)}">`);
+      }
+      if (typeof value === 'number') {
+        const [min, max, stepSize] = f.range || [null, null, InspectorPanelUI.stepFor(value)];
+        const ranged = isFinite(min) && isFinite(max) && min !== null && max !== null && max > min;
+        const fill = ranged ? Math.max(0, Math.min(1, (value - min) / (max - min))) * 100 : 0;
+        const dial = f.dial || unit === '도';
+        return row(`<div class="blender-scrub-group jspen-param-scrub ${ranged ? 'is-factor' : ''}" ${ranged ? `style="--fill:${escapeHtml(fill)}%"` : ''}>
+                <input type="number" class="blender-scrub-input" ${at} step="${escapeHtml(stepSize)}" ${min !== null ? `min="${escapeHtml(min)}"` : ''} ${max !== null ? `max="${escapeHtml(max)}"` : ''} value="${escapeHtml(value)}" aria-label="${escapeHtml(label)}">
+                ${unit ? `<span class="jspen-unit">${escapeHtml(unit)}</span>` : ''}
+              </div>${dial ? `<span class="jspen-dial" title="돌려서 각도 조절 (Shift: 15° 단위)"><span class="jspen-dial-needle" style="transform:rotate(${escapeHtml(Number(value) || 0)}deg)"></span></span>` : ''}`);
+      }
+      if (type === 'code') {
+        return `
+            <div class="ps-prop-row" style="flex-direction:column;align-items:stretch;gap:4px;">
+              <label class="ps-prop-label">${escapeHtml(label)}: <span style="color:#71717a;font-weight:400;">(api.self, api.find(), api.mouse, api.time, api.vars, api.emit() …)</span></label>
+              <textarea class="ps-input jspen-code-input" ${at} data-param-type="code" rows="10" spellcheck="false"
+                style="font-family:Consolas,'Courier New',monospace;font-size:11px;line-height:1.45;white-space:pre;tab-size:2;resize:vertical;min-height:140px;">${escapeHtml(value || '')}</textarea>
+            </div>`;
+      }
+      return row(`<input type="text" class="ps-input" ${at} value="${escapeHtml(value ?? '')}">`);
+    }
+
+    // ---- Signals and variables chosen from lists -------------------------------
+    // Every signal / variable name in the document with who sends and receives
+    // it (signals) or changes and reads it (variables).
+    static linkCatalog(doc) {
+      const signals = new Map(), vars = new Map();
+      const add = (map, name, side, who) => {
+        name = String(name ?? '').trim();
+        if (!name || name === '*') return;
+        if (!map.has(name)) map.set(name, { out: [], in: [] });
+        map.get(name)[side].push(who);
+      };
+      const S = (n, side, who) => add(signals, n, side, who), V = (n, side, who) => add(vars, n, side, who);
+      // Senders that send a default name when theirs is left empty.
+      const fallback = { collision_detector: { signalName: 'collision' }, viewport_visibility: { signalName: 'visible' }, timer_interval: { signalName: 'timer_tick' },
+        signal_relay: { outputSignal: 'signal_relayed' }, form_submit: { successSignal: 'form_success', errorSignal: 'form_error' } };
+      const scan = (m, owner, sp) => {
+        const def = MODULE_REGISTRY[m.type] || {}, p = m.params || {}, d = def.defaultParams || {};
+        const val = k => (p[k] !== undefined ? p[k] : d[k]);
+        const who = owner + ' › ' + (m.name || def.name || m.type);
+        if (p.condition === 'on_signal') S(ModuleEngine.conditionSignal(m), 'in', who);
+        for (const [k, t] of Object.entries(def.paramTypes || {})) {
+          if (!InspectorPanelUI.fieldShown(def, p, k)) continue;
+          if (t === 'signal-out') S(val(k) || (fallback[m.type] || {})[k] || (m.type === 'screen_trigger' && sp ? 'trig_' + sp.id : ''), 'out', who);
+          else if (t === 'signal-in') S(p[k], 'in', who);
+          else if (t === 'var') V(val(k), m.type === 'global_variable' ? 'out' : 'in', who);
+        }
+        const fixed = {
+          draggable: ['drag_start', 'drag_end'], hover_proximity: ['hover_enter', 'hover_exit'], toggle_switch: ['toggle_on', 'toggle_off'],
+          counter_accumulator: ['counter_tick', 'counter_max'], wall_bounce: ['wall_bounce'], scene_transition: ['scene_change'], scroll_wheel: ['wheel_up', 'wheel_down']
+        }[m.type] || [];
+        for (const n of fixed) S(n, 'out', who);
+        if (m.type === 'keyboard_trigger') S('key_' + (val('targetKey') || 'ArrowRight'), 'out', who);
+        if (m.type === 'global_variable' && val('action') !== 'read') S('var_' + (val('varName') || 'var'), 'out', who);
+        if (m.type === 'click_gesture') S(p.signalName || ('gesture_' + (val('gestureType') || 'click')), 'out', who);
+        if (m.type === 'step_sequencer') for (let i = 1; i <= Math.min(32, Number(val('stepCount')) || 0); i++) S((val('signalPrefix') || 'step_') + i, 'out', who);
+        if (m.type === 'custom_script') {
+          const code = String(p.code || '');
+          for (const x of code.matchAll(/\bemit\(\s*['"]([^'"]+)['"]/g)) S(x[1], 'out', who);
+          for (const x of code.matchAll(/\bhasSignal\(\s*['"]([^'"]+)['"]/g)) S(x[1], 'in', who);
+          for (const x of code.matchAll(/\bvars\.(get|set|add)\(\s*['"]([^'"]+)['"]/g)) V(x[2], x[1] === 'get' ? 'in' : 'out', who);
+        }
+        if (m.type === 'action_rules') {
+          for (const st of Array.isArray(p.steps) ? p.steps : []) {
+            if (st.type === 'emit') S(st.signal, 'out', who);
+            if (st.type === 'set_var' || st.type === 'add_var') V(st.varName, 'out', who);
+            if (st.type === 'if_var' || st.type === 'show_var') V(st.varName, 'in', who);
+          }
+        }
+      };
+      for (const l of doc.layers) {
+        for (const m of l.modules || []) scan(m, l.name + ' (레이어)');
+        for (const sp of l.sprites) {
+          if (sp.type === 'screen_trigger') S(sp.signalName || ('trig_' + sp.id), 'out', sp.name);
+          for (const m of sp.modules || []) scan(m, sp.name, sp);
+        }
+      }
+      return { signals, vars };
+    }
+
+    // What a built-in signal means.
+    static signalHint(name) {
+      const fixed = {
+        drag_start: '드래그 시작', drag_end: '드래그 끝', hover_enter: '마우스가 올라옴', hover_exit: '마우스가 나감',
+        form_success: '폼 전송 성공', form_error: '폼 전송 실패', toggle_on: '토글 켜짐', toggle_off: '토글 꺼짐',
+        counter_tick: '카운터 증가', counter_max: '카운터 최대', wall_bounce: '벽에 부딪힘', scene_change: '섹션 이동',
+        wheel_up: '휠 위로', wheel_down: '휠 아래로', collision: '충돌', visible: '화면에 보임', timer_tick: '타이머', mouse_move: '마우스 이동'
+      };
+      if (fixed[name]) return fixed[name];
+      let m;
+      if ((m = /^key_(.+)$/.exec(name))) return InspectorPanelUI.keyLabel(m[1]) + ' 키';
+      if ((m = /^var_(.+)$/.exec(name))) return `'${m[1]}' 변수가 바뀜`;
+      if ((m = /^gesture_(.+)$/.exec(name))) return { click: '클릭', double_click: '더블 클릭', long_press: '길게 누르기' }[m[1]] || '';
+      return '';
+    }
+
+    renderLinkPicker(kind, value, attrs, emptyLabel, catalog) {
+      const isVar = kind === 'var', map = isVar ? catalog.vars : catalog.signals;
+      value = String(value ?? '');
+      const names = [...map.keys()];
+      if (value && !map.has(value)) names.push(value);
+      names.sort((a, b) => a.localeCompare(b));
+      const text = n => {
+        const e = map.get(n) || { out: [], in: [] }, hint = isVar ? '' : InspectorPanelUI.signalHint(n);
+        return `${n}${hint ? ` (${hint})` : ''} · ${isVar ? `바꿈 ${e.out.length} · 읽음 ${e.in.length}` : `보냄 ${e.out.length} · 받음 ${e.in.length}`}`;
+      };
+      return `<select class="ps-select jspen-link-pick" ${attrs} data-param-type="${isVar ? 'var' : 'signal'}" data-link="${escapeHtml(kind)}">
+                <option value="" ${value ? '' : 'selected'}>(${escapeHtml(emptyLabel || '없음')})</option>
+                ${names.map(n => `<option value="${escapeHtml(n)}" ${n === value ? 'selected' : ''}>${escapeHtml(text(n))}</option>`).join('')}
+                <option value="__new__">＋ 새 ${isVar ? '변수' : '신호'} 만들기…</option>
+              </select>`;
+    }
+
+    // The other end of a connection, under its picker; a broken one is flagged.
+    static linkNote(kind, value, catalog) {
+      value = String(value ?? '').trim();
+      if (!value || value === '*') return '';
+      const list = arr => { const u = [...new Set(arr)]; return u.slice(0, 3).join(', ') + (u.length > 3 ? ` 외 ${u.length - 3}곳` : ''); };
+      let cls = '', text;
+      if (kind === 'var') {
+        const e = catalog.vars.get(value) || { out: [], in: [] };
+        if (!e.out.length) { cls = 'is-warn'; text = '⚠ 이 변수를 바꾸는 곳이 없습니다. 값이 계속 0입니다.'; }
+        else text = `바꾸는 곳: ${list(e.out)}${e.in.length ? ` · 읽는 곳: ${list(e.in)}` : ''}`;
+      } else {
+        const e = catalog.signals.get(value) || { out: [], in: [] };
+        if (kind === 'signal-in') {
+          if (!e.out.length) { cls = 'is-warn'; text = '⚠ 이 신호를 보내는 곳이 없습니다. 보내는 모듈에서 같은 신호를 고르세요.'; }
+          else text = '보내는 곳: ' + list(e.out);
+        } else {
+          if (!e.in.length) { cls = 'is-info'; text = '아직 이 신호를 받는 곳이 없습니다.'; }
+          else text = '받는 곳: ' + list(e.in);
+        }
+      }
+      return `<div class="jspen-link-note ${cls}">${escapeHtml(text)}</div>`;
+    }
+
+    // "＋ 새 신호 만들기": the list turns into a name field (Enter keeps it, Esc cancels).
+    askNewName(select, kind, done) {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'ps-input jspen-new-name';
+      input.placeholder = kind === 'var' ? '새 변수 이름 (예: 점수)' : '새 신호 이름 (예: 문 열기)';
+      select.style.display = 'none';
+      select.after(input);
+      input.focus();
+      let finished = false;
+      const finish = ok => {
+        if (finished) return;
+        finished = true;
+        const v = input.value.trim();
+        if (ok && v) done(v); else this.render();
+      };
+      input.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+      });
+      input.addEventListener('blur', () => finish(true));
+    }
+
+    // ---- Action blocks ("언제 → 무엇을") ---------------------------------------
+    static actionCatalog() {
+      const ease = [['easeOutCubic', '부드럽게 멈춤'], ['linear', '일정한 속도'], ['easeInOutQuad', '천천히 출발해 천천히 멈춤'],
+        ['easeOutBack', '살짝 지나쳤다 돌아옴'], ['bounceOut', '통통 튀며 멈춤'], ['elasticOut', '고무줄처럼']];
+      const who = { type: 'sprite', label: '대상', empty: '이 스프라이트' };
+      const time = { label: '걸리는 시간', unit: '초', range: [0, 10, 0.05] };
+      const how = { label: '움직임', options: ease };
+      const v = { label: '변수', type: 'var', empty: '고르세요' };
+      return {
+        move_by: { group: '움직이기', label: '이동하기', defaults: { spriteId: '', dx: 100, dy: 0, duration: 0.5, ease: 'easeOutCubic' },
+          fields: { spriteId: who, dx: { label: '가로 (+오른쪽)', unit: 'px' }, dy: { label: '세로 (+아래)', unit: 'px' }, duration: time, ease: how } },
+        move_to: { group: '움직이기', label: '정한 위치로 이동', defaults: { spriteId: '', x: 0, y: 0, duration: 0.5, ease: 'easeOutCubic' },
+          fields: { spriteId: who, x: { label: 'X 위치', unit: 'px' }, y: { label: 'Y 위치', unit: 'px' }, duration: time, ease: how } },
+        rotate_by: { group: '움직이기', label: '회전하기', defaults: { spriteId: '', deg: 90, duration: 0.5, ease: 'easeOutCubic' },
+          fields: { spriteId: who, deg: { label: '돌릴 각도', unit: '도', dial: true, range: [-720, 720, 1] }, duration: time, ease: how } },
+        scale_to: { group: '움직이기', label: '크기 바꾸기', defaults: { spriteId: '', scale: 1.2, duration: 0.3, ease: 'easeOutBack' },
+          fields: { spriteId: who, scale: { label: '크기', unit: '배', range: [0, 5, 0.01] }, duration: time, ease: how } },
+        reset: { group: '움직이기', label: '원래대로 되돌리기', defaults: { spriteId: '', duration: 0.4, ease: 'easeOutCubic' },
+          fields: { spriteId: who, duration: time, ease: how } },
+        fade_to: { group: '모양', label: '투명도 바꾸기', defaults: { spriteId: '', opacity: 0.3, duration: 0.4 },
+          fields: { spriteId: who, opacity: { label: '불투명도', range: [0, 1, 0.01] }, duration: time } },
+        color_to: { group: '모양', label: '색 바꾸기', defaults: { spriteId: '', color: '#38bdf8', duration: 0.3 },
+          fields: { spriteId: who, color: { label: '색', type: 'color' }, duration: time } },
+        show: { group: '모양', label: '보이기', defaults: { spriteId: '' }, fields: { spriteId: who } },
+        hide: { group: '모양', label: '숨기기', defaults: { spriteId: '' }, fields: { spriteId: who } },
+        toggle_visible: { group: '모양', label: '보이기 / 숨기기 전환', defaults: { spriteId: '' }, fields: { spriteId: who } },
+        set_text: { group: '모양', label: '글자 바꾸기', defaults: { spriteId: '', text: '새 글자' },
+          fields: { spriteId: who, text: { label: '글자', type: 'text' } } },
+        show_var: { group: '모양', label: '변수 값을 글자로 보여주기', defaults: { spriteId: '', varName: '', prefix: '', suffix: '' },
+          fields: { spriteId: who, varName: v, prefix: { label: '앞 글자', type: 'text' }, suffix: { label: '뒤 글자', type: 'text' } } },
+        emit: { group: '신호 · 변수', label: '신호 보내기', defaults: { signal: '' }, fields: { signal: { label: '보낼 신호', type: 'signal-out', empty: '고르세요' } } },
+        set_var: { group: '신호 · 변수', label: '변수 정하기', defaults: { varName: '', value: 0 }, fields: { varName: v, value: { label: '값' } } },
+        add_var: { group: '신호 · 변수', label: '변수에 더하기', defaults: { varName: '', value: 1 }, fields: { varName: v, value: { label: '더할 값 (빼려면 -)' } } },
+        if_var: { group: '흐름', label: '변수가 맞을 때만 계속', defaults: { varName: '', compare: '>=', value: 10 },
+          fields: { varName: v, compare: { label: '비교', options: [['>=', '이상 (≥)'], ['>', '초과 (>)'], ['==', '같음 (=)'], ['!=', '다름 (≠)'], ['<=', '이하 (≤)'], ['<', '미만 (<)']] }, value: { label: '기준값' } } },
+        wait: { group: '흐름', label: '기다리기', defaults: { seconds: 0.5 }, fields: { seconds: { label: '기다릴 시간', unit: '초', range: [0, 60, 0.05] } } },
+        sound: { group: '소리 · 이동', label: '효과음 내기', defaults: { sound: 'pop', volume: 0.6 },
+          fields: { sound: { label: '효과음', options: MODULE_REGISTRY.synth_sfx.paramOptions.sound }, volume: { label: '볼륨', range: [0, 1, 0.01] } } },
+        open_link: { group: '소리 · 이동', label: '링크 열기', defaults: { url: 'https://', newTab: true },
+          fields: { url: { label: '주소', type: 'text' }, newTab: { label: '새 탭에서 열기' } } },
+        go_to: { group: '소리 · 이동', label: '섹션으로 스크롤', defaults: { spriteId: '' },
+          fields: { spriteId: { type: 'sprite', label: '보여줄 섹션', empty: '고르세요' } } }
+      };
+    }
+
+    // One line per step: "버튼: 오른쪽 100px 이동 · 0.5초".
+    static actionSummary(st, doc) {
+      const who = id => { if (!id) return '이 스프라이트'; const sp = doc.findSpriteById(id); return sp ? sp.name : '(없는 스프라이트)'; };
+      const n = v => { const x = Number(v) || 0; return Number.isInteger(x) ? String(x) : String(+x.toFixed(2)); };
+      const time = (Number(st.duration) || 0) > 0 ? ` · ${n(st.duration)}초` : ' · 바로';
+      const dir = (v, pos, neg) => (Number(v) || 0) === 0 ? '' : `${Number(v) > 0 ? pos : neg} ${n(Math.abs(v))}px`;
+      const vn = st.varName ? `'${st.varName}'` : '(변수 없음)';
+      const t = who(st.spriteId);
+      switch (st.type) {
+        case 'move_by': { const d = [dir(st.dx, '오른쪽', '왼쪽'), dir(st.dy, '아래', '위')].filter(Boolean).join(', '); return `${t}: ${d || '제자리'} 이동${time}`; }
+        case 'move_to': return `${t}: (${n(st.x)}, ${n(st.y)}) 위치로 이동${time}`;
+        case 'rotate_by': return `${t}: ${Number(st.deg) < 0 ? '반시계 방향' : '시계 방향'} ${n(Math.abs(st.deg))}도 회전${time}`;
+        case 'scale_to': return `${t}: 크기 ${n(st.scale)}배${time}`;
+        case 'reset': return `${t}: 원래 위치·크기·색으로${time}`;
+        case 'fade_to': return `${t}: 불투명도 ${Math.round((Number(st.opacity) || 0) * 100)}%${time}`;
+        case 'color_to': return `${t}: 색 ${st.color || ''}${time}`;
+        case 'show': return `${t}: 보이기`;
+        case 'hide': return `${t}: 숨기기`;
+        case 'toggle_visible': return `${t}: 보이면 숨기고, 숨어 있으면 보이기`;
+        case 'set_text': return `${t}: “${st.text ?? ''}” 표시`;
+        case 'show_var': return `${t}: “${st.prefix || ''}[${st.varName || '변수'}]${st.suffix || ''}” 표시 (값이 바뀌면 따라 바뀜)`;
+        case 'emit': return st.signal ? `'${st.signal}' 신호 보내기` : '보낼 신호를 고르세요';
+        case 'set_var': return `${vn}을(를) ${n(st.value)}(으)로`;
+        case 'add_var': return `${vn}에 ${Number(st.value) < 0 ? '−' : '+'}${n(Math.abs(Number(st.value)))}`;
+        case 'if_var': return `${vn} ${{ '>=': '≥', '>': '>', '==': '=', '!=': '≠', '<=': '≤', '<': '<' }[st.compare] || st.compare} ${n(st.value)}일 때만 아래 동작 계속`;
+        case 'wait': return `${n(st.seconds)}초 기다리기`;
+        case 'sound': return `효과음: ${(MODULE_REGISTRY.synth_sfx.paramOptions.sound.find(o => o[0] === st.sound) || [0, st.sound])[1]}`;
+        case 'open_link': return `${st.url || '(주소 없음)'} 열기 · ${st.newTab === false ? '현재 창' : '새 탭'}`;
+        case 'go_to': return st.spriteId ? `${t}(으)로 스크롤` : '보여줄 섹션을 고르세요';
+        default: return st.type || '';
+      }
+    }
+
+    renderActionSteps(mod, sprite, ctx) {
+      const def = MODULE_REGISTRY.action_rules;
+      const p = mod.params || {}, steps = Array.isArray(p.steps) ? p.steps : [];
+      const cat = InspectorPanelUI.actionCatalog();
+      const groups = {};
+      for (const [t, a] of Object.entries(cat)) (groups[a.group] = groups[a.group] || []).push([t, a]);
+      return `
+          <div class="jspen-actions-help">위의 <b>발동 조건</b>이 되면 아래 동작을 위에서부터 차례로 실행합니다.</div>
+          <ol class="jspen-action-list">
+            ${steps.map((st, i) => {
+              const a = cat[st.type] || { label: st.type, fields: {}, defaults: {} };
+              return `
+            <li class="jspen-action" data-step-index="${i}">
+              <div class="jspen-action-head">
+                <span class="jspen-action-num">${i + 1}</span>
+                <span class="jspen-action-title">${escapeHtml(a.label)}</span>
+                <span class="jspen-action-tools">
+                  <button type="button" data-step-act="up" data-step="${i}" title="위로" ${i === 0 ? 'disabled' : ''}>▲</button>
+                  <button type="button" data-step-act="down" data-step="${i}" title="아래로" ${i === steps.length - 1 ? 'disabled' : ''}>▼</button>
+                  <button type="button" data-step-act="copy" data-step="${i}" title="복제">⧉</button>
+                  <button type="button" data-step-act="delete" data-step="${i}" title="삭제">✕</button>
+                </span>
+              </div>
+              <div class="jspen-action-sum">${escapeHtml(InspectorPanelUI.actionSummary(st, this.doc))}</div>
+              <div class="jspen-action-fields">
+                ${Object.entries(a.fields).map(([k, f]) => this.renderParamField(f, k, st[k] !== undefined ? st[k] : a.defaults[k], Object.assign({}, ctx, { step: i }))).join('')}
+              </div>
+            </li>`;
+            }).join('')}
+          </ol>
+          ${steps.length ? '' : '<div class="jspen-actions-empty">아직 동작이 없습니다. 아래에서 추가하세요.</div>'}
+          <div class="ps-prop-row">
+            <select class="ps-select jspen-action-add" id="actAddStep" aria-label="동작 추가">
+              <option value="">＋ 동작 추가…</option>
+              ${Object.entries(groups).map(([g, list]) => `<optgroup label="${escapeHtml(g)}">${list.map(([t, a]) => `<option value="${escapeHtml(t)}">${escapeHtml(a.label)}</option>`).join('')}</optgroup>`).join('')}
+            </select>
+          </div>
+          ${['repeat', 'retrigger'].map(k => this.renderParamField(InspectorPanelUI.fieldOf(def, k, mod), k, p[k] !== undefined ? p[k] : def.defaultParams[k], ctx)).join('')}`;
+    }
+
+    bindActionSteps(mod, sprite) {
+      if (mod.type !== 'action_rules') return;
+      const commit = () => {
+        this.doc.saveState();
+        this.render();
+        if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        if (this.cb.onUpdate) this.cb.onUpdate();
+      };
+      const steps = () => { if (!mod.params) mod.params = {}; if (!Array.isArray(mod.params.steps)) mod.params.steps = []; return mod.params.steps; };
+      this.el.querySelector('#actAddStep')?.addEventListener('change', e => {
+        const type = e.target.value;
+        const a = InspectorPanelUI.actionCatalog()[type];
+        if (!a) return;
+        const step = Object.assign({ type }, JSON.parse(JSON.stringify(a.defaults)));
+        if (type === 'move_to' && sprite) { step.x = Math.round(sprite.x); step.y = Math.round(sprite.y); }
+        steps().push(step);
+        commit();
+      });
+      this.el.querySelectorAll('[data-step-act]').forEach(btn => btn.addEventListener('click', () => {
+        const list = steps(), i = +btn.dataset.step, act = btn.dataset.stepAct;
+        if (!list[i]) return;
+        if (act === 'delete') list.splice(i, 1);
+        else if (act === 'copy') list.splice(i + 1, 0, JSON.parse(JSON.stringify(list[i])));
+        else {
+          const j = act === 'up' ? i - 1 : i + 1;
+          if (j < 0 || j >= list.length) return;
+          [list[i], list[j]] = [list[j], list[i]];
+        }
+        commit();
+      }));
+    }
+
+    // "값을 글자로 표시" with a text before and after the value.
+    bindTemplates(mod) {
+      this.el.querySelectorAll('[data-template]').forEach(input => {
+        const key = input.dataset.template;
+        const part = name => this.el.querySelector(`[data-template="${CSS.escape(key)}"][data-template-part="${name}"]`);
+        const compose = () => (part('on')?.checked ? (part('prefix')?.value || '') + '{value}' + (part('suffix')?.value || '') : '');
+        input.addEventListener('input', () => {
+          if (!mod.params) mod.params = {};
+          mod.params[key] = compose();
+          if (this.cb.onCanvasRender) this.cb.onCanvasRender();
+        });
+        input.addEventListener('change', () => {
+          if (!mod.params) mod.params = {};
+          mod.params[key] = compose();
+          this.doc.saveState();
+          // Only the checkbox changes what is shown; typing the words keeps focus.
+          if (input.dataset.templatePart === 'on' && this.cb.onUpdate) this.cb.onUpdate();
+        });
+      });
+    }
+
+    // Angle dials next to degree fields: drag around the dial; turns add up.
+    bindDials() {
+      this.el.querySelectorAll('.blender-scrub-group').forEach(group => {
+        const inp = group.querySelector('.blender-scrub-input');
+        const row = group.parentElement;
+        if (!inp || !row || row.querySelector('.jspen-dial')) return;
+        // Fields of the hand-written panels with a full-turn range get one too.
+        if (parseFloat(inp.min) === 0 && parseFloat(inp.max) === 360) {
+          const d = document.createElement('span');
+          d.className = 'jspen-dial';
+          d.title = '돌려서 각도 조절 (Shift: 15° 단위)';
+          d.innerHTML = '<span class="jspen-dial-needle"></span>';
+          group.after(d);
+        }
+      });
+      this.el.querySelectorAll('.jspen-dial').forEach(dial => {
+        const inp = dial.parentElement.querySelector('.blender-scrub-input');
+        const needle = dial.querySelector('.jspen-dial-needle');
+        if (!inp || !needle) return;
+        const show = () => { needle.style.transform = `rotate(${parseFloat(inp.value) || 0}deg)`; };
+        show();
+        inp.addEventListener('input', show);
+        dial.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          const r = dial.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+          const angle = ev => Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+          let prev = angle(e), raw = parseFloat(inp.value) || 0;
+          const min = parseFloat(inp.min), max = parseFloat(inp.max);
+          const move = ev => {
+            const a = angle(ev);
+            let d = a - prev;
+            if (d > 180) d -= 360; else if (d < -180) d += 360;
+            prev = a;
+            raw += d;
+            let v = ev.shiftKey ? Math.round(raw / 15) * 15 : Math.round(raw);
+            if (isFinite(min)) v = Math.max(min, v);
+            if (isFinite(max)) v = Math.min(max, v);
+            inp.value = v;
+            inp.dispatchEvent(new Event('input', { bubbles: true }));
+          };
+          const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            inp.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+        });
+      });
+    }
+
     // Drag step for a number without a known range.
     static stepFor(value) {
       const v = Math.abs(Number(value) || 0);
@@ -8699,6 +9518,7 @@ ${sprite.type === 'text' ? `
       const p = mod.params || {};
       const cond = p.condition || 'always';
       if (cond === 'always' && mod.type === 'hyperlink') return InspectorPanelUI.linkSummary(p);
+      if (cond === 'always' && mod.type === 'action_rules') return '시작하면 아래 동작을 위에서부터 한 번 차례로 실행합니다.';
       if (cond === 'always') return '미리보기를 시작하면 바로, 계속 작동합니다.';
       const mode = ModuleEngine.resolveConditionMode(mod);
       const instant = ModuleEngine.instantCondition(cond);
@@ -8707,6 +9527,7 @@ ${sprite.type === 'text' ? `
         on_signal: ModuleEngine.conditionSignal(mod) === '*' ? '아무 신호나 받으면' : `'${ModuleEngine.conditionSignal(mod)}' 신호를 받으면`,
         on_trigger: '화면 트리거가 발동하면', on_toggle: '토글이 켜지면', timeline_active: '타임라인이 구간에 들어오면'
       }[cond] || '조건이 맞으면';
+      if (mod.type === 'action_rules') return `${what} 아래 동작을 위에서부터 차례로 실행합니다.`;
       const how = {
         while: instant ? '그 순간(한 프레임)만 작동합니다. 한 번 실행되는 동작(소리, 신호, 링크 등)에 알맞습니다.'
           : (cond === 'on_hover' ? '올려 둔 동안만 작동합니다.' : cond === 'key_press' ? '누르고 있는 동안만 작동합니다.' : '그동안만 작동합니다.'),
@@ -8715,21 +9536,6 @@ ${sprite.type === 'text' ? `
         duration: `${Math.max(0.05, Number(p.conditionDuration) || 1)}초 동안 작동합니다.`
       }[mode];
       return `${what} ${how}`;
-    }
-
-    knownSignals() {
-      const out = new Set(['drag_start', 'drag_end', 'hover_enter', 'hover_exit', 'form_success', 'form_error']);
-      for (const l of this.doc.layers) {
-        for (const sp of l.sprites) {
-          if (sp.signalName) out.add(sp.signalName);
-          for (const m of [...(sp.modules || []), ...(l.modules || [])]) {
-            for (const [k, v] of Object.entries(m.params || {})) {
-              if (typeof v === 'string' && v && /signal/i.test(k) && !/^(condSignal|listenSignal|inputSignal)$/.test(k)) out.add(v);
-            }
-          }
-        }
-      }
-      return [...out].filter(Boolean).slice(0, 60);
     }
 
     renderConditionSection(mod) {
@@ -8748,13 +9554,13 @@ ${sprite.type === 'text' ? `
           </div>
           <div class="ps-help-text" style="font-size:10.5px;color:#71717a;margin:-2px 0 4px;">칸을 클릭한 뒤 원하는 키를 누르면 등록됩니다.</div>`;
       } else if (cond === 'on_signal') {
-        const sig = p.condSignal || p.listenSignal || p.inputSignal || '';
+        const sig = ModuleEngine.conditionSignal(mod);
+        const catalog = InspectorPanelUI.linkCatalog(this.doc);
         extra = `
           <div class="ps-prop-row">
-            <label class="ps-prop-label">받을 신호 이름:</label>
-            <input type="text" class="ps-input" id="modCondSignal" list="modCondSignalList" placeholder="비우면 아무 신호나" value="${escapeHtml(sig === '*' ? '' : sig)}">
-            <datalist id="modCondSignalList">${this.knownSignals().map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
-          </div>`;
+            <label class="ps-prop-label">받을 신호:</label>
+            ${this.renderLinkPicker('signal-in', sig === '*' ? '' : sig, 'id="modCondSignal"', '아무 신호나', catalog)}
+          </div>${InspectorPanelUI.linkNote('signal-in', sig, catalog)}`;
       } else if (cond === 'timeline_active') {
         extra = `
           <div class="ps-prop-row" style="gap:6px;">
@@ -8764,7 +9570,8 @@ ${sprite.type === 'text' ? `
             <input type="number" class="ps-input" id="modCondEnd" min="0" step="1" value="${escapeHtml(p.condEndFrame ?? p.endFrame ?? (this.doc.totalFrames || 0))}" style="width:64px;">
           </div>`;
       }
-      const modeRow = cond === 'always' ? '' : `
+      // Action blocks run their steps once per trigger: no "how long" choice.
+      const modeRow = cond === 'always' || mod.type === 'action_rules' ? '' : `
           <div class="ps-prop-row">
             <label class="ps-prop-label">작동 방식:</label>
             <select class="ps-select" id="modCondMode">
@@ -8785,7 +9592,7 @@ ${sprite.type === 'text' ? `
               ${Object.entries(info).map(([k, [label]]) => `<option value="${k}" ${cond === k ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
             </select>
           </div>
-          <div class="ps-help-text" style="font-size:10.5px;color:#a1a1aa;margin:-2px 0 6px;line-height:1.5;">${escapeHtml(cond === 'always' && mod.type === 'hyperlink' ? '이 링크 기능이 언제 켜져 있을지 고릅니다. 이동하는 때는 아래 \'이동 시점\'에서 정합니다.' : (info[cond] || info.always)[1])}</div>
+          <div class="ps-help-text" style="font-size:10.5px;color:#a1a1aa;margin:-2px 0 6px;line-height:1.5;">${escapeHtml(cond === 'always' && mod.type === 'hyperlink' ? '이 링크 기능이 언제 켜져 있을지 고릅니다. 이동하는 때는 아래 \'이동 시점\'에서 정합니다.' : (cond === 'always' && mod.type === 'action_rules' ? '미리보기를 시작하면(내보낸 페이지는 열리면) 아래 동작을 한 번 실행합니다.' : (info[cond] || info.always)[1]))}</div>
           ${extra}
           ${modeRow}
           <div class="jspen-cond-summary" id="modCondSummary" style="margin-top:6px;padding:7px 9px;border-radius:6px;background:#1e1b4b;color:#e0e7ff;font-size:11px;line-height:1.5;">
@@ -8806,7 +9613,10 @@ ${sprite.type === 'text' ? `
       q('#modCond')?.addEventListener('change', e => set({ condition: e.target.value }));
       q('#modCondMode')?.addEventListener('change', e => set({ conditionMode: e.target.value }));
       q('#modCondDuration')?.addEventListener('change', e => set({ conditionDuration: Math.max(0.05, parseFloat(e.target.value) || 1) }));
-      q('#modCondSignal')?.addEventListener('change', e => set({ condSignal: e.target.value.trim() || '*' }));
+      q('#modCondSignal')?.addEventListener('change', e => {
+        if (e.target.value === '__new__') this.askNewName(e.target, 'signal', v => set({ condSignal: v }));
+        else set({ condSignal: e.target.value || '*' });
+      });
       q('#modCondStart')?.addEventListener('change', e => set({ condStartFrame: Math.max(0, parseInt(e.target.value, 10) || 0) }));
       q('#modCondEnd')?.addEventListener('change', e => set({ condEndFrame: Math.max(0, parseInt(e.target.value, 10) || 0) }));
       const keyEl = q('#modCondKey');
@@ -8825,6 +9635,8 @@ ${sprite.type === 'text' ? `
       this.el.querySelectorAll('.blender-scrub-group').forEach(group => {
         const inp = group.querySelector('.blender-scrub-input');
         if (!inp) return;
+        InspectorPanelUI.updateFill(inp);
+        inp.addEventListener('input', () => InspectorPanelUI.updateFill(inp));
         let startX = 0, startVal = 0, isDragging = false;
 
         const onDown = e => {
@@ -8865,7 +9677,17 @@ ${sprite.type === 'text' ? `
         };
 
         group.addEventListener('mousedown', onDown);
+        // The row's label drags the value too (like the X / Y labels).
+        const row = group.parentElement;
+        const label = row && row.classList.contains('ps-prop-row') ? row.querySelector(':scope > .ps-prop-label') : null;
+        if (label && !label.dataset.scrub) {
+          label.dataset.scrub = '1';
+          label.classList.add('jspen-scrub-label');
+          label.title = label.title || '좌우로 끌어서 값 조절 (Shift: 세밀하게)';
+          label.addEventListener('mousedown', e => { e.preventDefault(); onDown(e); });
+        }
       });
+      this.bindDials();
     }
 
     bindInputs(sprite, mod, layer) {
@@ -8955,7 +9777,8 @@ ${sprite.type === 'text' ? `
         // Colours that may also be left unset
         this.el.querySelectorAll('[data-param-clear]').forEach(btn => btn.addEventListener('click', () => {
           if (!mod.params) mod.params = {};
-          mod.params[btn.dataset.paramClear] = '';
+          const owner = btn.dataset.clearStep !== undefined ? (mod.params.steps || [])[+btn.dataset.clearStep] : mod.params;
+          if (owner) owner[btn.dataset.paramClear] = '';
           this.doc.saveState();
           this.render();
           if (this.cb.onCanvasRender) this.cb.onCanvasRender();
@@ -8974,15 +9797,30 @@ ${sprite.type === 'text' ? `
 
         this.el.querySelectorAll('[data-param-key]').forEach(input => {
           const key = input.dataset.paramKey;
+          const def = MODULE_REGISTRY[mod.type] || {};
+          // Fields of an action step write to that step.
+          const owner = () => {
+            if (!mod.params) mod.params = {};
+            if (input.dataset.step === undefined) return mod.params;
+            if (!Array.isArray(mod.params.steps)) mod.params.steps = [];
+            return mod.params.steps[+input.dataset.step] || {};
+          };
+          if (input.dataset.paramType === 'signal' || input.dataset.paramType === 'var') {
+            input.addEventListener('change', () => {
+              const apply = v => { owner()[key] = v; this.doc.saveState(); this.render(); if (this.cb.onUpdate) this.cb.onUpdate(); };
+              if (input.value === '__new__') this.askNewName(input, input.dataset.paramType, apply);
+              else apply(input.value);
+            });
+            return;
+          }
           if (input.dataset.paramType === 'key') {
             input.addEventListener('focus', () => { input.value = '키를 누르세요…'; });
-            input.addEventListener('blur', () => { input.value = InspectorPanelUI.keyLabel(mod.params?.[key]); });
+            input.addEventListener('blur', () => { input.value = InspectorPanelUI.keyLabel(owner()[key]); });
             input.addEventListener('keydown', e => {
               if (e.key === 'Tab') return;
               e.preventDefault(); e.stopPropagation();
-              if (!mod.params) mod.params = {};
-              mod.params[key] = e.code || e.key;
-              input.value = InspectorPanelUI.keyLabel(mod.params[key]);
+              owner()[key] = e.code || e.key;
+              input.value = InspectorPanelUI.keyLabel(owner()[key]);
               this.doc.saveState();
               input.blur();
             });
@@ -9006,7 +9844,7 @@ ${sprite.type === 'text' ? `
             } else if (val === 'false') {
               val = false;
             }
-            mod.params[key] = val;
+            owner()[key] = val;
 
             if (key === 'maskType') {
               const rowTarget = this.el.querySelector('#rowSubMaskTarget');
@@ -9015,8 +9853,7 @@ ${sprite.type === 'text' ? `
               }
             }
 
-            const scrub = input.closest('.jspen-param-scrub.is-factor');
-            if (scrub && typeof val === 'number') scrub.style.setProperty('--fill', Math.max(0, Math.min(1, val)) * 100 + '%');
+            if (input.type === 'number') InspectorPanelUI.updateFill(input);
             if (commit) this.doc.saveState();
             if (this.cb.onCanvasRender) this.cb.onCanvasRender();
           };
@@ -9042,14 +9879,27 @@ ${sprite.type === 'text' ? `
           input.addEventListener('input', () => onValChange(input.type === 'checkbox'));
           input.addEventListener('change', () => {
             onValChange(true);
+            // A step's summary line, or fields shown only for some values, follow the change.
+            const sum = input.dataset.step !== undefined && input.closest('.jspen-action')?.querySelector('.jspen-action-sum');
+            if (sum) sum.textContent = InspectorPanelUI.actionSummary(owner(), this.doc);
+            if (InspectorPanelUI.controlsShowIf(def, key)) this.render();
             if (this.cb.onUpdate) this.cb.onUpdate();
           });
         });
+        this.bindActionSteps(mod, sprite);
+        this.bindTemplates(mod);
 
         return;
       }
 
       if (sprite) {
+        // "화면 폭이 바뀌면" - where it sticks
+        this.el.querySelectorAll('[data-pin]').forEach(btn => btn.addEventListener('click', () => {
+          this.doc.setPin(sprite, btn.dataset.pin);
+          this.doc.saveState();
+          this.cb.onUpdate();
+        }));
+
         // Sprite Name
         this.el.querySelector('#inpSpriteName')?.addEventListener('change', e => {
           sprite.name = e.target.value.trim() || sprite.name;
@@ -9066,15 +9916,6 @@ ${sprite.type === 'text' ? `
               val = Math.max(minVal, val);
             }
             sprite[prop] = val;
-            if (prop === 'cornerRadius') {
-              sprite.bevelChamfer = sprite.cornerRadius;
-              const bEl = this.el.querySelector('#inpBevelChamfer');
-              if (bEl) bEl.value = sprite.cornerRadius;
-            } else if (prop === 'bevelChamfer') {
-              sprite.cornerRadius = sprite.bevelChamfer;
-              const cEl = this.el.querySelector('#inpCornerRadius');
-              if (cEl) cEl.value = sprite.bevelChamfer;
-            }
             if (this.cb.onCanvasRender) this.cb.onCanvasRender();
           });
 
@@ -9091,7 +9932,7 @@ ${sprite.type === 'text' ? `
         bindProp('inpRot', 'rotation', true, null);
         bindProp('inpOpacity', 'opacity', true, 0);
         bindProp('inpCornerRadius', 'cornerRadius', true, 0);
-        bindProp('inpBevelChamfer', 'bevelChamfer', true, 0);
+        bindProp('inpBevel', 'bevel', true, 0);
         bindProp('inpFill', 'fill', false);
         bindProp('inpStroke', 'stroke', false);
         bindProp('inpStrokeWidth', 'strokeWidth', true, 0);
@@ -9322,7 +10163,7 @@ ${sprite.type === 'text' ? `
         <div class="timeline-splitter" title="드래그하여 타임라인 높이 조절"></div>
         <div class="timeline-header">
           <div class="tl-controls-left">
-            <span class="tl-badge">TIMELINE</span>
+            <span class="tl-badge tl-wide">TIMELINE</span>
             <button class="tl-btn" id="tlJumpStart" title="첫 프레임으로 이동">|◀</button>
             <button class="tl-btn" id="tlStepPrev" title="이전 프레임 (◀)">◀</button>
             <button class="tl-btn tl-btn-play ${isPlay ? 'playing' : ''}" id="tlPlayPause" title="재생 / 일시정지 (Space)">
@@ -9335,8 +10176,8 @@ ${sprite.type === 'text' ? `
             </button>
             
             <!-- Live Preview Button Moved to Timeline! -->
-            <button class="btn btn-preview ${this.cb.isPreview ? 'active' : ''}" id="btnTlPreview">
-              ${this.cb.isPreview ? '⏹ 편집 모드로 복귀' : '▶ 실시간 모듈 미리보기'} <span class="shortcut">Ctrl+Space</span>
+            <button class="btn btn-preview ${this.cb.isPreview ? 'active' : ''}" id="btnTlPreview" title="실시간 모듈 미리보기 (Ctrl+Space)">
+              ${this.cb.isPreview ? '⏹ 편집<span class="tl-wide"> 모드로 복귀</span>' : '▶ <span class="tl-wide">실시간 모듈 </span>미리보기'} <span class="shortcut tl-wide">Ctrl+Space</span>
             </button>
           </div>
 
@@ -9753,24 +10594,19 @@ ${sprite.type === 'text' ? `
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mWebPreview">새 창에서 웹 미리보기 <span class="shortcut">Alt+W</span></button>
                 <button class="ps-dropdown-item" id="mWebExport">웹사이트 (HTML) 내보내기...</button>
-                <div class="ps-dropdown-sep"></div>
-                <div style="padding:4px 8px;font-size:10px;color:#a1a1aa;font-weight:600;">웹 템플릿 삽입</div>
-                <button class="ps-dropdown-item" id="btnOpenTemplateGallery" style="color:#f4f4f5;font-weight:600;">📂 템플릿 갤러리 열기...</button>
-                <div class="ps-dropdown-sep"></div>
-                <button class="ps-dropdown-item" data-web-tpl="full_landing">[풀 패키지] 전체 사이트</button>
-                <button class="ps-dropdown-item" data-web-tpl="navbar">상단 네비게이션 헤더 (Navbar)</button>
-                <button class="ps-dropdown-item" data-web-tpl="hero">메인 히어로 섹션 (Hero)</button>
-                <button class="ps-dropdown-item" data-web-tpl="feature_grid">3열 기능 카드 그리드 (Features)</button>
-                <button class="ps-dropdown-item" data-web-tpl="cta_banner">전환 유도 CTA 배너 (CTA)</button>
-                <button class="ps-dropdown-item" data-web-tpl="footer">하단 푸터 (Footer)</button>
-                <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mExp">자바스크립트 내보내기... <span class="shortcut">Ctrl+E</span></button>
+                <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" id="btnOpenTemplateGallery">템플릿 갤러리 열기...</button>
               </div>
             </div>
             <div class="ps-menu-item"><span>편집(E)</span>
               <div class="ps-dropdown-menu">
                 <button class="ps-dropdown-item" id="mUndo">실행 취소 <span class="shortcut">Ctrl+Z</span></button>
                 <button class="ps-dropdown-item" id="mRedo">다시 실행 <span class="shortcut">Ctrl+Y</span></button>
+                <div class="ps-dropdown-sep"></div>
+                <button class="ps-dropdown-item" id="mCopy">복사 <span class="shortcut">Ctrl+C</span></button>
+                <button class="ps-dropdown-item" id="mPaste">붙여넣기 <span class="shortcut">Ctrl+V</span></button>
+                <button class="ps-dropdown-item" id="mDelete">삭제 <span class="shortcut">Delete</span></button>
                 <div class="ps-dropdown-sep"></div>
                 <button class="ps-dropdown-item" id="mSelectAll">전체 선택 <span class="shortcut">Ctrl+A</span></button>
               </div>
@@ -10053,16 +10889,6 @@ ${sprite.type === 'text' ? `
         }
       });
 
-      // Web template items
-      this.el.querySelectorAll('[data-web-tpl]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const tpl = btn.getAttribute('data-web-tpl');
-          if (tpl && window.jspenApp?.insertWebsiteTemplate) {
-            window.jspenApp.insertWebsiteTemplate(tpl);
-          }
-        });
-      });
-
       // File actions
       this.el.querySelector('#mExp')?.addEventListener('click', () => this.cb.onExport());
       this.el.querySelector('#mSettings')?.addEventListener('click', () => this.cb.onOpenSettings());
@@ -10089,6 +10915,13 @@ ${sprite.type === 'text' ? `
       });
       this.el.querySelector('#mRedo')?.addEventListener('click', () => {
         if (this.doc.redo()) this.cb.onUpdate();
+      });
+      this.el.querySelector('#mCopy')?.addEventListener('click', () => {
+        if (!window.jspenApp?.copySelection()) StudioToast.show('복사할 스프라이트를 먼저 선택하세요.');
+      });
+      this.el.querySelector('#mPaste')?.addEventListener('click', () => window.jspenApp?.pasteClipboard());
+      this.el.querySelector('#mDelete')?.addEventListener('click', () => {
+        if (this.doc.deleteSelected()) this.cb.onUpdate();
       });
       this.el.querySelector('#mSelectAll')?.addEventListener('click', () => {
         this.doc.selectAll();
@@ -10163,10 +10996,32 @@ ${sprite.type === 'text' ? `
       }
     }
 
-    syncFromDoc() {
-      const existingPositions = new Map();
+    // Zoom and pan so every node is in view (never above 100%).
+    fitView() {
+      const area = this.container.querySelector('#nodeGraphArea');
+      if (!area || !this.nodes.length) return;
+      const W = area.clientWidth, H = area.clientHeight;
+      if (!W || !H) return;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (const n of this.nodes) {
-        existingPositions.set(n.id, { x: n.x, y: n.y });
+        const el = this.container.querySelector('#' + CSS.escape(n.id));
+        const w = el ? el.offsetWidth : 220, h = el ? el.offsetHeight : 120;
+        x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + w); y1 = Math.max(y1, n.y + h);
+      }
+      const pad = 40;
+      this.zoom = Math.max(0.3, Math.min(1, (W - pad * 2) / (x1 - x0), (H - pad * 2) / (y1 - y0)));
+      this.pan = { x: Math.round(pad - x0 * this.zoom), y: Math.round(pad - y0 * this.zoom) };
+      this.updateTransform();
+      if (this.renderWires) this.renderWires();
+    }
+
+    // relayout: forget the nodes' positions and lay them out again (자동 정렬).
+    syncFromDoc({ relayout = false } = {}) {
+      const existingPositions = new Map();
+      if (!relayout) {
+        for (const n of this.nodes) {
+          existingPositions.set(n.id, { x: n.x, y: n.y });
+        }
       }
 
       this.nodes = [];
@@ -10178,10 +11033,11 @@ ${sprite.type === 'text' ? `
         id: 'output_master',
         category: 'output',
         type: 'output_master',
-        title: '최종 웹사이트 출력 (OUTPUT)',
+        title: '최종 출력 (OUTPUT)',
         badge: 'MASTER',
         x: masterPos.x, y: masterPos.y,
-        inputs: [{ name: 'In', type: 'flow' }],
+        inputs: [{ name: 'In', type: 'flow', label: '← 연결된 모듈 작동',
+          hint: '여기까지 선으로 이어진 모듈만 미리보기와 내보낸 결과에서 작동합니다.' }],
         outputs: [],
         params: {}
       });
@@ -10225,11 +11081,7 @@ ${sprite.type === 'text' ? `
           badge: sprite.type === 'screen_trigger' ? 'TRIG' : 'SPRITE',
           x: spPos.x, y: spPos.y,
           inputs: [],
-          outputs: [
-            { name: 'Transform', type: 'vector' },
-            { name: 'Visual', type: 'color' },
-            { name: 'Flow', type: 'flow' }
-          ],
+          outputs: [{ name: 'Flow', type: 'flow', label: '모듈 시작 →', hint: '이 스프라이트의 첫 모듈로 이어집니다.' }],
           params: {}
         });
 
@@ -10241,20 +11093,15 @@ ${sprite.type === 'text' ? `
           const def = MODULE_REGISTRY[mod.type] || {};
           const cat = def.category || 'motion';
 
-          // Build dynamic input ports corresponding to parameters
-          const modInputs = [{ name: 'In', type: 'flow' }];
-          const pKeys = Object.keys(mod.params || {});
-          for (const k of pKeys) {
-            modInputs.push({ name: 'param_' + k, type: 'float', paramKey: k });
-          }
+          // Inputs: the chain from the previous module, then one socket per
+          // number setting shown on the node (a wire there sets that value).
+          const modInputs = [{ name: 'In', type: 'flow', label: '← 이전', hint: '앞 모듈에서 이어집니다. 최종 출력(OUTPUT)까지 이어져야 작동합니다.' }];
+          for (const k of NodeEditorUI.nodeNumberKeys(mod)) modInputs.push({ name: 'param_' + k, type: 'float', paramKey: k });
 
-          const modOutputs = [
-            { name: 'Out', type: 'flow' }
-          ];
-          if (mod.type === 'math_calculate' || cat === 'logic') {
-            modOutputs.push({ name: 'Result', type: 'float' });
-          } else {
-            modOutputs.push({ name: 'Transform', type: 'vector' });
+          const modOutputs = [{ name: 'Out', type: 'flow', label: '다음 →', hint: '다음에 작동할 모듈이나 최종 출력(OUTPUT)으로 이어집니다.' }];
+          // A number other nodes can use: the result of a calculation, or a module's value.
+          if (NodeEditorUI.nodeValue({ type: mod.type, params: mod.params || {} }) !== null) {
+            modOutputs.push({ name: 'Result', type: 'float', label: '값', hint: '이 노드의 숫자입니다. 다른 노드의 설정 소켓(왼쪽 회색 점)에 이으면 그 설정이 이 값으로 바뀝니다.' });
           }
 
           this.nodes.push({
@@ -10291,12 +11138,25 @@ ${sprite.type === 'text' ? `
         curY += 240;
       }
 
+      // OUTPUT sits to the right of the longest module chain. A position the
+      // user chose is kept unless it now covers a module node.
+      const master = this.nodes[0];
+      const others = this.nodes.slice(1);
+      const rightmost = others.length ? Math.max(...others.map(n => n.x)) : 80;
+      const covers = others.some(n => Math.abs(n.x - master.x) < 250 && Math.abs(n.y - master.y) < 170);
+      if (!existingPositions.has('output_master') || covers) {
+        master.x = rightmost + 300;
+        master.y = 60;
+      }
+
       // Preserve existing valid wires
       if (this.wires.length === 0) {
         this.wires = newWires;
       } else {
-        const validNodeIds = new Set(this.nodes.map(n => n.id));
-        this.wires = this.wires.filter(w => validNodeIds.has(w.fromNode) && validNodeIds.has(w.toNode));
+        // Wires to nodes or sockets that no longer exist are dropped.
+        const byId = new Map(this.nodes.map(n => [n.id, n]));
+        const hasPort = (id, port, out) => { const n = byId.get(id); return !!n && (out ? n.outputs : n.inputs).some(p => p.name === port); };
+        this.wires = this.wires.filter(w => hasPort(w.fromNode, w.fromPort, true) && hasPort(w.toNode, w.toPort, false));
         for (const nw of newWires) {
           if (!this.wires.some(w => w.toNode === nw.toNode && w.toPort === nw.toPort)) {
             this.wires.push(nw);
@@ -10379,22 +11239,8 @@ ${sprite.type === 'text' ? `
           const fromN = this.nodes.find(n => n.id === w.fromNode);
           const toN = this.nodes.find(n => n.id === w.toNode);
           if (fromN && toN) {
-            let val = 0;
-            if (fromN.type === 'math_calculate') {
-              const a = parseFloat(fromN.params?.inputA || fromN.params?.valA || 0);
-              const b = parseFloat(fromN.params?.inputB || fromN.params?.valB || 0);
-              const op = fromN.params?.operation || 'add';
-              if (op === 'add') val = a + b;
-              else if (op === 'subtract') val = a - b;
-              else if (op === 'multiply') val = a * b;
-              else if (op === 'divide') val = b !== 0 ? a / b : 0;
-              else if (op === 'sin') val = Math.sin(a);
-              else if (op === 'cos') val = Math.cos(a);
-              else if (op === 'clamp') val = Math.max(0, Math.min(1, a));
-              else val = a + b;
-            } else if (fromN.params && fromN.params.value !== undefined) {
-              val = parseFloat(fromN.params.value || 0);
-            }
+            const val = NodeEditorUI.nodeValue(fromN);
+            if (val === null) continue;
             if (!toN.params) toN.params = {};
             toN.params[paramKey] = val;
             if (toN.modId) {
@@ -10418,7 +11264,9 @@ ${sprite.type === 'text' ? `
       const activeMods = this.getActiveModuleIds();
 
       nodesLayer.innerHTML = this.nodes.map(n => {
-        const isActive = n.type === 'output_master' || (n.modId && activeMods.has(n.modId));
+        // A sprite node is "ON" when any of its modules reaches OUTPUT.
+        const spriteActive = n.type === 'output_sprite' && this.nodes.some(m => m.spriteId === n.spriteId && m.modId && activeMods.has(m.modId));
+        const isActive = n.type === 'output_master' || spriteActive || (n.modId && activeMods.has(n.modId));
         const catClass = 'cat-' + (n.category || 'motion');
 
         // Main input/output ports (excluding parameter inputs)
@@ -10441,20 +11289,22 @@ ${sprite.type === 'text' ? `
             <div class="graph-node-body">
               <div class="graph-ports-col graph-inputs">
                 ${mainInputs.map(p => `
-                  <div class="graph-port-row">
-                    <div class="graph-port graph-port-input port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}" title="${escapeHtml(p.name)} (${escapeHtml(p.type || 'flow')})"></div>
-                    <span class="graph-port-label">${escapeHtml(p.name)}</span>
+                  <div class="graph-port-row" title="${escapeHtml(p.hint || p.name)}">
+                    <div class="graph-port graph-port-input port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}"></div>
+                    <span class="graph-port-label">${escapeHtml(p.label || p.name)}</span>
                   </div>
                 `).join('')}
               </div>
 
               <div class="graph-ports-col graph-outputs">
-                ${mainOutputs.map(p => `
-                  <div class="graph-port-row" style="justify-content:flex-end;">
-                    <span class="graph-port-label">${escapeHtml(p.name)}</span>
-                    <div class="graph-port graph-port-output port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}" title="${escapeHtml(p.name)} (${escapeHtml(p.type || 'flow')})"></div>
-                  </div>
-                `).join('')}
+                ${mainOutputs.map(p => {
+                  const v = p.name === 'Result' ? NodeEditorUI.nodeValue(n) : null;
+                  return `
+                  <div class="graph-port-row" style="justify-content:flex-end;" title="${escapeHtml(p.hint || p.name)}">
+                    <span class="graph-port-label">${escapeHtml(p.label || p.name)}${v !== null ? ` = <b class="graph-port-value">${escapeHtml(NodeEditorUI.formatValue(v))}</b>` : ''}</span>
+                    <div class="graph-port graph-port-output port-${escapeHtml(p.type || 'flow')}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(p.name)}" data-type="${escapeHtml(p.type || 'flow')}"></div>
+                  </div>`;
+                }).join('')}
               </div>
             </div>
 
@@ -10469,119 +11319,77 @@ ${sprite.type === 'text' ? `
       this.renderWires();
     }
 
+    // Number settings shown on a module's node (each with a socket), in the
+    // inspector's order; settings hidden there are hidden here too.
+    static nodeNumberKeys(mod) {
+      const def = MODULE_REGISTRY[mod.type] || {}, p = mod.params || {};
+      const d = def.defaultParams || {};
+      const hidden = new Set(['condition', 'conditionMode', 'conditionDuration', 'condStartFrame', 'condEndFrame', 'outputResult', 'outputValue'].concat(def.paramHidden || []));
+      const keys = [...new Set([...Object.keys(d), ...Object.keys(p)])].filter(k => !hidden.has(k) &&
+        typeof (p[k] !== undefined ? p[k] : d[k]) === 'number' && InspectorPanelUI.fieldShown(def, p, k));
+      if (mod.type === 'math_calculate') {
+        const op = p.operation || 'add';
+        return ['inputA', 'inputB', ...(op === 'clamp' ? ['clampMin', 'clampMax'] : []), ...(op === 'lerp' ? ['targetVal'] : [])];
+      }
+      return keys.slice(0, 4);
+    }
+
+    // The number a node gives to others (null: it gives none).
+    static nodeValue(n) {
+      const p = n.params || {};
+      if (n.type === 'math_calculate') return ModuleEngine.mathResult(p);
+      const v = parseFloat(p.value);
+      return p.value !== undefined && p.value !== '' && isFinite(v) ? v : null;
+    }
+
+    // Values passed along wires, and the "값 = …" labels, after an edit.
+    updateValues() {
+      this.evaluateParamWires();
+      for (const n of this.nodes) {
+        const el = document.getElementById(n.id);
+        const label = el && el.querySelector('.graph-port-value');
+        const v = NodeEditorUI.nodeValue(n);
+        if (label && v !== null) label.textContent = NodeEditorUI.formatValue(v);
+        if (!el) continue;
+        for (const input of el.querySelectorAll('[data-node-ctrl]')) {
+          const k = input.dataset.nodeCtrl;
+          if (input.disabled && n.params && n.params[k] !== undefined) input.value = n.params[k];
+        }
+      }
+    }
+
+    static formatValue(v) {
+      return Number.isInteger(v) ? String(v) : String(+v.toFixed(3));
+    }
+
     renderNodeInlineControls(n) {
-      const isConnected = (pName) => this.wires.some(w => w.toNode === n.id && w.toPort === pName);
-
-      if (n.type === 'math_calculate' || n.category === 'logic') {
-        const op = n.params.operation || 'add';
-        const aConnected = isConnected('param_valA') || isConnected('param_inputA');
-        const bConnected = isConnected('param_valB') || isConnected('param_inputB');
-        return `
-          <div class="node-inline-control" style="margin-bottom:6px;">
+      const isConnected = pName => this.wires.some(w => w.toNode === n.id && w.toPort === pName);
+      if (!n.modId) return '';
+      const def = MODULE_REGISTRY[n.type] || {};
+      const p = n.params || {}, d = def.defaultParams || {};
+      const rows = [];
+      if (n.type === 'math_calculate') {
+        const op = p.operation || 'add';
+        rows.push(`
+          <div class="node-inline-control">
             <span class="node-inline-label">연산:</span>
-            <select class="node-inline-select" data-node-ctrl="operation" style="width:100px;background:#27272a;border:1px solid #3f3f46;color:#f4f4f5;font-size:10px;padding:2px;border-radius:2px;">
-              <option value="add" ${op==='add'?'selected':''}>+ 더하기 (Add)</option>
-              <option value="subtract" ${op==='subtract'?'selected':''}>- 빼기 (Subtract)</option>
-              <option value="multiply" ${op==='multiply'?'selected':''}>× 곱하기 (Multiply)</option>
-              <option value="divide" ${op==='divide'?'selected':''}>÷ 나누기 (Divide)</option>
-              <option value="sin" ${op==='sin'?'selected':''}>sin 사인</option>
-              <option value="cos" ${op==='cos'?'selected':''}>cos 코사인</option>
-              <option value="clamp" ${op==='clamp'?'selected':''}>clamp (0~1)</option>
-              <option value="min" ${op==='min'?'selected':''}>min 최솟값</option>
-              <option value="max" ${op==='max'?'selected':''}>max 최댓값</option>
+            <select class="node-inline-select" data-node-ctrl="operation">
+              ${(def.paramOptions.operation || []).map(([v, l]) => `<option value="${escapeHtml(v)}" ${op === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
             </select>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${aConnected?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_inputA" data-type="float" title="값 A 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">값 A:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="inputA" value="${escapeHtml(n.params.inputA !== undefined ? n.params.inputA : (n.params.valA || 0))}" ${aConnected?'disabled style="opacity:0.6;"':''}>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${bConnected?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_inputB" data-type="float" title="값 B 입력 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">값 B:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="inputB" value="${escapeHtml(n.params.inputB !== undefined ? n.params.inputB : (n.params.valB !== undefined ? n.params.valB : 1))}" ${bConnected?'disabled style="opacity:0.6;"':''}>
-          </div>
-        `;
+          </div>`);
       }
-
-      if (n.type === 'photoshop_filter') {
-        const blurConn = isConnected('param_blur');
-        const brightConn = isConnected('param_brightness');
-        return `
-          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${blurConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_blur" data-type="float" title="블러 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">블러(px):</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="blur" step="1" min="0" value="${escapeHtml(n.params.blur || 0)}" ${blurConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${brightConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_brightness" data-type="float" title="밝기 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">밝기(%):</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="brightness" step="5" min="0" value="${escapeHtml(n.params.brightness !== undefined ? n.params.brightness : 100)}" ${brightConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-        `;
+      for (const k of NodeEditorUI.nodeNumberKeys({ type: n.type, params: p })) {
+        const port = 'param_' + k, on = isConnected(port);
+        const label = String((def.paramLabels && def.paramLabels[k]) || k);
+        const value = p[k] !== undefined ? p[k] : d[k];
+        rows.push(`
+          <div class="node-inline-control" title="${escapeHtml(on ? `${label}: 연결된 노드의 값을 씁니다` : `${label}: 왼쪽 점에 다른 노드의 '값'을 이으면 그 값을 씁니다`)}">
+            <div class="graph-port graph-port-input port-float ${on ? 'port-connected' : ''}" data-node="${escapeHtml(n.id)}" data-port="${escapeHtml(port)}" data-type="float"></div>
+            <span class="node-inline-label">${escapeHtml(label)}</span>
+            <input type="number" class="node-inline-input" data-node-ctrl="${escapeHtml(k)}" step="${escapeHtml(InspectorPanelUI.stepFor(value))}" value="${escapeHtml(value)}" ${on ? 'disabled' : ''}>
+          </div>`);
       }
-
-      if (n.type === 'follow_target') {
-        const stConn = isConnected('param_stiffness');
-        const dpConn = isConnected('param_damping');
-        return `
-          <div class="node-inline-control" style="margin-bottom:6px;">
-            <span class="node-inline-label">모드:</span>
-            <select class="node-inline-select" data-node-ctrl="trackMode" style="width:100px;background:#27272a;border:1px solid #3f3f46;color:#f4f4f5;font-size:10px;padding:2px;border-radius:2px;">
-              <option value="spring" ${n.params.trackMode==='spring'?'selected':''}>스프링 (Spring)</option>
-              <option value="lerp" ${n.params.trackMode==='lerp'?'selected':''}>부드러운 추적 (Lerp)</option>
-              <option value="constant" ${n.params.trackMode==='constant'?'selected':''}>일정 속도 (Constant)</option>
-              <option value="orbit" ${n.params.trackMode==='orbit'?'selected':''}>주변 공전 (Orbit)</option>
-              <option value="elastic" ${n.params.trackMode==='elastic'?'selected':''}>탄성 (Elastic)</option>
-              <option value="direct" ${n.params.trackMode==='direct'?'selected':''}>즉시 고정 (Direct)</option>
-            </select>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${stConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_stiffness" data-type="float" title="강도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">강도 (Stiffness):</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="stiffness" step="0.05" value="${escapeHtml(n.params.stiffness !== undefined ? n.params.stiffness : 0.1)}" ${stConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${dpConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_damping" data-type="float" title="감쇠 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">감쇠 (Damping):</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="damping" step="0.05" value="${escapeHtml(n.params.damping !== undefined ? n.params.damping : 0.8)}" ${dpConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-        `;
-      }
-
-      if (n.category === 'motion' || n.type === 'motion_pos') {
-        const spdConn = isConnected('param_speed');
-        const smConn = isConnected('param_smooth');
-        return `
-          <div class="node-inline-control" style="display:flex;align-items:center;margin-bottom:4px;position:relative;">
-            <div class="graph-port graph-port-input port-float ${spdConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_speed" data-type="float" title="속도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">속도:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="speed" step="0.1" value="${escapeHtml(n.params.speed || 1)}" ${spdConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${smConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_smooth" data-type="float" title="스무딩 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">스무딩:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="smooth" step="0.05" min="0" max="1" value="${escapeHtml(n.params.smooth || 0.15)}" ${smConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-        `;
-      }
-
-      if (n.category === 'color' || n.type === 'color_val') {
-        const alpConn = isConnected('param_alpha');
-        return `
-          <div class="node-inline-control" style="margin-bottom:4px;">
-            <span class="node-inline-label">색상:</span>
-            <input type="color" class="node-inline-color" data-node-ctrl="color" value="${escapeHtml(n.params.color || '#d4d4d8')}">
-          </div>
-          <div class="node-inline-control" style="display:flex;align-items:center;position:relative;">
-            <div class="graph-port graph-port-input port-float ${alpConn?'port-connected':''}" data-node="${escapeHtml(n.id)}" data-port="param_alpha" data-type="float" title="투명도 소켓" style="position:static;margin-right:6px;flex-shrink:0;"></div>
-            <span class="node-inline-label" style="flex:1;">투명도:</span>
-            <input type="number" class="node-inline-input" data-node-ctrl="alpha" step="0.1" min="0" max="1" value="${escapeHtml(n.params.alpha !== undefined ? n.params.alpha : 1)}" ${alpConn?'disabled style="opacity:0.6;"':''}>
-          </div>
-        `;
-      }
-
-      return '';
+      return rows.join('');
     }
 
     calculateWirePath(x1, y1, x2, y2) {
@@ -10726,8 +11534,9 @@ ${sprite.type === 'text' ? `
 
       // Auto Layout
       this.container.querySelector('#btnNodeAutoLayout')?.addEventListener('click', () => {
-        this.syncFromDoc();
+        this.syncFromDoc({ relayout: true });
         this.render();
+        this.fitView();
       });
 
       // Knife Cut Mode Toggle Button Info
@@ -10757,12 +11566,17 @@ ${sprite.type === 'text' ? `
 
         const ctrlKey = input.dataset.nodeCtrl;
         if (!node.params) node.params = {};
-        node.params[ctrlKey] = input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+        node.params[ctrlKey] = input.type === 'number' ? (parseFloat(e.target.value) || 0) : e.target.value;
         if (node.modId) {
-          const sp = this.doc.getSelectedSprite();
+          const sp = this.doc.findSpriteById(node.spriteId) || this.doc.getSelectedSprite();
           const mod = sp?.modules?.find(m => m.id === node.modId);
           if (mod) mod.params[ctrlKey] = node.params[ctrlKey];
         }
+        this.doc.saveState();
+        // The operation changes which settings the node shows; otherwise only
+        // the values move along (the next field keeps its focus).
+        if (ctrlKey === 'operation') { this.syncFromDoc(); this.render(); }
+        else this.updateValues();
         this.cb.onUpdate();
       });
 
@@ -11197,8 +12011,8 @@ ${sprite.type === 'text' ? `
       this.recordingId = null;
 
       this.defaultShortcuts = [
-        { id: 'webPreview', name: '실시간 웹 미리보기 (Alt+W)', key: 'Alt + W' },
-        { id: 'preview', name: '실시간 웹 미리보기 (Ctrl+Space)', key: 'Ctrl + Space' },
+        { id: 'webPreview', name: '새 창에서 웹 미리보기', key: 'Alt + W' },
+        { id: 'preview', name: '실시간 모듈 미리보기 (캔버스에서 실행)', key: 'Ctrl + Space' },
         { id: 'delete', name: '선택 스프라이트 삭제 (Delete)', key: 'Delete' },
         { id: 'nodeMode', name: '모듈 노드 모드 / 스튜디오 전환', key: 'Shift + Tab' },
         { id: 'selectAll', name: '전체 스프라이트 선택', key: 'Ctrl + A' },
@@ -11340,6 +12154,14 @@ ${sprite.type === 'text' ? `
                 </tr>
               `;
             }).join('')}
+            ${[['새 도큐먼트', 'Ctrl + N'], ['열기', 'Ctrl + O'], ['저장 / 다른 이름으로 저장', 'Ctrl + S / Ctrl + Shift + S'],
+              ['자바스크립트 내보내기', 'Ctrl + E'], ['이미지 가져오기', 'Ctrl + Shift + I'], ['화면에 맞추기', 'Ctrl + 0'],
+              ['100% 보기', 'Ctrl + 1'], ['환경 설정', 'Ctrl + ,']].map(([n, k]) => `
+                <tr style="border-bottom:1px solid #1f1f23;">
+                  <td style="padding:8px 10px;color:#a1a1aa;">${escapeHtml(n)}</td>
+                  <td style="padding:8px 10px;"><span class="shortcut-key-badge">${escapeHtml(k)}</span></td>
+                  <td style="padding:8px 10px;text-align:right;color:#52525b;font-size:10.5px;">고정</td>
+                </tr>`).join('')}
           </tbody>
         </table>
       `;
@@ -11425,6 +12247,8 @@ ${sprite.type === 'text' ? `
           `).join('')}
         </div>
 
+        <details class="jspen-advanced">
+          <summary>고급: 플러그인 코드 직접 추가 (개발자용)</summary>
         <div style="font-weight:700;color:#fff;font-size:12px;margin-bottom:6px;">새 오픈소스 플러그인 코드 추가:</div>
         <textarea class="plugin-code-area" id="txtPluginCode" placeholder="JSPen.registerPlugin({
   id: 'custom_glow',
@@ -11432,6 +12256,7 @@ ${sprite.type === 'text' ? `
   init(api) { ... }
 });" style="width:100%;height:100px;background:#141416;border:1px solid #27272a;color:#f4f4f5;font-family:monospace;font-size:11px;padding:8px;border-radius:2px;margin-bottom:8px;"></textarea>
         <button class="btn btn-primary btn-sm" id="btnInstallPlugin">+ 플러그인 등록 및 적용</button>
+        </details>
       `;
     }
   }
@@ -12345,21 +13170,29 @@ ${sprite.type === 'text' ? `
     }
 
     async fetchTemplateList() {
-      // 1. Try server API (only available when served by server.js)
+      // The manifest (or the built-in list) has titles, descriptions and the
+      // order; the server lists what is really in templates/, including files
+      // the user added. Known files keep their manifest entry, in its order.
+      let known = null;
+      try {
+        const manifest = await NativeBridge.loadJSON('templates/manifest.json');
+        if (Array.isArray(manifest) && manifest.length > 0) known = manifest;
+      } catch (_) {}
+      if (!known) known = this.builtInTemplates();
       if (/^https?:$/.test(location.protocol)) {
         try {
           const list = await NativeBridge.loadJSON('api/templates');
-          if (Array.isArray(list) && list.length > 0) return list;
+          if (Array.isArray(list) && list.length > 0) {
+            const files = new Set(list.map(t => t.file));
+            return known.filter(k => files.has(k.file))
+              .concat(list.filter(t => !known.some(k => k.file === t.file)));
+          }
         } catch (_) {}
       }
+      return known;
+    }
 
-      // 2. Try manifest.json (works for both http:// and the desktop file:// shell)
-      try {
-        const manifest = await NativeBridge.loadJSON('templates/manifest.json');
-        if (Array.isArray(manifest) && manifest.length > 0) return manifest;
-      } catch (_) {}
-
-      // 3. Fallback bundled template list
+    builtInTemplates() {
       return [
         { file: 'full_landing.jspen', title: '전체 웹사이트 풀 패키지 (Full Website)', description: '네비게이션, 히어로, 3단 기능 카드, CTA, 푸터까지 완성된 전체 웹사이트 템플릿입니다.', layersCount: 5 },
         { file: 'navbar.jspen', title: '상단 네비게이션 헤더 (Navbar)', description: '로고, 3개 메뉴 링크, CTA 버튼이 포함된 반응형 헤더 바입니다.', layersCount: 1 },
@@ -12412,7 +13245,7 @@ ${sprite.type === 'text' ? `
                 <div class="tpl-card" data-tpl-file="${escapeHtml(t.file)}">
                   <div>
                     <div class="tpl-card-title">${escapeHtml(t.title || t.file)}</div>
-                    <div class="tpl-card-desc">${escapeHtml(t.description || 'JSPen 모던 v11 프로젝트 템플릿입니다.')}</div>
+                    <div class="tpl-card-desc">${escapeHtml(t.description || '사용자가 추가한 템플릿입니다.')}</div>
                   </div>
                   <div class="tpl-card-footer">
                     <span class="tpl-card-meta">${t.layersCount ? `레이어 ${escapeHtml(t.layersCount)}개` : escapeHtml(t.file)}</span>
@@ -12527,6 +13360,59 @@ ${sprite.type === 'text' ? `
   // studio; steps with a task move on when the task is done. The studio
   // stays fully usable while it runs (nothing is blocked).
   // ==========================================================================
+  // Tooltips for buttons and fields: shown quickly, in readable colours (the
+  // native ones are slow, and the desktop app draws them dark on dark).
+  class StudioTooltip {
+    static install() {
+      if (StudioTooltip.el) return;
+      const tip = StudioTooltip.el = document.createElement('div');
+      tip.className = 'jspen-tip';
+      tip.setAttribute('role', 'tooltip');
+      document.body.appendChild(tip);
+      let owner = null, timer = null, watch = null;
+      const hide = () => {
+        clearTimeout(timer);
+        timer = null;
+        clearInterval(watch);
+        watch = null;
+        tip.classList.remove('is-on');
+        // The title goes back, so screen readers and the next hover still have it.
+        if (owner && owner.dataset.tip !== undefined) { owner.setAttribute('title', owner.dataset.tip); delete owner.dataset.tip; }
+        owner = null;
+      };
+      document.addEventListener('mouseover', e => {
+        const el = e.target.closest ? e.target.closest('[title]') : null;
+        if (!el || el === owner) return;
+        hide();
+        const text = el.getAttribute('title');
+        if (!text) return;
+        owner = el;
+        el.dataset.tip = text;
+        el.removeAttribute('title');
+        timer = setTimeout(() => {
+          if (owner !== el || !el.isConnected) return;
+          tip.textContent = text;
+          tip.classList.add('is-on');
+          // A re-render can replace the hovered button without a mouseout;
+          // don't leave its tip floating over the new UI.
+          watch = setInterval(() => { if (!owner || !owner.isConnected || !owner.matches(':hover')) hide(); }, 250);
+          const r = el.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight;
+          const tw = tip.offsetWidth, th = tip.offsetHeight;
+          let x = r.left + r.width / 2 - tw / 2, y = r.bottom + 6;
+          // Tool buttons on the left edge: beside the button.
+          if (r.left < 80 && r.width < 60) { x = r.right + 8; y = r.top + r.height / 2 - th / 2; }
+          if (y + th > H - 4) y = r.top - th - 6;
+          tip.style.left = Math.max(4, Math.min(x, W - tw - 4)) + 'px';
+          tip.style.top = Math.max(4, Math.min(y, H - th - 4)) + 'px';
+        }, 300);
+      });
+      document.addEventListener('mouseout', e => {
+        if (owner && !(e.relatedTarget && owner.contains(e.relatedTarget))) hide();
+      });
+      for (const ev of ['mousedown', 'wheel', 'keydown']) window.addEventListener(ev, hide, true);
+    }
+  }
+
   class Tutorial {
     constructor(app) {
       this.app = app;
@@ -12548,7 +13434,7 @@ ${sprite.type === 'text' ? `
         { title: 'JSPen에 오신 것을 환영합니다',
           text: '코드 없이 버튼과 다이얼만으로 움직이는 웹 화면을 만드는 도구입니다. 사각형 하나에 움직임을 붙여 보면서 기본을 익혀요. 직접 따라 하면 다음 단계로 넘어갑니다.' },
         { title: '가운데: 캔버스', target: () => q('#viewportContainer'),
-          text: '만든 결과가 그대로 보이는 미리보기 화면입니다. 휠로 확대·축소하고, 스페이스를 누른 채 끌면 화면을 옮깁니다.' },
+          text: '만든 결과가 그대로 보이는 미리보기 화면입니다. 휠로 확대·축소하고, 스페이스를 누른 채 끌면(또는 휠 버튼을 누른 채 끌면) 화면을 옮깁니다. 스페이스를 짧게 누르면 타임라인이 재생·정지됩니다.' },
         { title: '사각형 그리기', target: () => q('#leftToolbox [data-t="shape"]'),
           text: '도형 도구(U)를 누른 다음, 캔버스에서 끌어서 사각형을 하나 그려 보세요.',
           task: true, begin: () => { this.base = this.counts(); }, done: () => this.counts().sprites > this.base.sprites },
@@ -12557,10 +13443,10 @@ ${sprite.type === 'text' ? `
         { title: '움직임 붙이기: 모듈', target: () => q('.ps-sprite-sub-item.selected .ps-btn-add-module') || q('#layersContainer .ps-btn-add-module'),
           text: '레이어 목록에서 사각형 옆의 +fx를 눌러 모듈을 붙여 보세요. 모듈은 블렌더의 모디파이어처럼 차례로 쌓여 움직임을 만듭니다. "펄스 박동 효과"가 보기 쉬워요.',
           task: true, begin: () => { this.base = this.counts(); }, done: () => this.counts().modules > this.base.modules },
-        { title: '모듈 설정', target: () => q('#inspectorContainer'),
+        { title: '모듈 설정', target: () => q('#inspectorContainer'), begin: () => this.showModule(),
           text: '방금 붙인 모듈의 설정입니다. 숫자 칸을 끌어서 속도와 크기를 바꿔 보세요. 선택지는 목록에서 고르고, 색은 색 견본을 누릅니다.' },
-        { title: '언제 움직일까: 발동 조건', target: () => q('#modCondSection'),
-          text: '"항상"이면 바로 움직이고, "클릭했을 때"로 바꾸면 클릭해야 움직입니다. 키보드, 마우스 올리기, 신호도 고를 수 있어요.' },
+        { title: '언제 움직일까: 발동 조건', target: () => q('#modCondSection'), begin: () => this.showModule(),
+          text: '오른쪽 속성창의 "언제 작동하나요?"(보라색 줄) 상자입니다. "발동 조건"이 "항상"이면 바로 움직이고, "클릭했을 때"로 바꾸면 클릭해야 움직입니다. 키보드, 마우스 올리기, 신호도 고를 수 있어요.' },
         { title: '움직여 보기: 실시간 미리보기', target: () => q('#btnTlPreview'),
           text: 'Ctrl+Space를 누르거나 이 버튼을 눌러 실제로 움직이는 모습을 보세요. 다시 누르거나 Esc를 누르면 편집으로 돌아옵니다.',
           task: true, done: () => !!this.app.moduleEngine.active },
@@ -12569,6 +13455,18 @@ ${sprite.type === 'text' ? `
         { title: '저장하고 내보내기', target: () => q('#topMenuBar .ps-menu-items'),
           text: 'Ctrl+S로 저장합니다. 웹(W) 메뉴에서 웹 미리보기를 보고 HTML로 내보내면 그대로 웹사이트가 됩니다. 튜토리얼은 도움말(H) 메뉴에서 언제든 다시 볼 수 있어요.' }
       ];
+    }
+
+    // Steps about a module's settings: show the module the person just added.
+    showModule() {
+      const doc = this.app.doc;
+      const has = sp => sp && (sp.modules || []).length;
+      const sel = doc.getSelectedSprite(false);
+      const sp = has(sel) ? sel : doc.layers.flatMap(l => l.sprites).filter(has).pop();
+      if (!sp || sp.modules.some(m => m.id === doc.selectedModuleId)) return;
+      doc.selectedSpriteId = sp.id;
+      doc.selectedModuleId = sp.modules[sp.modules.length - 1].id;
+      this.app.refreshUI();
     }
 
     start() {
@@ -12615,6 +13513,7 @@ ${sprite.type === 'text' ? `
       this.index = Math.max(0, i);
       const step = this.list[this.index];
       this.finished = false;
+      this.scrolled = false;
       if (step.begin) step.begin();
       this.el.querySelector('.jspen-tutorial-progress').textContent = `${this.index + 1} / ${this.list.length}`;
       this.el.querySelector('.jspen-tutorial-title').textContent = step.title;
@@ -12649,9 +13548,17 @@ ${sprite.type === 'text' ? `
       spot.style.display = r ? '' : 'none';
       const W = window.innerWidth, H = window.innerHeight, cw = card.offsetWidth || 320, ch = card.offsetHeight || 180, gap = 14;
       let x = (W - cw) / 2, y = (H - ch) / 2;
+      if (r && !this.scrolled && r.width < W * 0.4) {
+        // A part of a scrolled panel (the inspector): bring it into view once.
+        this.scrolled = true;
+        target.scrollIntoView({ block: 'nearest' });
+      }
       if (r) {
         const pad = 6;
-        Object.assign(spot.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' });
+        // Kept on screen: a target at the very top (the menu bar) still shows its frame.
+        const top = Math.max(2, r.top - pad), left = Math.max(2, r.left - pad);
+        Object.assign(spot.style, { left: left + 'px', top: top + 'px',
+          width: Math.min(W - 2, r.right + pad) - left + 'px', height: Math.min(H - 2, r.bottom + pad) - top + 'px' });
         // Beside the target where there is room, otherwise below or above it.
         if (r.right + gap + cw <= W) { x = r.right + gap; y = r.top; }
         else if (r.left - gap - cw >= 0) { x = r.left - gap - cw; y = r.top; }
@@ -12833,6 +13740,7 @@ ${sprite.type === 'text' ? `
       this.exportModal = new ExportModalUI(this.doc);
       this.settingsModal = new SettingsModalUI(this.pluginManager);
       this.templateModal = new TemplateModalUI(this);
+      StudioTooltip.install();
       this.tutorial = new Tutorial(this);
       setTimeout(() => this.tutorial.offer(), 1200);
       this.nodeEditor = new NodeEditorUI(document.getElementById('nodeEditorContainer'), this.doc, {
@@ -12844,6 +13752,7 @@ ${sprite.type === 'text' ? `
       });
 
       this.handleResize();
+      this.fitToScreen(); // start with the whole artboard in view
       this.initEvents();
       this.startLoop();
     }
@@ -12887,6 +13796,7 @@ ${sprite.type === 'text' ? `
         }
         this.doc.loadFromData(data, true);
         this.loadDocumentFonts();
+        this.fitToScreen(); // show the whole opened document, not the old view
         this.refreshUI();
         if (this.isNodeMode) {
           this.nodeEditor.syncFromDoc();
@@ -13022,12 +13932,17 @@ ${sprite.type === 'text' ? `
     }
 
     // Zoom so the whole artboard fits the viewport, then centre it.
+    // Long pages (a landing page, a mobile layout) would shrink until nothing
+    // is readable, so those fit the width instead and start at the top.
     fitToScreen() {
       const p = this.canvas.parentElement;
-      if (!p) return;
-      const z = Math.min((p.clientWidth - 80) / this.doc.width, (p.clientHeight - 80) / this.doc.height);
-      this.renderer.zoom = Math.max(0.05, Math.min(1, z));
+      if (!p || !p.clientWidth || !p.clientHeight) return;
+      const zw = Math.min(1, (p.clientWidth - 80) / this.doc.width);
+      const zh = (p.clientHeight - 80) / this.doc.height;
+      const tall = zh < zw * 0.5;
+      this.renderer.zoom = Math.max(0.05, tall ? zw : Math.min(zw, zh));
       this.renderer.centerArtboard();
+      if (tall) this.renderer.panY = 40;
       this.renderCanvas();
     }
 
@@ -13048,9 +13963,12 @@ ${sprite.type === 'text' ? `
     // ---------------- Forms ----------------
     insertFormElement(kind) {
       this.endLivePreview();
-      const layer = this.doc.getSelectedLayer() || this.doc.layers[this.doc.layers.length - 1] || this.doc.addLayer({ name: '레이어 1' });
-      const c = this.renderer.screenToWorld(this.canvas.width / 2, this.canvas.height / 2);
-      const x = Math.round(c.x), y0 = Math.round(c.y);
+      // The contact form set gets a layer of its own unless the current layer
+      // is still empty; single fields go into the selected layer.
+      const cur = this.doc.getSelectedLayer() || this.doc.layers[this.doc.layers.length - 1];
+      const layer = (kind === 'contact' && cur && cur.sprites.length > 0) ? this.doc.addLayer({ name: '문의 폼' })
+        : (cur || this.doc.addLayer({ name: '레이어 1' }));
+      const { x, y: y0 } = this.findFormSpot(kind);
       const field = (k, name, extra, dy = 0) => layer.addSprite(Object.assign({
         name: '폼: ' + name, type: 'form_field', x, y: y0 + dy, width: 320, height: k === 'textarea' ? 120 : 44,
         fill: '#ffffff', stroke: '#a1a1aa', strokeWidth: 1, cornerRadius: 6, fontSize: 15, textColor: '#18181b',
@@ -13086,9 +14004,56 @@ ${sprite.type === 'text' ? `
       this.doc.selectedSpriteId = last.id;
       this.doc.selectedSpriteIds = new Set([last.id]);
       this.doc.saveState();
+      // Bring the new form into view if it landed outside it.
+      const s = this.renderer.worldToScreen(x, y0);
+      if (s.y < 40 || s.y > this.canvas.height - 40 || s.x < 40 || s.x > this.canvas.width - 40) {
+        this.renderer.panX += this.canvas.width / 2 - s.x;
+        this.renderer.panY += this.canvas.height / 2 - s.y;
+      }
       this.refreshUI();
       StudioToast.show('폼 요소를 추가했습니다. Ctrl+Space 미리보기에서 입력해 볼 수 있습니다.');
       return last;
+    }
+
+    // Where a new form element (or the contact set) goes: an empty spot in the
+    // visible part of the artboard, else below everything on the page (the
+    // canvas grows to fit). Full-width backgrounds don't count as taken.
+    findFormSpot(kind) {
+      const ext = { contact: [-172, 158], textarea: [-60, 60], checkbox: [-14, 14], submit: [-24, 58] }[kind] || [-22, 22];
+      const W = this.doc.width, H = this.doc.height, half = 160, pad = 16;
+      const boxes = [];
+      for (const l of this.doc.layers) {
+        if (!l.visible) continue;
+        for (const sp of l.sprites) {
+          if (sp.visible === false || sp.type === 'screen_trigger' || sp.isBrushCanvas) continue;
+          const w = (sp.width || 0) * Math.abs(sp.scaleX || 1), h = (sp.height || 0) * Math.abs(sp.scaleY || 1);
+          if (w >= W * 0.9) continue; // section background
+          boxes.push([sp.x - w / 2, sp.y - h / 2, sp.x + w / 2, sp.y + h / 2]);
+        }
+      }
+      const free = (cx, cy) => {
+        const r = [cx - half - pad, cy + ext[0] - pad, cx + half + pad, cy + ext[1] + pad];
+        if (r[0] < 0 || r[2] > W || r[1] < 0 || r[3] > H) return false;
+        return !boxes.some(b => b[0] < r[2] && b[2] > r[0] && b[1] < r[3] && b[3] > r[1]);
+      };
+      const tl = this.renderer.screenToWorld(0, 0), br = this.renderer.screenToWorld(this.canvas.width, this.canvas.height);
+      const c = this.renderer.screenToWorld(this.canvas.width / 2, this.canvas.height / 2);
+      const cx0 = Math.round(Math.max(half + pad, Math.min(W - half - pad, c.x)));
+      // Visible area first, from the centre outwards, centre column then sides.
+      const ys = [];
+      for (let d = 0; d < Math.max(1, br.y - tl.y); d += 20) { ys.push(c.y + d); if (d) ys.push(c.y - d); }
+      for (const cx of [cx0, cx0 - 360, cx0 + 360]) {
+        for (const cy of ys) {
+          if (cy < tl.y || cy > br.y) continue;
+          if (free(cx, Math.round(cy))) return { x: cx, y: Math.round(cy) };
+        }
+      }
+      // Below all content.
+      const bottom = boxes.length ? Math.max(...boxes.map(b => b[3])) : 0;
+      const y = Math.round(bottom + 60 - ext[0]);
+      const need = y + ext[1] + 60;
+      if (need > H) this.doc.resizeCanvas(W, Math.ceil(need), 'keep');
+      return { x: Math.round(W / 2), y };
     }
 
     // Register uploaded document fonts and re-render when they are ready.
@@ -13182,6 +14147,36 @@ ${sprite.type === 'text' ? `
     // Tell the desktop shell which file Ctrl+S writes to ('' = none yet).
     setSaveTarget(token = '') {
       NativeBridge.call('projectOpened', String(token || ''));
+    }
+
+    // Copy the selected sprite to the studio clipboard. Returns true if copied.
+    copySelection() {
+      const sel = this.doc.selectedSpriteId && this.doc.getSelectedSprite();
+      if (!sel) return false;
+      this.clipboardSprite = JSON.parse(JSON.stringify(sel));
+      return true;
+    }
+
+    // Paste the studio clipboard into the current layer, offset by 24px.
+    pasteClipboard() {
+      if (!this.clipboardSprite) return false;
+      const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
+      if (!activeLayer) return false;
+      const clone = JSON.parse(JSON.stringify(this.clipboardSprite));
+      clone.id = 'sp_' + Math.random().toString(36).substring(2, 9);
+      clone.name = clone.name + ' 복사본';
+      clone.x = (clone.x || 0) + 24;
+      clone.y = (clone.y || 0) + 24;
+      (clone.modules || []).forEach(m => { m.id = 'mod_' + Math.random().toString(36).substring(2, 9); });
+      const added = activeLayer.addSprite(clone);
+      this.doc.selectedSpriteId = added.id;
+      this.doc.selectedSpriteIds = new Set([added.id]);
+      // The next paste lands 24px further on instead of on top of this one.
+      this.clipboardSprite.x = clone.x;
+      this.clipboardSprite.y = clone.y;
+      this.doc.saveState();
+      this.refreshUI();
+      return true;
     }
 
     async insertWebsiteTemplate(type) {
@@ -13465,9 +14460,12 @@ ${sprite.type === 'text' ? `
         this._textEditor = null;
         if (commit && val.trim() && val !== prevText) {
           sprite.text = val;
-          if (!sprite.name || sprite.name.startsWith('텍스트')) {
-            sprite.name = '텍스트: ' + val.replace(/\s+/g, ' ').slice(0, 24);
+          // Auto-named text sprites follow their text; a name the user gave stays.
+          const autoName = t => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 24);
+          if (!sprite.name || sprite.name === '텍스트' || sprite.name.startsWith('텍스트: ') || sprite.name === autoName(prevText)) {
+            sprite.name = autoName(val);
           }
+          DrawingTools.fitTextBox(sprite);
           sprite._wrapCache = null;
           if (isNew && this.doc.history.length > 0) {
             // Fold the edit into the "text created" undo step.
@@ -13631,6 +14629,7 @@ ${sprite.type === 'text' ? `
       if (this.isNodeMode) {
         this.nodeEditor.syncFromDoc();
         this.nodeEditor.render();
+        this.nodeEditor.fitView(); // the whole chain, OUTPUT included
       }
       this.menuBar.render();
       if (this.optionBar) this.optionBar.render();
@@ -13775,13 +14774,20 @@ ${sprite.type === 'text' ? `
           innerContent = `<img src="${escapeHtml(safeUrl(sprite.imageUrl, true))}" alt="${escapeHtml(sprite.alt || '')}" style="width:100%;height:100%;object-fit:${fit};display:block;border-radius:inherit;" />`;
           bgStyle = 'transparent';
         } else if (sprite.type === 'brush') {
-          const pts = sprite.brushStrokePoints || [];
-          if (pts.length > 0) {
-            let pathD = `M ${pts[0].x} ${pts[0].y}`;
-            for (let i = 1; i < pts.length; i++) {
-              pathD += ` L ${pts[i].x} ${pts[i].y}`;
-            }
-            innerContent = `<svg viewBox="${escapeHtml(`-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}`)}" style="width:100%;height:100%;overflow:visible;"><path d="${escapeHtml(pathD)}" stroke="${escapeHtml(sprite.stroke || '#ffffff')}" stroke-width="${escapeHtml(sprite.brushSize || 6)}" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+          // Painted strokes ({points, size, color}, relative to the centre),
+          // or the older single-stroke brushStrokePoints format.
+          const strokes = Array.isArray(sprite.strokes) && sprite.strokes.length ? sprite.strokes
+            : (sprite.brushStrokePoints && sprite.brushStrokePoints.length
+              ? [{ points: sprite.brushStrokePoints, size: sprite.brushSize || 6, color: sprite.stroke || '#ffffff' }] : []);
+          const paths = strokes.filter(st => st && st.points && st.points.length).map(st => {
+            const pts = st.points;
+            let pathD = `M ${+pts[0].x || 0} ${+pts[0].y || 0}`;
+            for (let i = 1; i < pts.length; i++) pathD += ` L ${+pts[i].x || 0} ${+pts[i].y || 0}`;
+            if (pts.length === 1) pathD += ` l 0.1 0.1`;
+            return `<path d="${escapeHtml(pathD)}" stroke="${escapeHtml(st.color || '#ffffff')}" stroke-width="${escapeHtml(st.size || 6)}" fill="none" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:visibleStroke" />`;
+          }).join('');
+          if (paths) {
+            innerContent = `<svg viewBox="${escapeHtml(`-${sprite.width/2} -${sprite.height/2} ${sprite.width} ${sprite.height}`)}" style="width:100%;height:100%;overflow:visible;pointer-events:none;">${paths}</svg>`;
           }
           bgStyle = 'transparent';
         } else if (sprite.type === 'path') {
@@ -13811,7 +14817,8 @@ ${sprite.type === 'text' ? `
           if (sprite.text) {
             innerContent = escapeHtml(sprite.text);
           }
-          textColor = sprite.textColor || (isLightColor(sprite.fill) ? '#09090b' : '#ffffff');
+          // Same order as the canvas: the label's own colour, then the sprite's, then black or white by the fill.
+          textColor = (textMod && textMod.params && textMod.params.color) || sprite.textColor || (isLightColor(sprite.fill) ? '#09090b' : '#ffffff');
         }
 
         const borderRadius = sprite.type === 'circle' ? '50%' : `${sprite.cornerRadius || 0}px`;
@@ -13867,7 +14874,9 @@ ${sprite.type === 'text' ? `
 
         const textAlign = sprite.textAlign || 'center';
         const justify = textAlign === 'left' ? 'flex-start' : (textAlign === 'right' ? 'flex-end' : 'center');
-        const padding = (sprite.type === 'text' || sprite.type === 'form_field') ? '0' : '8px 16px';
+        const padding = (sprite.type === 'text' || sprite.type === 'form_field' || sprite.type === 'brush') ? '0' : '8px 16px';
+        // A brush canvas spans the artboard: let clicks reach what lies under it.
+        const passThrough = sprite.type === 'brush' ? 'pointer-events: none;' : '';
 
         const styleAttr = `
             position: absolute;
@@ -13883,6 +14892,7 @@ ${sprite.type === 'text' ? `
             border-radius: ${borderRadius};
             z-index: ${z};
             ${cursorStyle}
+            ${passThrough}
             ${filterStyle}
             ${clipStyle}
             display: flex;
@@ -13895,7 +14905,8 @@ ${sprite.type === 'text' ? `
             font-weight: ${(sprite.type !== 'text' && textMod && textMod.params) ? (textMod.params.fontWeight || 'normal') : (sprite.fontWeight || 'normal')};
             text-align: ${textAlign};
             white-space: pre-wrap;
-            word-break: break-word;
+            word-break: keep-all;
+            overflow-wrap: break-word;
             line-height: 1.35;
             user-select: none;
             text-decoration: none;
@@ -14235,6 +15246,12 @@ ${sprite.type === 'text' ? `
         this.tools.activeBrushStroke
       );
       if (this.timeline) this.timeline.updatePlayheadPosition();
+      // Keep the zoom tool's "배율" readout in step with wheel/tool/fit zooms.
+      const zl = document.getElementById('optZoomLabel');
+      if (zl) {
+        const txt = `배율: ${Math.round(this.renderer.zoom * 100)}%`;
+        if (zl.textContent !== txt) zl.textContent = txt;
+      }
     }
 
     requestRender() {
@@ -14370,8 +15387,15 @@ ${sprite.type === 'text' ? `
       window.addEventListener('keyup', e => {
         const ks = this.moduleEngine.bus.keyState;
         delete ks[e.code]; delete ks[e.key];
+        if (e.code === 'Space' && this._space) {
+          const tap = !this._space.panned;
+          this._space = null;
+          this.canvas.style.cursor = '';
+          if (tap && !this.moduleEngine.active) { this.doc.isPlaying = !this.doc.isPlaying; this.timeline.render(); }
+        }
       });
       window.addEventListener('blur', () => {
+        this._space = null;
         this.moduleEngine.bus.keyState = {};
         this.pointer.isDown = false;
       });
@@ -14461,7 +15485,8 @@ ${sprite.type === 'text' ? `
           return;
         }
 
-        if (this.tools.activeTool === 'hand' || e.spaceKey || e.button === 1) {
+        if (this.tools.activeTool === 'hand' || this._space || e.button === 1) {
+          if (this._space) this._space.panned = true;
           isPanning = true;
           panStart = { x: e.clientX, y: e.clientY };
           initPan = { x: this.renderer.panX, y: this.renderer.panY };
@@ -14505,8 +15530,18 @@ ${sprite.type === 'text' ? `
             this.transformBox.startDrag(mw.x, mw.y, 'body', clickedSprite);
             return;
           }
+          // Clicking empty canvas clears the selection, as in other editors.
+          if (e.button === 0 && (this.doc.selectedSpriteId || this.doc.selectedSpriteIds.size)) {
+            this.doc.selectedSpriteId = null;
+            this.doc.selectedSpriteIds = new Set();
+            this.doc.selectedModuleId = null;
+            this.refreshUI();
+            return;
+          }
         }
 
+        // Only the zoom tool uses the right button (zoom out).
+        if (e.button === 2 && this.tools.activeTool !== 'zoom') return;
         this.tools.handleMouseDown(mw.x, mw.y, ms.x, ms.y, e);
       });
 
@@ -14640,6 +15675,17 @@ ${sprite.type === 'text' ? `
 
       // Global Keydown Shortcuts - Undo / Redo FIRST!
       window.addEventListener('keydown', e => {
+        // A dialog is open: Escape closes the top one, and studio shortcuts
+        // (Delete, Ctrl+A, tool keys…) must not act on the canvas behind it.
+        const dialogs = [...document.querySelectorAll('.modal-overlay:not(.ps-module-library-overlay), .studio-modal-overlay')]
+          .filter(o => getComputedStyle(o).display !== 'none');
+        if (dialogs.length) {
+          if (e.key === 'Escape' && !e.defaultPrevented) {
+            const close = dialogs[dialogs.length - 1].querySelector('.modal-close-btn, .studio-modal-close');
+            if (close) { e.preventDefault(); close.click(); }
+          }
+          return;
+        }
         const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
         if (isInput) return; // Requirement 18: Typing priority!
 
@@ -14726,11 +15772,7 @@ ${sprite.type === 'text' ? `
 
         // 6. Copy
         if (checkShortcutMatch(e, copyKey) || ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C') && !isInput)) {
-          const sel = this.doc.getSelectedSprite();
-          if (sel) {
-            e.preventDefault();
-            this.clipboardSprite = JSON.parse(JSON.stringify(sel));
-          }
+          if (this.copySelection()) e.preventDefault();
           return;
         }
 
@@ -14751,23 +15793,7 @@ ${sprite.type === 'text' ? `
           this._pasteDeferred = false;
           if (this.clipboardSprite) {
             e.preventDefault();
-            const activeLayer = this.doc.getSelectedLayer() || this.doc.layers[0];
-            if (activeLayer) {
-              const clone = JSON.parse(JSON.stringify(this.clipboardSprite));
-              clone.id = 'sp_' + Math.random().toString(36).substring(2, 9);
-              clone.name = clone.name + ' 복사본';
-              clone.x = (clone.x || 0) + 24;
-              clone.y = (clone.y || 0) + 24;
-              if (clone.modules) {
-                clone.modules.forEach(m => {
-                  m.id = 'mod_' + Math.random().toString(36).substring(2, 9);
-                });
-              }
-              const added = activeLayer.addSprite(clone);
-              this.doc.selectedSpriteId = added.id;
-              this.doc.saveState();
-              this.refreshUI();
-            }
+            this.pasteClipboard();
           }
           return;
         }
@@ -14794,6 +15820,16 @@ ${sprite.type === 'text' ? `
         if (isInput) return;
 
         const k = e.key.toLowerCase();
+        const mod = e.ctrlKey || e.metaKey;
+        // Ctrl combinations first, so e.g. Ctrl+Shift+I is not taken by the I tool.
+        if (mod && (k === ',' || e.code === 'Comma')) { e.preventDefault(); this.settingsModal.show(); return; }
+        if (mod && (k === '0' || e.code === 'Digit0' || e.code === 'Numpad0')) { e.preventDefault(); this.fitToScreen(); return; }
+        if (mod && (k === '1' || e.code === 'Digit1' || e.code === 'Numpad1')) {
+          e.preventDefault(); this.renderer.zoom = 1; this.renderer.centerArtboard(); this.renderCanvas(); return;
+        }
+        if (mod && e.shiftKey && k === 'i') { e.preventDefault(); this.pickImage(); return; }
+        if (mod && !e.shiftKey && k === 'n') { e.preventDefault(); document.getElementById('mNew')?.click(); return; }
+        if (mod && !['e', 's', 'o'].includes(k)) return;
         if (k === 'v') this.tools.setTool('move');
         else if (k === 'a') this.tools.setTool('direct');
         else if (k === 'c') this.tools.setTool('curve');
@@ -14810,8 +15846,9 @@ ${sprite.type === 'text' ? `
           if (document.activeElement && document.activeElement !== document.body) {
             document.activeElement.blur();
           }
-          this.doc.isPlaying = !this.doc.isPlaying;
-          this.timeline.render();
+          // Held: drag the canvas (like Photoshop). A tap plays / pauses the
+          // timeline when the key comes up without a drag.
+          if (!this._space) { this._space = { panned: false }; this.canvas.style.cursor = 'grab'; }
           return;
         }
         else if (k === 'h') this.tools.setTool('hand');

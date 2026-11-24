@@ -10,7 +10,7 @@ const { startServer, openStudio, ROOT } = require('./helpers');
 
 let server, s;
 before(async () => { server = await startServer(); s = await openStudio(server.url); });
-after(async () => { await s.browser.close(); await server.stop(); });
+after(async () => { if (s) await s.browser.close(); if (server) await server.stop(); });
 
 test('user strings are escaped in the studio UI (no XSS)', async () => {
   const { page } = s;
@@ -49,6 +49,20 @@ test('template gallery loads every template', async () => {
   assert.equal(r.traversal, null);
 });
 
+// Ctrl+O right after the previous file chooser closed: Chrome sometimes drops
+// the new chooser request (the app did click its file input with a user
+// gesture). A person cannot press Ctrl+O while a chooser is open, so press again.
+async function openChooser(page) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const [fc] = await Promise.all([page.waitForEvent('filechooser', { timeout: 3000 }), page.keyboard.press('Control+o')]);
+      return fc;
+    } catch (e) {
+      if (attempt >= 3) throw e;
+    }
+  }
+}
+
 test('browser mode: Ctrl+S downloads a .jspen file, Ctrl+O opens one', async () => {
   const { page } = s;
   // Shortcuts are ignored while an input has focus (typing priority).
@@ -60,14 +74,14 @@ test('browser mode: Ctrl+S downloads a .jspen file, Ctrl+O opens one', async () 
   const data = JSON.parse(fs.readFileSync(saved, 'utf8'));
   assert.ok(Array.isArray(data.layers));
 
-  const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Control+o')]);
+  const fc = await openChooser(page);
   await fc.setFiles(path.join(ROOT, 'templates', 'full_landing.jspen'));
   await page.waitForFunction(() => jspenApp.doc.layers.length === 5);
 
   // A broken file is rejected and the current document is kept.
   const broken = path.join(tmp, 'broken.jspen');
   fs.writeFileSync(broken, '{not json');
-  const [fc2] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Control+o')]);
+  const fc2 = await openChooser(page);
   await fc2.setFiles(broken);
   await page.waitForFunction(() => /불러오지 못했습니다/.test(document.querySelector('.studio-toast')?.textContent || ''));
   assert.equal(await page.evaluate(() => jspenApp.doc.layers.length), 5);

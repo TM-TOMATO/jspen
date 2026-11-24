@@ -92,8 +92,9 @@ test('link module: says when it opens, and offers that choice', async () => {
     assert.match(await text(), /클릭하면 이동합니다/);
     assert.match(await text(), /켜자마자 이동하지는 않습니다/);
     await page.selectOption('[data-param-key="trigger"]', 'signal');
-    await page.fill('[data-param-key="signalName"]', 'go');
-    await page.press('[data-param-key="signalName"]', 'Enter');
+    await page.selectOption('[data-param-key="signalName"]', '__new__');
+    await page.fill('.jspen-new-name', 'go');
+    await page.press('.jspen-new-name', 'Enter');
     assert.match(await text(), /'go' 신호를 받으면 이동합니다/);
   });
 });

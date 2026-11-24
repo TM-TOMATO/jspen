@@ -85,8 +85,26 @@ STEPS = [
 ]
 
 
+def contrast(a, b):
+    """WCAG contrast ratio of two QColors."""
+    def lum(c):
+        ch = [v / 255 for v in (c.red(), c.green(), c.blue())]
+        ch = [v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4 for v in ch]
+        return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
 def main():
     app = QApplication(["jspen-smoke"])
+    # Native windows (colour picker, dialogs, tooltips) get readable text.
+    shell.apply_dark_theme(app)
+    from PyQt6.QtGui import QPalette
+    R = QPalette.ColorRole
+    pal = app.palette()
+    weak_text = [(fg.name, bg.name) for fg, bg in [(R.WindowText, R.Window), (R.Text, R.Base), (R.ButtonText, R.Button),
+                                                  (R.ToolTipText, R.ToolTipBase), (R.HighlightedText, R.Highlight)]
+                 if contrast(pal.color(fg), pal.color(bg)) < 4.5]
     # Work on a copy: Ctrl+S now overwrites the opened file in place.
     initial = os.path.join(OUT, "opened.jspen")
     shutil.copy(os.path.join(ROOT, "templates", "navbar.jspen"), initial)
@@ -137,6 +155,8 @@ def main():
     app.exec()
 
     failures = []
+    if weak_text:
+        failures.append("hard to read text in native windows: %s" % weak_text)
 
     def check(cond, msg):
         if not cond:

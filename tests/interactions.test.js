@@ -7,7 +7,7 @@ const { startServer, openStudio } = require('./helpers');
 
 let server, s;
 before(async () => { server = await startServer(); s = await openStudio(server.url); });
-after(async () => { await s.browser.close(); await server.stop(); });
+after(async () => { if (s) await s.browser.close(); if (server) await server.stop(); });
 
 // Build an 800x600 document with interactive sprites at known positions.
 const SETUP = () => {
@@ -242,10 +242,11 @@ test('trigger conditions are explained in the inspector, shown in the layers pan
   await page.keyboard.press('KeyA');
   assert.equal(await page.evaluate(() => jspenApp.doc.findSpriteById('btn').modules[0].params.condKey), 'KeyA');
   assert.match(await summary(), /'KeyA' 키를 누르면 누르고 있는 동안만 작동합니다/);
-  // signal condition offers the known signal names
+  // signal condition: the signal is picked from a list (or a new one is named)
   await page.selectOption('#modCond', 'on_signal');
-  assert.ok((await page.$$eval('#modCondSignalList option', o => o.map(x => x.value))).includes('drag_end'));
-  await page.fill('#modCondSignal', 'go'); await page.press('#modCondSignal', 'Enter');
+  assert.deepEqual(await page.$$eval('#modCondSignal option', o => o.map(x => x.value)), ['', '__new__']);
+  await page.selectOption('#modCondSignal', '__new__');
+  await page.fill('.jspen-new-name', 'go'); await page.press('.jspen-new-name', 'Enter');
   assert.match(await summary(), /'go' 신호를 받으면 작동을 시작해 계속 유지합니다/);
   await page.selectOption('#modCondMode', 'duration');
   await page.fill('#modCondDuration', '2'); await page.press('#modCondDuration', 'Enter');

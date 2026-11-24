@@ -7,7 +7,7 @@ const { startServer, openStudio } = require('./helpers');
 
 let server, s;
 before(async () => { server = await startServer(); });
-after(async () => { await server.stop(); });
+after(async () => { if (server) await server.stop(); });
 beforeEach(async () => { s = await openStudio(server.url); });
 afterEach(async () => { await s.browser.close(); });
 

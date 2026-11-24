@@ -8,7 +8,7 @@ const { startServer, openStudio, canvasMismatchPct } = require('./helpers');
 
 let server, s;
 before(async () => { server = await startServer(); s = await openStudio(server.url); });
-after(async () => { await s.browser.close(); await server.stop(); });
+after(async () => { if (s) await s.browser.close(); if (server) await server.stop(); });
 
 // Render the artboard with the studio renderer on the real viewport canvas
 // (so CSS applies exactly as in the studio) and return a PNG + exported HTML.
